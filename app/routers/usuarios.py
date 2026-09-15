@@ -15,8 +15,6 @@ from app.services import usuario_service
 
 router = APIRouter(prefix="/usuarios", tags=["Gestión de Usuarios"])
 
-# RF-005 a RF-016 son operaciones exclusivas del SuperAdmin (RN-001,
-# módulo "Gestión de Usuarios" del documento de Análisis y Diseño).
 _solo_superadmin = Depends(requerir_rol(RolUsuario.SUPERADMIN))
 
 
