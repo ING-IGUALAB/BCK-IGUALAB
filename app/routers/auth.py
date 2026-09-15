@@ -1,13 +1,10 @@
-"""
-Entidad Autenticación (RF-001 a RF-006). Cada endpoint es deliberadamente
-delgado: valida el request con Pydantic, llama a UNA función del servicio,
-y traduce el resultado a una respuesta HTTP. Nada de lógica de negocio aquí.
-"""
+
 from fastapi import APIRouter, Depends, status
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import get_current_user, oauth2_scheme
+from app.dependencies import get_current_user, esquema_bearer
 from app.models import Usuario
 from app.schemas import (
     LoginRequest, LoginResponse, SolicitarRecuperacionRequest,
@@ -29,22 +26,18 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
-    token: str = Depends(oauth2_scheme),
+    credenciales: HTTPAuthorizationCredentials = Depends(esquema_bearer),
     usuario: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """RF-006: cierre de sesión manual."""
-    payload = decodificar_token(token)
+    payload = decodificar_token(credenciales.credentials)
     await auth_service.cerrar_sesion(db, sesion_id=payload["jti"])
 
 
 @router.post("/recuperar-contrasena", status_code=status.HTTP_202_ACCEPTED)
 async def solicitar_recuperacion(payload: SolicitarRecuperacionRequest, db: AsyncSession = Depends(get_db)):
-    """
-    RF-002. La respuesta es SIEMPRE el mismo mensaje genérico (RNF-007/008),
-    exista o no la cuenta — por eso el endpoint nunca devuelve un error 404
-    aquí, sin importar lo que pase adentro del servicio.
-    """
+
     await auth_service.solicitar_recuperacion(db, payload.correo)
     return {"mensaje": "Si el correo está registrado, recibirá un enlace de recuperación en los próximos minutos."}
 
@@ -62,7 +55,6 @@ async def cambiar_mi_password(
     usuario: Usuario = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """RF-004: cambio de contraseña propia, estando autenticado."""
     if not verificar_password(payload.password_actual, usuario.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "La contraseña actual no es correcta.")
     errores = validar_politica_password(payload.password_nueva, usuario.correo)

@@ -1,18 +1,12 @@
 """
 Dependencias de autenticación/autorización, inyectadas con `Depends(...)`
 en cada router que las necesite.
-
-RNF-004: "La autorización se evalúa en cada endpoint, con independencia de
-lo que exponga la interfaz" — por diseño, get_current_user() se ejecuta en
-TODA ruta protegida (nunca se confía en que el frontend oculte un botón),
-y require_role() se agrega encima en las rutas que además necesitan
-restringir por rol específico (RF-007, RF-008).
 """
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,16 +15,17 @@ from app.database import get_db
 from app.models import Usuario, Sesion, RolUsuario
 from app.security import decodificar_token
 
-# tokenUrl solo se usa para la documentación automática (Swagger) — el
-# login real de este proyecto no sigue el flujo OAuth2 password estándar
-# de formulario, usa nuestro propio esquema JSON (ver routers/auth.py).
-# Sin guión bajo a propósito: se reutiliza desde routers/auth.py para leer
-# el token crudo en /logout (reusabilidad, evita decodificar dos veces).
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
+# HTTPBearer (no OAuth2PasswordBearer): nuestro login es un JSON propio
+# ({correo, password}), no el formulario OAuth2 estándar (username,
+# client_id, client_secret). OAuth2PasswordBearer le hacía creer a Swagger
+# que debía mostrar ese formulario completo en "Authorize" — con
+# HTTPBearer, Swagger solo pide pegar el token, que es lo que en realidad
+# necesitamos.
+esquema_bearer = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    token: str | None = Depends(oauth2_scheme),
+    credenciales: HTTPAuthorizationCredentials | None = Depends(esquema_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> Usuario:
     """
@@ -50,8 +45,9 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    if token is None:
+    if credenciales is None:
         raise credenciales_invalidas
+    token = credenciales.credentials
 
     payload = decodificar_token(token)
     if payload is None:
@@ -85,12 +81,6 @@ async def get_current_user(
 
 
 def requerir_rol(*roles_permitidos: RolUsuario):
-    """
-    Fábrica de dependencias — se usa así en un router:
-        Depends(requerir_rol(RolUsuario.SUPERADMIN))
-    RF-007 / RF-008: restringe el endpoint a los roles indicados, devolviendo
-    403 (no 404) para no filtrar si el recurso existe o no.
-    """
     async def _verificar(usuario: Usuario = Depends(get_current_user)) -> Usuario:
         if usuario.rol not in roles_permitidos:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "No tiene permisos para esta acción.")
