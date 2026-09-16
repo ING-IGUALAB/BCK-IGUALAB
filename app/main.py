@@ -25,8 +25,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(usuarios.router)
 
-
+# verificar si corre
 @app.get("/health", tags=["Infraestructura"])
 async def health():
-    """Endpoint testing confirme que el servicio está arriba antes de correr cualquier prueba funcional."""
     return {"status": "ok"}

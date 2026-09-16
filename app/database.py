@@ -9,6 +9,5 @@ class Base(DeclarativeBase):
     pass
 
 async def get_db():
-    """Dependencia de FastAPI: una sesión de BD por request."""
     async with AsyncSessionLocal() as session:
         yield session

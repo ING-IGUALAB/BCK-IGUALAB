@@ -1,10 +1,4 @@
-"""
-Esquemas de entrada/salida (Pydantic). Mantenerlos separados de los modelos
-de SQLAlchemy es a propósito: lo que la API recibe/devuelve no siempre debe
-coincidir 1 a 1 con la tabla (ej. nunca se devuelve `password_hash`) —
-esto también facilita la testabilidad, porque se puede validar el contrato
-de la API sin tocar la base de datos.
-"""
+
 import uuid
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, field_validator
@@ -12,7 +6,6 @@ from pydantic import BaseModel, EmailStr, field_validator
 from app.models import RolUsuario
 
 
-# --- Autenticación -----------------------------------------------------------
 
 class LoginRequest(BaseModel):
     correo: EmailStr
@@ -44,12 +37,10 @@ class RestablecerPasswordRequest(BaseModel):
 
 
 class CambiarPasswordRequest(BaseModel):
-    """RF-004: cambio de contraseña estando ya autenticado."""
     password_actual: str
     password_nueva: str
 
 
-# --- Usuarios / cuentas -------------------------------------------------------
 
 class CrearUsuarioRequest(BaseModel):
     nombre: str
@@ -66,7 +57,7 @@ class UsuarioResponse(BaseModel):
     creado_en: datetime
 
     class Config:
-        from_attributes = True  # permite construirlo directo desde el modelo ORM
+        from_attributes = True
 
 
 class TransferirSuperAdminRequest(BaseModel):

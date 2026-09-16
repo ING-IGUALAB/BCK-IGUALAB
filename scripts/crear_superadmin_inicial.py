@@ -1,15 +1,4 @@
-"""
-RN-006: "El sistema se inicializa con una única cuenta SuperAdmin creada
-durante el despliegue. Esta cuenta no puede crearse mediante la aplicación."
 
-Por eso este script vive fuera de app/ (no es un endpoint) — se corre UNA
-vez, manualmente, al desplegar el sistema por primera vez:
-
-    python -m scripts.crear_superadmin_inicial
-
-Lee las credenciales de variables de entorno para no dejar ninguna
-contraseña de ejemplo escrita en el repositorio.
-"""
 import asyncio
 import os
 import sys

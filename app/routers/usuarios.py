@@ -1,8 +1,4 @@
-"""
-Entidad Gestión de Usuarios (RF-010 a RF-016). Nótese que TODAS las rutas
-de este router exigen rol SuperAdmin salvo donde se indique lo contrario —
-es la aplicación directa de RN-003 (permisos cerrados por rol).
-"""
+
 import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,27 +16,24 @@ _solo_superadmin = Depends(requerir_rol(RolUsuario.SUPERADMIN))
 
 @router.post("", response_model=UsuarioResponse, status_code=201, dependencies=[_solo_superadmin])
 async def crear_usuario(payload: CrearUsuarioRequest, db: AsyncSession = Depends(get_db)):
-    """RF-010 / RF-011."""
+    # RF-010 / RF-011
     return await usuario_service.crear_usuario(db, payload.nombre, payload.correo, payload.password)
 
 
 @router.get("", response_model=list[UsuarioResponse], dependencies=[_solo_superadmin])
 async def listar_usuarios(db: AsyncSession = Depends(get_db)):
-    """RF-016."""
+    # RF-016
     return await usuario_service.listar_usuarios(db)
 
 
 @router.patch("/{usuario_id}/habilitar", response_model=UsuarioResponse, dependencies=[_solo_superadmin])
 async def habilitar_usuario(usuario_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """RF-012."""
+    # RF-012
     return await usuario_service.cambiar_estado_usuario(db, usuario_id, habilitar=True)
 
 
 @router.patch("/{usuario_id}/deshabilitar", response_model=UsuarioResponse, dependencies=[_solo_superadmin])
 async def deshabilitar_usuario(usuario_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """RF-012 / RF-013 (la restricción de no poder deshabilitar al SuperAdmin
-    vive dentro del servicio, no aquí, para que la regla no se pueda saltar
-    llamando al servicio desde otro lugar del código)."""
     return await usuario_service.cambiar_estado_usuario(db, usuario_id, habilitar=False)
 
 

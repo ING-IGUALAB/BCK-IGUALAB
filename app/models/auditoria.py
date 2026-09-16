@@ -1,12 +1,4 @@
-"""
-Modelos del módulo de Auditoría — vive aparte porque es TRANSVERSAL: todos
-los módulos futuros (Ingesta, Análisis GRI, Reportes) van a escribir aquí,
-no solo Usuarios. Por eso no se puso dentro de usuarios.py, aunque hoy sea
-el único módulo que ya lo usa.
 
-  - RN-027 / RN-028: qué se audita y qué campos guarda cada registro.
-  - RN-029 / RNF-013: inmutabilidad — ver la nota dentro de RegistroAuditoria.
-"""
 import enum
 import uuid
 from datetime import datetime
@@ -19,11 +11,7 @@ from app.database import Base
 
 
 class TipoEventoAuditoria(str, enum.Enum):
-    """RN-027: catálogo cerrado de eventos que sí se auditan (Configuración
-    y Actualización BD quedaron fuera de alcance, según lo confirmado).
-    Cuando se agreguen los módulos de Ingesta/Reportes, sus servicios
-    seguirán usando ESTOS mismos valores — no hace falta un enum nuevo
-    por módulo."""
+
     INICIO_SESION = "Inicio de sesión"
     CAMBIO_ROL = "Cambio de rol"
     INGESTA_DATOS = "Ingesta de datos"
@@ -33,14 +21,7 @@ class TipoEventoAuditoria(str, enum.Enum):
 
 
 class RegistroAuditoria(Base):
-    """
-    RN-028: cuenta + fecha/hora + tipo de acción, como mínimo.
-    RN-029 / RNF-013: solo inserción — nunca se expone un UPDATE ni DELETE
-    para esta tabla en ningún servicio de ningún módulo (la ausencia de esas
-    operaciones en el código ES el mecanismo de inmutabilidad).
-    RNF-034: se guarda en UTC; la conversión a America/Lima es solo de
-    presentación.
-    """
+
     __tablename__ = "auditoria"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

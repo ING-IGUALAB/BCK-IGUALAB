@@ -1,7 +1,3 @@
-"""
-Configuración central. Todos los valores sensibles vienen de variables de
-entorno
-"""
 
 import os
 from datetime import timedelta
@@ -15,17 +11,17 @@ class Settings:
         "DATABASE_URL", "postgresql+asyncpg://usuario:password@localhost:5432/igualab"
     )
 
-    # --- JWT (RNF-003, RNF-025) ---
+    # JWT (RNF-003, RNF-025)
     JWT_SECRET_KEY: str = os.environ["JWT_SECRET_KEY"]
     JWT_ALGORITHM: str = "HS256"
 
-    # RF-005 / RN-036: expiración de sesión por inactividad, 2 horas.
+    # expiración de sesión por inactividad, 2 horas
     SESSION_INACTIVITY_TIMEOUT: timedelta = timedelta(hours=2)
 
-    # --- Recuperación de contraseña (RF-002, RF-003) ---
+    # Recuperación de contraseña
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
 
-    # --- Bloqueo por intentos fallidos (RNF-031) ---
+    # Bloqueo por intentos fallidos
     MAX_LOGIN_ATTEMPTS: int = 5
     LOGIN_LOCKOUT_MINUTES: int = 15
 
@@ -39,8 +35,7 @@ class Settings:
     MAIL_STARTTLS: bool = True
     MAIL_SSL_TLS: bool = False
 
-    # recuperación apunta a la pantalla del frontend que llama a POST /auth/restablecer-contrasena con el token
-    # revisarlo
+
     FRONTEND_RESET_URL: str = os.getenv("FRONTEND_RESET_URL", "http://localhost:5173/restablecer")
 
 settings = Settings()

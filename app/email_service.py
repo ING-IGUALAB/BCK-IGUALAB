@@ -1,8 +1,4 @@
-"""
-Envío de correo saliente. Aislado en su propio módulo para que, si más
-adelante cambian de Gmail a otro proveedor — auth_service.py nunca se entera de
-qué proveedor hay detrás.
-"""
+
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from app.config import settings
 

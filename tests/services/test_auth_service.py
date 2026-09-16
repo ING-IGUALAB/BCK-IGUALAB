@@ -1,12 +1,4 @@
-"""
-tests/services/test_auth_service.py
 
-
-A diferencia del enfoque con BD real, aquí NO se necesita PostgreSQL — se
-simula el objeto `db` por completo. Esto es más rápido de escribir y de
-correr, pero prueba algo más limitado: no confirma que la consulta SQL en
-sí funcione, solo que la LÓGICA de auth_service.py hace lo correcto.
-"""
 import time
 import statistics
 from unittest.mock import AsyncMock, MagicMock
