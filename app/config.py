@@ -41,6 +41,6 @@ class Settings:
 
     # recuperación apunta a la pantalla del frontend que llama a POST /auth/restablecer-contrasena con el token
     # revisarlo
-    # FRONTEND_RESET_URL: str = os.getenv("FRONTEND_RESET_URL", "http://localhost:5173/restablecer")
+    FRONTEND_RESET_URL: str = os.getenv("FRONTEND_RESET_URL", "http://localhost:5173/restablecer")
 
 settings = Settings()

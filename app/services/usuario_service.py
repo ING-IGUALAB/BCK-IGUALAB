@@ -117,6 +117,7 @@ async def transferir_superadmin(db: AsyncSession, origen: Usuario, destino_id: u
 
     # --- Transferencia atómica (RN-009) ---
     origen.rol = RolUsuario.ADMINISTRADOR
+    await db.flush()
     destino.rol = RolUsuario.SUPERADMIN
 
     await registrar_evento(
@@ -124,8 +125,6 @@ async def transferir_superadmin(db: AsyncSession, origen: Usuario, destino_id: u
         f"Transfirió el rol SuperAdmin de '{origen.nombre}' a '{destino.nombre}'",
         usuario_id=origen.id,
     )
-    # Un solo commit para ambos cambios + el registro de auditoría: si algo
-    # de esto falla, SQLAlchemy revierte todo el bloque (atomicidad real).
     await db.commit()
 
     # RF-050: si la cuenta origen tiene una sesión activa en este momento,

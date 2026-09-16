@@ -29,6 +29,8 @@ from app.audit import registrar_evento
 _MENSAJE_CREDENCIALES_INVALIDAS = "Credenciales inválidas."
 
 
+_HASH_CRONOMETRO = hash_password("valor-que-nunca-se-usa-para-autenticar-una-cuenta-real")
+
 async def autenticar(db: AsyncSession, correo: str, password: str) -> tuple[str, Usuario]:
     """
     RF-001: autenticación con correo y contraseña.
@@ -44,6 +46,7 @@ async def autenticar(db: AsyncSession, correo: str, password: str) -> tuple[str,
     # por eso seguimos evaluando aunque `usuario` sea None, para no filtrar
     # información por tiempos de respuesta distintos entre ambos casos.
     if usuario is None:
+        verificar_password(password, _HASH_CRONOMETRO)  # solo para consumir tiempo
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, _MENSAJE_CREDENCIALES_INVALIDAS)
 
     # --- RNF-031: verificar si la cuenta está bloqueada por intentos fallidos ---
