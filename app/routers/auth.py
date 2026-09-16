@@ -1,4 +1,4 @@
-
+import uuid
 from fastapi import APIRouter, Depends, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from app.schemas import (
 )
 from app.services import auth_service
 from app.security import decodificar_token, verificar_password, hash_password, validar_politica_password
-from fastapi import HTTPException
+from app.exceptions import AuthenticationError, BusinessValidationError
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
@@ -32,7 +32,11 @@ async def logout(
 ):
     """RF-006: cierre de sesión manual."""
     payload = decodificar_token(credenciales.credentials)
-    await auth_service.cerrar_sesion(db, sesion_id=payload["jti"])
+
+    await auth_service.cerrar_sesion(
+        db,
+        sesion_id=uuid.UUID(payload["jti"]),
+    )
 
 
 @router.post("/recuperar-contrasena", status_code=status.HTTP_202_ACCEPTED)
@@ -56,10 +60,17 @@ async def cambiar_mi_password(
     db: AsyncSession = Depends(get_db),
 ):
     if not verificar_password(payload.password_actual, usuario.password_hash):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "La contraseña actual no es correcta.")
+        raise AuthenticationError(
+            "CURRENT_PASSWORD_INVALID",
+            "La contraseña actual no es correcta.",
+        )
     errores = validar_politica_password(payload.password_nueva, usuario.correo)
     if errores:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, {"errores": errores})
+        raise BusinessValidationError(
+            "PASSWORD_POLICY_VIOLATION",
+            "La contraseña no cumple la política de seguridad.",
+            details={"errors": errores},
+        )
     usuario.password_hash = hash_password(payload.password_nueva)
     await db.commit()
     return {"mensaje": "Contraseña actualizada correctamente."}

@@ -2,7 +2,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,8 +15,14 @@ from app.security import (
 )
 from app.audit import registrar_evento
 
+from app.exceptions import (
+    AccountDisabledError,
+    AccountLockedError,
+    AuthenticationError,
+    BusinessValidationError,
+)
 
-# Mensaje genérico reutilizado en dos lugares distintos (RNF-007, RNF-008):
+
 # nunca debe distinguirse "no existe la cuenta" de "credencial incorrecta".
 _MENSAJE_CREDENCIALES_INVALIDAS = "Credenciales inválidas."
 
@@ -30,32 +35,36 @@ async def autenticar(db: AsyncSession, correo: str, password: str) -> tuple[str,
     RN-004: solo cuentas registradas y habilitadas pueden autenticarse.
     RNF-031: bloqueo temporal tras 5 intentos fallidos consecutivos.
 
-    Devuelve (access_token, usuario) o lanza HTTPException si falla.
+    Devuelve (access_token, usuario) o lanza una excepción de aplicación si falla.
     """
     resultado = await db.execute(select(Usuario).where(Usuario.correo == correo.lower()))
     usuario = resultado.scalar_one_or_none()
 
-    # RNF-008: el mensaje de error no distingue "no existe" de "clave mala"
+    # el mensaje de error no distingue "no existe" de "clave mala"
     # por eso seguimos evaluando aunque `usuario` sea None, para no filtrar
     # información por tiempos de respuesta distintos entre ambos casos.
     if usuario is None:
         verificar_password(password, _HASH_CRONOMETRO)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, _MENSAJE_CREDENCIALES_INVALIDAS)
+        raise AuthenticationError("INVALID_CREDENTIALS", _MENSAJE_CREDENCIALES_INVALIDAS)
 
     ahora = datetime.now(timezone.utc)
     if usuario.bloqueado_hasta and usuario.bloqueado_hasta > ahora:
         minutos_restantes = int((usuario.bloqueado_hasta - ahora).total_seconds() // 60) + 1
-        raise HTTPException(
-            status.HTTP_423_LOCKED,
-            f"Cuenta bloqueada temporalmente. Intenta de nuevo en {minutos_restantes} minuto(s)."
+        raise AccountLockedError(
+            "ACCOUNT_LOCKED",
+            f"Cuenta bloqueada temporalmente. Intenta de nuevo en {minutos_restantes} minutos",
+            details={"minutes_remaining": minutos_restantes},
         )
 
     if not usuario.habilitado:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Usuario deshabilitado. Contacte al administrador.")
+        raise AccountDisabledError(
+            "ACCOUNT_DISABLED",
+            "Usuario deshabilitado. Contacte al administrador.",
+        )
 
     if not verificar_password(password, usuario.password_hash):
         await _registrar_intento_fallido(db, usuario)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, _MENSAJE_CREDENCIALES_INVALIDAS)
+        raise AuthenticationError("INVALID_CREDENTIALS", _MENSAJE_CREDENCIALES_INVALIDAS)
 
     usuario.intentos_fallidos = 0
     usuario.bloqueado_hasta = None
@@ -75,7 +84,6 @@ async def autenticar(db: AsyncSession, correo: str, password: str) -> tuple[str,
 
 
 async def _registrar_intento_fallido(db: AsyncSession, usuario: Usuario) -> None:
-    """RNF-031: incrementa el contador y bloquea la cuenta al llegar al máximo."""
     usuario.intentos_fallidos += 1
     if usuario.intentos_fallidos >= settings.MAX_LOGIN_ATTEMPTS:
         usuario.bloqueado_hasta = datetime.now(timezone.utc) + timedelta(
@@ -102,7 +110,7 @@ async def solicitar_recuperacion(db: AsyncSession, correo: str) -> None:
     resultado = await db.execute(select(Usuario).where(Usuario.correo == correo.lower()))
     usuario = resultado.scalar_one_or_none()
     if usuario is None:
-        return 
+        return
 
     token_plano = generar_token_recuperacion()
     registro = TokenRecuperacion(
@@ -114,7 +122,7 @@ async def solicitar_recuperacion(db: AsyncSession, correo: str) -> None:
     )
     db.add(registro)
     await db.commit()
-    
+
     await enviar_correo_recuperacion(usuario.correo, token_plano)
 
 
@@ -131,11 +139,18 @@ async def restablecer_password(db: AsyncSession, token_plano: str, password_nuev
         None,
     )
     if registro is None or registro.expira_en < ahora:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "El enlace de recuperación es inválido o ha expirado.")
+        raise BusinessValidationError(
+            "INVALID_OR_EXPIRED_RESET_TOKEN",
+            "El enlace de recuperación es inválido o ha expirado.",
+        )
 
     errores = validar_politica_password(password_nueva, correo="")
     if errores:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, {"errores": errores})
+        raise BusinessValidationError(
+            "PASSWORD_POLICY_VIOLATION",
+            "La contraseña no cumple la política de seguridad.",
+            details={"errors": errores},
+        )
 
     usuario = await db.get(Usuario, registro.usuario_id)
     usuario.password_hash = hash_password(password_nueva)

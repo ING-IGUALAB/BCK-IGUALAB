@@ -26,17 +26,32 @@ async def listar_usuarios(db: AsyncSession = Depends(get_db)):
     return await usuario_service.listar_usuarios(db)
 
 
-@router.patch("/{usuario_id}/habilitar", response_model=UsuarioResponse, dependencies=[_solo_superadmin])
-async def habilitar_usuario(usuario_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    # RF-012
-    return await usuario_service.cambiar_estado_usuario(db, usuario_id, habilitar=True)
+@router.patch("/{usuario_id}/habilitar", response_model=UsuarioResponse)
+async def habilitar_usuario(
+    usuario_id: uuid.UUID,
+    actor: Usuario = Depends(requerir_rol(RolUsuario.SUPERADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    return await usuario_service.cambiar_estado_usuario(
+        db,
+        usuario_id,
+        habilitar=True,
+        actor=actor,
+    )
 
 
-@router.patch("/{usuario_id}/deshabilitar", response_model=UsuarioResponse, dependencies=[_solo_superadmin])
-async def deshabilitar_usuario(usuario_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    return await usuario_service.cambiar_estado_usuario(db, usuario_id, habilitar=False)
-
-
+@router.patch("/{usuario_id}/deshabilitar", response_model=UsuarioResponse)
+async def deshabilitar_usuario(
+    usuario_id: uuid.UUID,
+    actor: Usuario = Depends(requerir_rol(RolUsuario.SUPERADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    return await usuario_service.cambiar_estado_usuario(
+        db,
+        usuario_id,
+        habilitar=False,
+        actor=actor,
+    )
 @router.post("/transferir-superadmin", status_code=204)
 async def transferir_superadmin(
     payload: TransferirSuperAdminRequest,

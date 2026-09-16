@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import sys
 
@@ -8,12 +9,16 @@ from sqlalchemy import select
 from app.database import AsyncSessionLocal
 from app.models import Usuario, RolUsuario
 from app.security import hash_password, validar_politica_password
+from app.logging_config import configure_logging
+
+logger = logging.getLogger("igualab.startup")
 
 
 async def crear_superadmin_inicial() -> None:
     async with AsyncSessionLocal() as db:
         existente = await db.execute(select(Usuario).where(Usuario.rol == RolUsuario.SUPERADMIN))
         if existente.scalar_one_or_none() is not None:
+            logger.info("La cuenta SuperAdmin ya existe; no se crea otra")
             return  # RN-002: ya existe uno, no se crea otro. Caso normal en cada reinicio.
 
         nombre = os.environ["SUPERADMIN_NOMBRE"]
@@ -30,8 +35,9 @@ async def crear_superadmin_inicial() -> None:
             rol=RolUsuario.SUPERADMIN, habilitado=True,
         ))
         await db.commit()
-        print(f"Cuenta SuperAdmin creada: {correo}")
+        logger.info("Cuenta SuperAdmin creada: %s", correo)
 
 
 if __name__ == "__main__":
+    configure_logging()
     asyncio.run(crear_superadmin_inicial())

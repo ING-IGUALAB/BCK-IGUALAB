@@ -2,8 +2,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, usuarios
+from app.exception_handlers import register_exception_handlers
+from app.logging_config import configure_logging
+from app.request_id import RequestIDMiddleware
 from scripts.crear_tablas import crear_tablas
 from scripts.crear_superadmin_inicial import crear_superadmin_inicial
+
+configure_logging()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -18,6 +24,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,6 +33,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(RequestIDMiddleware)
 
 app.include_router(auth.router)
 app.include_router(usuarios.router)

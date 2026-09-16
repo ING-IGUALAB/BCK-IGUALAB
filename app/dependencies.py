@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import Usuario, Sesion, RolUsuario
 from app.security import decodificar_token
+from app.exceptions import AuthenticationError, AuthorizationError
 
 esquema_bearer = HTTPBearer(auto_error=False)
 
@@ -30,8 +31,8 @@ async def get_current_user(
     Si todo pasa, actualiza ultima_actividad (sesión deslizante) y
     devuelve el Usuario
     """
-    credenciales_invalidas = HTTPException(
-        status.HTTP_401_UNAUTHORIZED,
+    credenciales_invalidas = AuthenticationError(
+        "INVALID_SESSION",
         "No autenticado o sesión inválida.",
         headers={"WWW-Authenticate": "Bearer"},
     )
@@ -58,7 +59,11 @@ async def get_current_user(
     if ahora - sesion.ultima_actividad > settings.SESSION_INACTIVITY_TIMEOUT:
         sesion.revocada = True
         await db.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Sesión expirada por inactividad.")
+        raise AuthenticationError(
+            "SESSION_EXPIRED",
+            "Sesión expirada por inactividad.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     usuario = await db.get(Usuario, usuario_id)
     if usuario is None or not usuario.habilitado:
@@ -74,6 +79,9 @@ async def get_current_user(
 def requerir_rol(*roles_permitidos: RolUsuario):
     async def _verificar(usuario: Usuario = Depends(get_current_user)) -> Usuario:
         if usuario.rol not in roles_permitidos:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "No tiene permisos para esta acción.")
+            raise AuthorizationError(
+                "FORBIDDEN",
+                "No tiene permisos para esta acción.",
+            )
         return usuario
     return _verificar
