@@ -1,22 +1,27 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, usuarios
+from scripts.crear_tablas import crear_tablas
+from scripts.crear_superadmin_inicial import crear_superadmin_inicial
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await crear_tablas()
+    await crear_superadmin_inicial()
+    yield
+
 
 app = FastAPI(
     title="Igualab",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 
-ORIGENES_PERMITIDOS = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://igualab.vercel.app",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ORIGENES_PERMITIDOS,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

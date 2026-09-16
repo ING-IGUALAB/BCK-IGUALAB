@@ -1,4 +1,3 @@
-
 import asyncio
 import os
 import sys
@@ -11,33 +10,28 @@ from app.models import Usuario, RolUsuario
 from app.security import hash_password, validar_politica_password
 
 
-async def main():
-    nombre = os.environ["SUPERADMIN_NOMBRE"]
-    correo = os.environ["SUPERADMIN_CORREO"].lower()
-    password = os.environ["SUPERADMIN_PASSWORD"]
-
-    errores = validar_politica_password(password, correo)
-    if errores:
-        print("La contraseña no cumple la política de seguridad:")
-        for e in errores:
-            print(f"  - {e}")
-        return
-
+async def crear_superadmin_inicial() -> None:
     async with AsyncSessionLocal() as db:
         existente = await db.execute(select(Usuario).where(Usuario.rol == RolUsuario.SUPERADMIN))
         if existente.scalar_one_or_none() is not None:
-            print("Ya existe una cuenta SuperAdmin. RN-002 impide crear una segunda. Abortando.")
-            return
+            return  # RN-002: ya existe uno, no se crea otro. Caso normal en cada reinicio.
 
-        usuario = Usuario(
+        nombre = os.environ["SUPERADMIN_NOMBRE"]
+        correo = os.environ["SUPERADMIN_CORREO"].lower()
+        password = os.environ["SUPERADMIN_PASSWORD"]
+
+        errores = validar_politica_password(password, correo)
+        if errores:
+            raise RuntimeError(f"SUPERADMIN_PASSWORD no cumple la política: {errores}")
+
+        db.add(Usuario(
             nombre=nombre, correo=correo,
             password_hash=hash_password(password),
             rol=RolUsuario.SUPERADMIN, habilitado=True,
-        )
-        db.add(usuario)
+        ))
         await db.commit()
-        print(f"Cuenta SuperAdmin creada correctamente: {correo}")
+        print(f"Cuenta SuperAdmin creada: {correo}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(crear_superadmin_inicial())
