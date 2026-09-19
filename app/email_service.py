@@ -17,8 +17,6 @@ _conf = ConnectionConfig(
 _mailer = FastMail(_conf)
 
 
-
-# modificar 
 async def enviar_correo_recuperacion(destinatario: str, token_plano: str) -> None:
     
     enlace = f"{settings.FRONTEND_RESET_URL}?token={token_plano}"

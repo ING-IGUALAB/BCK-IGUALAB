@@ -3,6 +3,9 @@ env/
 .venv/
  
 .env
+.env.development
+.env.qa
+.env.uat
  
 __pycache__/
 *.pyc

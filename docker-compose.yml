@@ -1,39 +1,14 @@
 services:
-  db:
-    # Imagen basada en la oficial de Postgres, con pgvector ya instalado —
-    # aunque este módulo no lo use todavía, evita tener que cambiar de
-    # imagen (y migrar datos) cuando Ingesta lo necesite más adelante.
-    image: pgvector/pgvector:pg16
-    restart: unless-stopped
-    environment:
-      # Estas tres las lee el CONTENEDOR de Postgres para crearse a sí
-      # mismo la primera vez — NO las lee app/config.py (eso lee
-      # DATABASE_URL, una variable distinta, definida más abajo para el
-      # servicio "backend"). Deben coincidir manualmente con lo que
-      # escribas en esa DATABASE_URL.
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build: .
     restart: unless-stopped
     env_file:
-      - .env
+      - ${ENV_FILE:-.env.development}
     ports:
       - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-
-volumes:
-  postgres_data:
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
