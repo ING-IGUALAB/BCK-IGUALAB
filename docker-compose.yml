@@ -3,7 +3,7 @@ services:
     build: .
     restart: unless-stopped
     env_file:
-      - ${ENV_FILE:-.env.development}
+      - .env
     networks:
       - proxy_net
     healthcheck:

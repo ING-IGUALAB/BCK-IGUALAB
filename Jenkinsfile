@@ -113,105 +113,77 @@ pipeline {
         }
 
         /*
-         * Development solamente realiza despliegue.
+         * Cada rama se mapea únicamente a su credencial y proyecto Compose.
+         * Compose siempre recibe la configuración mediante el único archivo .env.
          */
-        stage('Deploy Development') {
+        stage('Deploy and Verify') {
             when {
-                branch 'development'
-            }
-
-            steps {
-                withCredentials([
-                    file(
-                        credentialsId: 'IGUALAB_BACKEND_DEV',
-                        variable: 'SECRET_FILE'
-                    )
-                ]) {
-                    sh '''
-                        set -eu
-
-                        cp "$SECRET_FILE" .env.development
-
-                        docker compose \
-                            -p igualab-backend-development \
-                            --env-file .env.development \
-                            down
-
-                        docker compose \
-                            -p igualab-backend-development \
-                            --env-file .env.development \
-                            up -d --build
-                    '''
+                anyOf {
+                    branch 'development'
+                    branch 'qa'
+                    branch 'uat'
                 }
             }
-        }
-
-        /*
-         * QA se despliega únicamente si las pruebas,
-         * SonarQube y el Quality Gate finalizaron correctamente.
-         */
-        stage('Deploy QA') {
-            when {
-                branch 'qa'
-            }
 
             steps {
-                withCredentials([
-                    file(
-                        credentialsId: 'IGUALAB_BACKEND_QA',
-                        variable: 'SECRET_FILE'
-                    )
-                ]) {
-                    sh '''
-                        set -eu
+                script {
+                    def deployments = [
+                        development: [credentialId: 'IGUALAB_BACKEND_DEV', project: 'igualab-backend-development'],
+                        qa:          [credentialId: 'IGUALAB_BACKEND_QA',  project: 'igualab-backend-qa'],
+                        uat:         [credentialId: 'IGUALAB_BACKEND_UAT', project: 'igualab-backend-uat']
+                    ]
+                    def deployment = deployments[env.BRANCH_NAME]
 
-                        cp "$SECRET_FILE" .env.qa
+                    withCredentials([
+                        file(
+                            credentialsId: deployment.credentialId,
+                            variable: 'SECRET_FILE'
+                        )
+                    ]) {
+                        withEnv(["COMPOSE_PROJECT=${deployment.project}"]) {
+                            sh '''
+                                set -eu
 
-                        docker compose \
-                            -p igualab-backend-qa \
-                            --env-file .env.qa \
-                            down
+                                cp "$SECRET_FILE" .env
 
-                        docker compose \
-                            -p igualab-backend-qa \
-                            --env-file .env.qa \
-                            up -d --build
-                    '''
-                }
-            }
-        }
+                                docker compose -p "$COMPOSE_PROJECT" down
+                                docker compose -p "$COMPOSE_PROJECT" up -d --build
 
-        /*
-         * UAT se despliega únicamente si las pruebas,
-         * SonarQube y el Quality Gate finalizaron correctamente.
-         */
-        stage('Deploy UAT') {
-            when {
-                branch 'uat'
-            }
+                                container_id="$(docker compose -p "$COMPOSE_PROJECT" ps -q backend)"
+                                if [ -z "$container_id" ]; then
+                                    echo "El contenedor backend no fue creado."
+                                    exit 1
+                                fi
 
-            steps {
-                withCredentials([
-                    file(
-                        credentialsId: 'IGUALAB_BACKEND_UAT',
-                        variable: 'SECRET_FILE'
-                    )
-                ]) {
-                    sh '''
-                        set -eu
+                                attempt=1
+                                max_attempts=18
+                                while [ "$attempt" -le "$max_attempts" ]; do
+                                    container_status="$(docker inspect --format '{{.State.Status}}' "$container_id")"
+                                    health_status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container_id")"
+                                    echo "Verificación ${attempt}/${max_attempts}: container=${container_status}, health=${health_status}"
 
-                        cp "$SECRET_FILE" .env.uat
+                                    if [ "$health_status" = "healthy" ]; then
+                                        docker compose -p "$COMPOSE_PROJECT" exec -T backend \
+                                            python -c "import urllib.request; assert urllib.request.urlopen('http://localhost:8000/health', timeout=5).status == 200"
+                                        echo "Despliegue validado: el backend responde 200 en /health."
+                                        exit 0
+                                    fi
 
-                        docker compose \
-                            -p igualab-backend-uat \
-                            --env-file .env.uat \
-                            down
+                                    if [ "$container_status" != "running" ] || [ "$health_status" = "unhealthy" ]; then
+                                        break
+                                    fi
 
-                        docker compose \
-                            -p igualab-backend-uat \
-                            --env-file .env.uat \
-                            up -d --build
-                    '''
+                                    attempt=$((attempt + 1))
+                                    sleep 5
+                                done
+
+                                echo "El backend no alcanzó el estado healthy."
+                                docker compose -p "$COMPOSE_PROJECT" ps
+                                docker compose -p "$COMPOSE_PROJECT" logs --tail=100 backend
+                                exit 1
+                            '''
+                        }
+                    }
                 }
             }
         }
@@ -220,11 +192,7 @@ pipeline {
     post {
         always {
             sh '''
-                rm -f \
-                    .env \
-                    .env.development \
-                    .env.qa \
-                    .env.uat
+                rm -f .env
             '''
         }
 
