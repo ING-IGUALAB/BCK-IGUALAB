@@ -29,7 +29,7 @@ pipeline {
                     python -m venv "$ci_venv"
                     "$ci_venv/bin/python" -m pip install --upgrade pip
                     "$ci_venv/bin/pip" install --no-cache-dir -r requirements.txt -r requirements-dev.txt
-                    JWT_SECRET_KEY=ci-test-secret "$ci_venv/bin/python" -m pytest tests/ --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml
+                    JWT_SECRET_KEY=ci-test-secret MAIL_USERNAME=ci@example.test MAIL_PASSWORD=ci-password MAIL_FROM=ci@example.test "$ci_venv/bin/python" -m pytest tests/ --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml
                 '''
             }
         }
