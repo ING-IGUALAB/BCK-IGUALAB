@@ -1,5 +1,5 @@
 # --- Etapa 1: build — instala dependencias en un entorno aislado ---
-FROM python:3.11-slim AS build
+FROM python:3.13-slim AS build
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ RUN pip install --user --no-cache-dir -r requirements.txt
 
 
 # --- Etapa 2: producción — imagen final, sin herramientas de compilación ---
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 
