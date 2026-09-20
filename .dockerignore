@@ -6,6 +6,9 @@ __pycache__/
 .git/
 .gitignore
 .env
+.env.development
+.env.qa
+.env.uat
 .env.example
 tests/
 .pytest_cache/

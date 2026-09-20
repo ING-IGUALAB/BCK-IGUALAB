@@ -5,6 +5,7 @@ from app.routers import auth, usuarios
 from app.exception_handlers import register_exception_handlers
 from app.logging_config import configure_logging
 from app.request_id import RequestIDMiddleware
+from app.config import settings
 from scripts.crear_tablas import crear_tablas
 from scripts.crear_superadmin_inicial import crear_superadmin_inicial
 
@@ -28,7 +29,7 @@ register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
