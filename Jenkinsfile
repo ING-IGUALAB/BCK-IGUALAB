@@ -17,8 +17,8 @@ pipeline {
 
         stage('Tests (Contenedor Python)') {
             agent {
-                docker {
-                    image 'python:3.13-slim'
+                dockerfile {
+                    filename 'Dockerfile.ci'
                     reuseNode true
                 }
             }
