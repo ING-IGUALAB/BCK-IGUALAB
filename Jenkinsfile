@@ -25,9 +25,11 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    python -m pip install --upgrade pip
-                    pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
-                    JWT_SECRET_KEY=ci-test-secret python -m pytest tests/ --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml
+                    ci_venv="$(mktemp -d)"
+                    python -m venv "$ci_venv"
+                    "$ci_venv/bin/python" -m pip install --upgrade pip
+                    "$ci_venv/bin/pip" install --no-cache-dir -r requirements.txt -r requirements-dev.txt
+                    JWT_SECRET_KEY=ci-test-secret "$ci_venv/bin/python" -m pytest tests/ --cov=app --cov-report=term-missing --cov-report=xml:coverage.xml
                 '''
             }
         }
