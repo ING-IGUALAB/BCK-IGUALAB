@@ -113,7 +113,7 @@ async def test_user_not_found_has_stable_code():
         actor = MagicMock()
         actor.id = uuid.uuid4()
         
-        await cambiar_estado_usuario(db, uuid.uuid4(), True)
+        await cambiar_estado_usuario(db, uuid.uuid4(), True, actor)
 
     assert captured.value.code == "USER_NOT_FOUND"
 
