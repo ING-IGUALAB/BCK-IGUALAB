@@ -60,11 +60,11 @@ pipeline {
 
                         if (env.BRANCH_NAME == 'qa') {
                             withSonarQubeEnv('SonarQube-Server') {
-                                sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=BE-IGUALAB-QA -Dsonar.userHome=${sonarUserHome}"
+                                sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=BCK-IGUALAB-QA -Dsonar.userHome=${sonarUserHome}"
                             }
                         } else {
                             withSonarQubeEnv('SonarQube-Server') {
-                                sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=BE-IGUALAB-UAT -Dsonar.userHome=${sonarUserHome}"
+                                sh "${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=BCK-IGUALAB-UAT -Dsonar.userHome=${sonarUserHome}"
                             }
                         }
                     }
