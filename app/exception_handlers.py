@@ -74,13 +74,21 @@ def _error_response(
     )
 
 
-async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
-    status_code = _STATUS_BY_EXCEPTION.get(type(exc), status.HTTP_400_BAD_REQUEST)
+def app_exception_handler(
+    request: Request,
+    exc: AppException,
+) -> JSONResponse:
+    status_code = _STATUS_BY_EXCEPTION.get(
+        type(exc),
+        status.HTTP_400_BAD_REQUEST,
+    )
+
     logger.warning(
         "Solicitud rechazada: code=%s request_id=%s",
         exc.code,
         _request_id(request),
     )
+
     return _error_response(
         request,
         status_code=status_code,
@@ -91,7 +99,7 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
     )
 
 
-async def validation_exception_handler(
+def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     # No se devuelve `input`: podría contener una contraseña u otro dato sensible.
@@ -112,7 +120,7 @@ async def validation_exception_handler(
     )
 
 
-async def http_exception_handler(
+def http_exception_handler(
     request: Request, exc: StarletteHTTPException
 ) -> JSONResponse:
     details = exc.detail if isinstance(exc.detail, (dict, list)) else None
@@ -131,7 +139,7 @@ async def http_exception_handler(
     )
 
 
-async def database_exception_handler(
+def database_exception_handler(
     request: Request, exc: SQLAlchemyError
 ) -> JSONResponse:
     logger.exception(
@@ -147,7 +155,7 @@ async def database_exception_handler(
     )
 
 
-async def unexpected_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+def unexpected_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception(
         "Error inesperado: request_id=%s",
         _request_id(request),

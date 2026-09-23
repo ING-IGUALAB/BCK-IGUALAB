@@ -6,6 +6,7 @@ from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Annotated
 
 from app.config import settings
 from app.database import get_db
@@ -15,10 +16,24 @@ from app.exceptions import AuthenticationError, AuthorizationError
 
 esquema_bearer = HTTPBearer(auto_error=False)
 
+DatabaseSession = Annotated[
+    AsyncSession,
+    Depends(get_db),
+]
+
+OptionalBearerCredentials = Annotated[
+    HTTPAuthorizationCredentials | None,
+    Depends(esquema_bearer),
+]
+
+BearerCredentials = Annotated[
+    HTTPAuthorizationCredentials,
+    Depends(esquema_bearer),
+]
 
 async def get_current_user(
-    credenciales: HTTPAuthorizationCredentials | None = Depends(esquema_bearer),
-    db: AsyncSession = Depends(get_db),
+    credenciales: OptionalBearerCredentials,
+    db: DatabaseSession,
 ) -> Usuario:
     """
     Valida, en este orden:
@@ -39,9 +54,10 @@ async def get_current_user(
 
     if credenciales is None:
         raise credenciales_invalidas
-    token = credenciales.credentials
 
+    token = credenciales.credentials
     payload = decodificar_token(token)
+
     if payload is None:
         raise credenciales_invalidas
 
@@ -72,12 +88,18 @@ async def get_current_user(
     # cada petición autenticada renueva la ventana de inactividad
     sesion.ultima_actividad = ahora
     await db.commit()
-
     return usuario
 
 
+CurrentUser = Annotated[
+    Usuario,
+    Depends(get_current_user),
+]
+
 def requerir_rol(*roles_permitidos: RolUsuario):
-    async def _verificar(usuario: Usuario = Depends(get_current_user)) -> Usuario:
+    def _verificar(
+        usuario: CurrentUser,
+    ) -> Usuario:
         if usuario.rol not in roles_permitidos:
             raise AuthorizationError(
                 "FORBIDDEN",
@@ -85,3 +107,8 @@ def requerir_rol(*roles_permitidos: RolUsuario):
             )
         return usuario
     return _verificar
+
+SuperAdminUser = Annotated[
+    Usuario,
+    Depends(requerir_rol(RolUsuario.SUPERADMIN)),
+]

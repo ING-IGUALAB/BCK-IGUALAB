@@ -186,13 +186,13 @@ async def test_sesion_valida_actualiza_ultima_actividad_y_devuelve_usuario(
     db.commit.assert_awaited_once()
 
 
-@pytest.mark.asyncio
-async def test_dependencia_de_rol_permite_rol_autorizado():
+def test_dependencia_de_rol_permite_rol_autorizado():
     usuario = MagicMock(rol=RolUsuario.SUPERADMIN)
+
     verificar = dependencies.requerir_rol(
         RolUsuario.SUPERADMIN,
     )
 
-    resultado = await verificar(usuario)
+    resultado = verificar(usuario)
 
     assert resultado is usuario

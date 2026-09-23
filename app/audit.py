@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import RegistroAuditoria, TipoEventoAuditoria
 
 
-async def registrar_evento(
+def registrar_evento(
     db: AsyncSession,
     tipo_evento: TipoEventoAuditoria,
     detalle: str,

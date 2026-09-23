@@ -52,7 +52,7 @@ async def test_login_exitoso_reinicia_intentos_crea_sesion_y_audita(
     db.flush = AsyncMock()
     db.commit = AsyncMock()
 
-    registrar = AsyncMock()
+    registrar = MagicMock()
 
     monkeypatch.setattr(
         auth_service,
@@ -78,7 +78,7 @@ async def test_login_exitoso_reinicia_intentos_crea_sesion_y_audita(
 
     db.add.assert_called_once()
     db.flush.assert_awaited_once()
-    registrar.assert_awaited_once()
+    registrar.assert_called_once()
     db.commit.assert_awaited_once()
 
 
@@ -94,7 +94,7 @@ async def test_password_incorrecto_incrementa_intentos_sin_bloquear(
     )
     db.commit = AsyncMock()
 
-    registrar = AsyncMock()
+    registrar = MagicMock()
 
     monkeypatch.setattr(
         auth_service,
@@ -118,7 +118,7 @@ async def test_password_incorrecto_incrementa_intentos_sin_bloquear(
     assert usuario.intentos_fallidos == 1
     assert usuario.bloqueado_hasta is None
 
-    registrar.assert_not_awaited()
+    registrar.assert_not_called()
     db.commit.assert_awaited_once()
 
 
@@ -135,7 +135,7 @@ async def test_quinto_intento_incorrecto_bloquea_y_registra_auditoria(
     )
     db.commit = AsyncMock()
 
-    registrar = AsyncMock()
+    registrar = MagicMock()
 
     monkeypatch.setattr(
         auth_service,
@@ -163,7 +163,7 @@ async def test_quinto_intento_incorrecto_bloquea_y_registra_auditoria(
     assert usuario.intentos_fallidos == 5
     assert usuario.bloqueado_hasta > datetime.now(timezone.utc)
 
-    registrar.assert_awaited_once()
+    registrar.assert_called_once()
     db.commit.assert_awaited_once()
 
 

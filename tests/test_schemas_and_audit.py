@@ -38,12 +38,11 @@ def test_confirmacion_de_password_valida_es_aceptada():
     )
 
 
-@pytest.mark.asyncio
-async def test_auditoria_agrega_evento_sin_commit_independiente():
+def test_auditoria_agrega_evento_sin_commit_independiente():
     db = MagicMock()
     usuario_id = uuid.uuid4()
 
-    await registrar_evento(
+    registrar_evento(
         db,
         TipoEventoAuditoria.INICIO_SESION,
         "Login exitoso",
