@@ -126,7 +126,7 @@ async def test_deshabilitar_usuario_revoca_todas_sus_sesiones(
     db.commit = AsyncMock()
     db.refresh = AsyncMock()
 
-    registrar = AsyncMock()
+    registrar = MagicMock()
 
     monkeypatch.setattr(
         usuario_service,
@@ -148,7 +148,7 @@ async def test_deshabilitar_usuario_revoca_todas_sus_sesiones(
         for sesion in sesiones
     )
 
-    registrar.assert_awaited_once()
+    registrar.assert_called_once()
     db.commit.assert_awaited_once()
     db.refresh.assert_awaited_once_with(usuario)
 
@@ -169,7 +169,7 @@ async def test_habilitar_usuario_no_consulta_sesiones(
     monkeypatch.setattr(
         usuario_service,
         "registrar_evento",
-        AsyncMock(),
+        MagicMock(),
     )
 
     await usuario_service.cambiar_estado_usuario(
@@ -254,7 +254,7 @@ async def test_transferencia_exitosa_cambia_ambos_roles_y_audita(
     db.flush = AsyncMock()
     db.commit = AsyncMock()
 
-    registrar = AsyncMock()
+    registrar = MagicMock()
 
     monkeypatch.setattr(
         usuario_service,
@@ -272,5 +272,5 @@ async def test_transferencia_exitosa_cambia_ambos_roles_y_audita(
     assert destino.rol == RolUsuario.SUPERADMIN
 
     db.flush.assert_awaited_once()
-    registrar.assert_awaited_once()
+    registrar.assert_called_once()
     db.commit.assert_awaited_once()

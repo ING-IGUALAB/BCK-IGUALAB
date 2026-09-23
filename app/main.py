@@ -26,6 +26,8 @@ app = FastAPI(
 )
 
 register_exception_handlers(app)
+app.add_middleware(RequestIDMiddleware)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,7 +36,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(RequestIDMiddleware)
 
 app.include_router(auth.router)
 app.include_router(usuarios.router)

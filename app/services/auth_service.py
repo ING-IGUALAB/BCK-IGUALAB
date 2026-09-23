@@ -75,7 +75,7 @@ async def autenticar(db: AsyncSession, correo: str, password: str) -> tuple[str,
 
     token = crear_access_token(usuario.id, usuario.rol.value, sesion.id)
 
-    await registrar_evento(
+    registrar_evento(
         db, TipoEventoAuditoria.INICIO_SESION,
         f"Login exitoso ({usuario.rol.value})", usuario_id=usuario.id
     )
@@ -89,7 +89,7 @@ async def _registrar_intento_fallido(db: AsyncSession, usuario: Usuario) -> None
         usuario.bloqueado_hasta = datetime.now(timezone.utc) + timedelta(
             minutes=settings.LOGIN_LOCKOUT_MINUTES
         )
-        await registrar_evento(
+        registrar_evento(
             db, TipoEventoAuditoria.INICIO_SESION,
             f"Cuenta bloqueada tras {usuario.intentos_fallidos} intentos fallidos",
             usuario_id=usuario.id,
