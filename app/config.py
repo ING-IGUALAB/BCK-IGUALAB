@@ -33,7 +33,7 @@ class Settings:
 
     # Recuperación de contraseña
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = int(
-        os.getenv("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", "120")
+        os.getenv("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", "30")
     )
 
     # Bloqueo por intentos fallidos
