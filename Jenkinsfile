@@ -103,7 +103,7 @@ pipeline {
                     }
                 }
             }
-        }
+        }    
 
         stage('Deploy QA (Docker Compose)') {
             when {
