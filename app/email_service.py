@@ -26,7 +26,7 @@ async def enviar_correo_recuperacion(destinatario: str, token_plano: str) -> Non
         body=f"""
             <p>Recibimos una solicitud para restablecer tu contraseña.</p>
             <p><a href="{enlace}">Haz clic aquí para crear una nueva contraseña</a></p>
-            <p>Este enlace vence en 30 minutos. Si no solicitaste esto, ignora este correo.</p>
+            <p>Este enlace vence en {settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES} minutos. Si no solicitaste esto, ignora este correo.</p>
         """,
         subtype=MessageType.html,
     )
