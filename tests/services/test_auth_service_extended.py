@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
+from app.models import Usuario
 
 import pytest
 
@@ -282,39 +283,31 @@ async def test_recuperacion_valida_guarda_hash_y_envia_token_plano(
 
 
 @pytest.mark.asyncio
-async def test_token_recuperacion_expirado_es_rechazado(
-    monkeypatch,
-):
-    registro = MagicMock(
-        token_hash="hash",
-        expira_en=(
-            datetime.now(timezone.utc)
-            - timedelta(minutes=1)
-        ),
+async def test_token_recuperacion_expirado_es_rechazado(monkeypatch):
+    db = MagicMock()
+
+    db.execute = AsyncMock(
+        return_value=_resultado_lista([])
     )
 
-    db = MagicMock()
-    db.execute = AsyncMock(
-        return_value=_resultado_lista([registro]),
-    )
+    verificar = Mock(return_value=True)
 
     monkeypatch.setattr(
         auth_service,
         "verificar_token_recuperacion",
-        lambda *_: True,
+        verificar,
     )
 
     with pytest.raises(BusinessValidationError) as captured:
         await auth_service.restablecer_password(
             db,
-            "token",
+            "token-vencido",
             "NuevaClave1!",
         )
 
-    assert (
-        captured.value.code
-        == "INVALID_OR_EXPIRED_RESET_TOKEN"
-    )
+    assert captured.value.code == "INVALID_OR_EXPIRED_RESET_TOKEN"
+
+    verificar.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -356,17 +349,12 @@ async def test_restablecer_password_invalida_token_y_revoca_sesiones(
     monkeypatch,
 ):
     usuario = _usuario()
-
     registro = MagicMock(
         usuario_id=usuario.id,
         token_hash="hash",
         usado=False,
-        expira_en=(
-            datetime.now(timezone.utc)
-            + timedelta(minutes=10)
-        ),
+        expira_en=datetime.now(timezone.utc) + timedelta(minutes=10),
     )
-
     sesiones = [
         MagicMock(revocada=False),
         MagicMock(revocada=False),
@@ -375,8 +363,9 @@ async def test_restablecer_password_invalida_token_y_revoca_sesiones(
     db = MagicMock()
     db.execute = AsyncMock(
         side_effect=[
-            _resultado_lista([registro]),
-            _resultado_lista(sesiones),
+            _resultado_lista([registro]),  # SELECT del token válido
+            MagicMock(),                   # UPDATE de tokens
+            _resultado_lista(sesiones),    # SELECT de sesiones
         ],
     )
     db.get = AsyncMock(return_value=usuario)
@@ -400,10 +389,13 @@ async def test_restablecer_password_invalida_token_y_revoca_sesiones(
     )
 
     assert usuario.password_hash == "nuevo-hash"
-    assert registro.usado is True
-    assert all(
-        sesion.revocada is True
-        for sesion in sesiones
-    )
+    assert all(sesion.revocada is True for sesion in sesiones)
 
+    assert db.execute.await_count == 3
+
+    sentencia_update = db.execute.await_args_list[1].args[0]
+    assert sentencia_update.is_update
+    assert sentencia_update.table.name == "tokens_recuperacion"
+
+    db.get.assert_awaited_once_with(Usuario, usuario.id)
     db.commit.assert_awaited_once()
