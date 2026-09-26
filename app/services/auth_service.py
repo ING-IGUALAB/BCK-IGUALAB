@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -75,7 +75,7 @@ async def autenticar(db: AsyncSession, correo: str, password: str) -> tuple[str,
 
     token = crear_access_token(usuario.id, usuario.rol.value, sesion.id)
 
-    await registrar_evento(
+    registrar_evento(
         db, TipoEventoAuditoria.INICIO_SESION,
         f"Login exitoso ({usuario.rol.value})", usuario_id=usuario.id
     )
@@ -89,7 +89,7 @@ async def _registrar_intento_fallido(db: AsyncSession, usuario: Usuario) -> None
         usuario.bloqueado_hasta = datetime.now(timezone.utc) + timedelta(
             minutes=settings.LOGIN_LOCKOUT_MINUTES
         )
-        await registrar_evento(
+        registrar_evento(
             db, TipoEventoAuditoria.INICIO_SESION,
             f"Cuenta bloqueada tras {usuario.intentos_fallidos} intentos fallidos",
             usuario_id=usuario.id,
@@ -112,6 +112,12 @@ async def solicitar_recuperacion(db: AsyncSession, correo: str) -> None:
     if usuario is None:
         return
 
+    await db.execute(
+        update(TokenRecuperacion)
+        .where(TokenRecuperacion.usuario_id == usuario.id, TokenRecuperacion.usado.is_(False))
+        .values(usado=True)
+    )
+
     token_plano = generar_token_recuperacion()
     registro = TokenRecuperacion(
         usuario_id=usuario.id,
@@ -127,10 +133,15 @@ async def solicitar_recuperacion(db: AsyncSession, correo: str) -> None:
 
 
 async def restablecer_password(db: AsyncSession, token_plano: str, password_nueva: str) -> None:
-    ahora = datetime.now(timezone.utc)
     resultado = await db.execute(
-        select(TokenRecuperacion).where(TokenRecuperacion.usado.is_(False))
+    select(TokenRecuperacion)
+    .where(
+        TokenRecuperacion.usado.is_(False),
+        TokenRecuperacion.expira_en > func.now(),
     )
+    .order_by(TokenRecuperacion.creado_en.desc())
+    )
+
     candidatos = resultado.scalars().all()
 
 
@@ -138,7 +149,7 @@ async def restablecer_password(db: AsyncSession, token_plano: str, password_nuev
         (t for t in candidatos if verificar_token_recuperacion(token_plano, t.token_hash)),
         None,
     )
-    if registro is None or registro.expira_en < ahora:
+    if registro is None:
         raise BusinessValidationError(
             "INVALID_OR_EXPIRED_RESET_TOKEN",
             "El enlace de recuperación es inválido o ha expirado.",
@@ -154,7 +165,15 @@ async def restablecer_password(db: AsyncSession, token_plano: str, password_nuev
 
     usuario = await db.get(Usuario, registro.usuario_id)
     usuario.password_hash = hash_password(password_nueva)
-    registro.usado = True  # RF-003: el enlace se invalida al usarse
+
+    await db.execute(
+        update(TokenRecuperacion)
+        .where(
+            TokenRecuperacion.usuario_id == usuario.id,
+            TokenRecuperacion.usado.is_(False),
+        )
+        .values(usado=True)
+    )
 
     # tras restablecer la contraseña, se cierran todas las sesiones activas
     resultado_sesiones = await db.execute(

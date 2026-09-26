@@ -1,22 +1,12 @@
+from unittest.mock import AsyncMock, MagicMock, Mock
 
-import time
-import statistics
-from unittest.mock import AsyncMock, MagicMock
 import pytest
 
-
-from app.services.auth_service import autenticar
-from app.security import hash_password
-
-
-REPETICIONES = 20
-MARGEN_TOLERADO_SEGUNDOS = 0.05
-
-
+from app.exceptions import AuthenticationError
+from app.services import auth_service
 
 
 def _fake_db_sin_usuario():
-    """Simula una sesión de BD donde la consulta no encuentra ningún usuario."""
     db = MagicMock()
     resultado = MagicMock()
     resultado.scalar_one_or_none.return_value = None
@@ -24,51 +14,57 @@ def _fake_db_sin_usuario():
     return db
 
 
-
-
-def _fake_db_con_usuario(password_hash: str):
-    """Simula una sesión de BD donde sí existe un usuario, con este hash."""
-    usuario_falso = MagicMock()
-    usuario_falso.password_hash = password_hash
-    usuario_falso.bloqueado_hasta = None
-    usuario_falso.habilitado = True
-
+def _fake_db_con_usuario():
+    usuario = MagicMock()
+    usuario.password_hash = "hash-simulado"
+    usuario.bloqueado_hasta = None
+    usuario.habilitado = True
+    usuario.intentos_fallidos = 0
 
     db = MagicMock()
     resultado = MagicMock()
-    resultado.scalar_one_or_none.return_value = usuario_falso
+    resultado.scalar_one_or_none.return_value = usuario
     db.execute = AsyncMock(return_value=resultado)
+
     return db
 
 
-
-
 @pytest.mark.asyncio
-async def test_tiempo_login_no_filtra_existencia_de_cuenta():
-    hash_real = hash_password("clave-correcta-del-usuario-simulado")
+async def test_login_no_filtra_existencia_de_cuenta(monkeypatch):
+    verificar_password = Mock(return_value=False)
+    registrar_intento = AsyncMock()
 
-
-    tiempos_cuenta_inexistente = []
-    tiempos_clave_incorrecta = []
-
-
-    for _ in range(REPETICIONES):
-        inicio = time.perf_counter()
-        with pytest.raises(Exception):
-            await autenticar(_fake_db_sin_usuario(), "no-existe@igualab.org", "cualquier-clave")
-        tiempos_cuenta_inexistente.append(time.perf_counter() - inicio)
-
-
-        inicio = time.perf_counter()
-        with pytest.raises(Exception):
-            await autenticar(_fake_db_con_usuario(hash_real), "existe@igualab.org", "clave-incorrecta")
-        tiempos_clave_incorrecta.append(time.perf_counter() - inicio)
-
-
-    promedio_a = statistics.mean(tiempos_cuenta_inexistente)
-    promedio_b = statistics.mean(tiempos_clave_incorrecta)
-
-
-    assert abs(promedio_a - promedio_b) < MARGEN_TOLERADO_SEGUNDOS, (
-        f"Diferencia sospechosa: inexistente={promedio_a:.4f}s vs incorrecta={promedio_b:.4f}s"
+    monkeypatch.setattr(
+        auth_service,
+        "verificar_password",
+        verificar_password,
     )
+    monkeypatch.setattr(
+        auth_service,
+        "_registrar_intento_fallido",
+        registrar_intento,
+    )
+
+    with pytest.raises(AuthenticationError) as error_sin_usuario:
+        await auth_service.autenticar(
+            _fake_db_sin_usuario(),
+            "no-existe@igualab.org",
+            "clave-incorrecta",
+        )
+
+    assert verificar_password.call_count == 1
+
+    verificar_password.reset_mock()
+
+    with pytest.raises(AuthenticationError) as error_con_usuario:
+        await auth_service.autenticar(
+            _fake_db_con_usuario(),
+            "existe@igualab.org",
+            "clave-incorrecta",
+        )
+
+    assert verificar_password.call_count == 1
+
+    assert error_sin_usuario.value.code == "INVALID_CREDENTIALS"
+    assert error_con_usuario.value.code == "INVALID_CREDENTIALS"
+    assert error_sin_usuario.value.message == error_con_usuario.value.message

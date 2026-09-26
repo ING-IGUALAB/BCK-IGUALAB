@@ -164,14 +164,15 @@ async def test_expired_session_is_revoked(monkeypatch):
     db.commit.assert_awaited_once()
 
 
-@pytest.mark.asyncio
-async def test_role_dependency_rejects_insufficient_permissions():
+def test_role_dependency_rejects_insufficient_permissions():
     usuario = MagicMock()
     usuario.rol = RolUsuario.ADMINISTRADOR
-    verificar = dependencies.requerir_rol(RolUsuario.SUPERADMIN)
+
+    verificar = dependencies.requerir_rol(
+        RolUsuario.SUPERADMIN
+    )
 
     with pytest.raises(AuthorizationError) as captured:
-        await verificar(usuario)
+        verificar(usuario)
 
     assert captured.value.code == "FORBIDDEN"
-

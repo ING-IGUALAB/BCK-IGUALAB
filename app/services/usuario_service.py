@@ -72,7 +72,7 @@ async def cambiar_estado_usuario(db: AsyncSession, usuario_id: uuid.UUID, habili
         for s in resultado.scalars().all():
             s.revocada = True
 
-    await registrar_evento(
+    registrar_evento(
         db, TipoEventoAuditoria.CAMBIO_ROL,
         f"{'Habilitó' if habilitar else 'Deshabilitó'} la cuenta de '{usuario.nombre}'",
         usuario_id=actor.id,
@@ -110,7 +110,7 @@ async def transferir_superadmin(db: AsyncSession, origen: Usuario, destino_id: u
     await db.flush()
     destino.rol = RolUsuario.SUPERADMIN
 
-    await registrar_evento(
+    registrar_evento(
         db, TipoEventoAuditoria.CAMBIO_ROL,
         f"Transfirió el rol SuperAdmin de '{origen.nombre}' a '{destino.nombre}'",
         usuario_id=origen.id,
