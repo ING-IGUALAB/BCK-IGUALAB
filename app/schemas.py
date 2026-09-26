@@ -1,9 +1,9 @@
 
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-from app.models import RolUsuario
+from app.models import RolUsuario, SectorEmpresa
 
 
 
@@ -62,3 +62,35 @@ class UsuarioResponse(BaseModel):
 
 class TransferirSuperAdminRequest(BaseModel):
     cuenta_destino_id: uuid.UUID
+
+
+class CrearEmpresaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    nombre: str = Field(min_length=1, max_length=200)
+    sector: SectorEmpresa
+
+
+class EditarEmpresaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    nombre: str | None = Field(default=None, min_length=1, max_length=200)
+    sector: SectorEmpresa | None = None
+
+    @model_validator(mode="after")
+    def validar_campos_enviados(self):
+        if not self.model_fields_set:
+            raise ValueError("Debe indicar el nombre o el sector que desea modificar.")
+        if any(getattr(self, campo) is None for campo in self.model_fields_set):
+            raise ValueError("El nombre y el sector no pueden ser nulos.")
+        return self
+
+
+class EmpresaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    nombre: str
+    sector: SectorEmpresa
+    activa: bool
+    creada_en: datetime
