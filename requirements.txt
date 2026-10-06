@@ -12,3 +12,5 @@ fastapi-mail==1.4.1
 tzdata==2026.5
 boto3==1.43.108
 botocore==1.43.108
+oci==2.187.2
+openai>=1.30.0

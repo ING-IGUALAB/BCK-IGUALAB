@@ -6,6 +6,10 @@ env/
 .env.development
 .env.qa
 .env.uat
+
+# Credenciales OCI (nunca al repositorio)
+.oci/
+*.pem
  
 __pycache__/
 *.pyc
