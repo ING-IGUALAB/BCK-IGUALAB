@@ -51,6 +51,21 @@ class Settings:
     MAIL_SSL_TLS: bool = False
 
 
+    # Almacenamiento de originales de ingesta (MinIO, API S3). Se leen como texto y
+    # se validan solo al construir el adaptador (`config_desde_settings`), para que
+    # un valor mal escrito no impida arrancar el resto de la aplicación. Sin
+    # valores por defecto para endpoint, bucket, credenciales ni prefijo.
+    MINIO_ENDPOINT_URL: str | None = os.getenv("MINIO_ENDPOINT_URL")
+    MINIO_BUCKET: str | None = os.getenv("MINIO_BUCKET")
+    MINIO_REGION: str | None = os.getenv("MINIO_REGION")  # opcional: sin confirmar
+    MINIO_ACCESS_KEY: str | None = os.getenv("MINIO_ACCESS_KEY")
+    MINIO_SECRET_KEY: str | None = os.getenv("MINIO_SECRET_KEY")
+    MINIO_PREFIX: str | None = os.getenv("MINIO_PREFIX")  # development | qa | uat
+    # Plazos provisionales en segundos (D23); calibrar con la prueba de 50 MB.
+    MINIO_CONNECT_TIMEOUT_SECONDS: str = os.getenv("MINIO_CONNECT_TIMEOUT_SECONDS", "10")
+    MINIO_READ_TIMEOUT_SECONDS: str = os.getenv("MINIO_READ_TIMEOUT_SECONDS", "60")
+    MINIO_OPERATION_TIMEOUT_SECONDS: str = os.getenv("MINIO_OPERATION_TIMEOUT_SECONDS", "300")
+
     FRONTEND_RESET_URL: str = os.getenv(
         "FRONTEND_RESET_URL", f"{FRONTEND_URL}/restablecer"
     )

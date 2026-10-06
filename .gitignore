@@ -22,3 +22,15 @@ Thumbs.db
 coverage.xml
 .coverage
 htmlcov/
+
+/CLAUDE.md
+/AGENTS.md
+/LEEME.md
+/docs/ingesta/
+/docs/fuentes/
+/prompts/
+
+/Contexto_ingesta_Igualab_actualizado.zip
+/Backend_igualab_revision*.zip
+/Correcciones_ingesta_Igualab.txt
+/documentos.sql

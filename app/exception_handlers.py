@@ -19,7 +19,10 @@ from app.exceptions import (
     AuthorizationError,
     BusinessValidationError,
     ConflictError,
+    ExternalServiceError,
+    ExternalServiceTimeoutError,
     NotFoundError,
+    PayloadTooLargeError,
 )
 
 logger = logging.getLogger("igualab.errors")
@@ -32,6 +35,9 @@ _STATUS_BY_EXCEPTION: dict[type[AppException], int] = {
     NotFoundError: status.HTTP_404_NOT_FOUND,
     ConflictError: status.HTTP_409_CONFLICT,
     BusinessValidationError: status.HTTP_400_BAD_REQUEST,
+    PayloadTooLargeError: status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+    ExternalServiceError: status.HTTP_502_BAD_GATEWAY,
+    ExternalServiceTimeoutError: status.HTTP_504_GATEWAY_TIMEOUT,
 }
 
 _HTTP_ERROR_CODES = {
@@ -41,6 +47,7 @@ _HTTP_ERROR_CODES = {
     status.HTTP_404_NOT_FOUND: "NOT_FOUND",
     status.HTTP_405_METHOD_NOT_ALLOWED: "METHOD_NOT_ALLOWED",
     status.HTTP_409_CONFLICT: "CONFLICT",
+    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: "PAYLOAD_TOO_LARGE",
     status.HTTP_423_LOCKED: "ACCOUNT_LOCKED",
 }
 

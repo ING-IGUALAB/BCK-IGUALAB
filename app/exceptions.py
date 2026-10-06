@@ -47,3 +47,16 @@ class ConflictError(AppException):
 class BusinessValidationError(AppException):
     """Una regla funcional impide completar la operación."""
 
+
+class PayloadTooLargeError(AppException):
+    """El contenido enviado supera el tamaño permitido."""
+
+
+class ExternalServiceError(AppException):
+    """Un servicio externo del que depende la operación falló o respondió de
+    forma inválida. No es un error del cliente."""
+
+
+class ExternalServiceTimeoutError(ExternalServiceError):
+    """El servicio externo no respondió dentro del plazo."""
+

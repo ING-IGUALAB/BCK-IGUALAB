@@ -3,7 +3,8 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-from app.models import RolUsuario, SectorEmpresa
+from app.models import RolUsuario, SectorEmpresa, TipoDocumento
+from app.services.ingesta.reglas import interpretar_anio
 
 
 
@@ -94,3 +95,19 @@ class EmpresaResponse(BaseModel):
     sector: SectorEmpresa
     activa: bool
     creada_en: datetime
+
+
+class MetadatosIngestaRequest(BaseModel):
+    """LTX:RF-012, RN-020, RN-022. El sector, si se envía, solo se contrasta con la empresa."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    empresa_id: uuid.UUID
+    anio: int
+    tipo: TipoDocumento
+    sector: SectorEmpresa | None = None
+
+    @field_validator("anio", mode="before")
+    @classmethod
+    def validar_anio(cls, valor):
+        return interpretar_anio(valor)
