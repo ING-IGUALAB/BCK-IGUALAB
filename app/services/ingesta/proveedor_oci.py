@@ -42,17 +42,23 @@ class ProveedorEmbeddingsOCI:
             ),
         )
 
-    async def generar_embeddings(self, textos: Sequence[str]) -> Sequence[Sequence[float]]:
-        """Devuelve un vector por texto, en el mismo orden."""
-        def _llamar() -> list[list[float]]:
-            respuesta = self._client.embed_text(
-                EmbedTextDetails(
-                    compartment_id=settings.OCI_COMPARTMENT_ID,
-                    serving_mode=OnDemandServingMode(model_id=settings.OCI_EMBED_MODEL),
-                    inputs=list(textos),
-                    input_type="SEARCH_DOCUMENT",
-                )
+    def _embed(self, textos: Sequence[str], input_type: str) -> list[list[float]]:
+        respuesta = self._client.embed_text(
+            EmbedTextDetails(
+                compartment_id=settings.OCI_COMPARTMENT_ID,
+                serving_mode=OnDemandServingMode(model_id=settings.OCI_EMBED_MODEL),
+                inputs=list(textos),
+                input_type=input_type,
+                output_dimensions=settings.OCI_EMBED_DIMENSIONS,
+                truncate="END",
             )
-            return [list(vector) for vector in respuesta.data.embeddings]
+        )
+        return [list(vector) for vector in respuesta.data.embeddings]
 
-        return await asyncio.to_thread(_llamar)
+    async def generar_embeddings(self, textos: Sequence[str]) -> Sequence[Sequence[float]]:
+        """Ingesta: un vector por texto, en el mismo orden (`SEARCH_DOCUMENT`)."""
+        return await asyncio.to_thread(self._embed, textos, "SEARCH_DOCUMENT")
+
+    async def generar_embeddings_consulta(self, textos: Sequence[str]) -> Sequence[Sequence[float]]:
+        """Consulta: `SEARCH_QUERY` (asimétrico respecto a la ingesta)."""
+        return await asyncio.to_thread(self._embed, textos, "SEARCH_QUERY")

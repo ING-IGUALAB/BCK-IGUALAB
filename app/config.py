@@ -71,8 +71,8 @@ class Settings:
     # contenedor ese archivo se genera a partir del .env durante el despliegue.
     OCI_REGION: str = os.getenv("OCI_REGION", "us-chicago-1")
     OCI_COMPARTMENT_ID: str | None = os.getenv("OCI_COMPARTMENT_ID")
-    OCI_EMBED_MODEL: str = os.getenv("OCI_EMBED_MODEL", "cohere.embed-multilingual-v3.0")
-    OCI_EMBED_DIMENSIONS: int = int(os.getenv("OCI_EMBED_DIMENSIONS", "1024"))
+    OCI_EMBED_MODEL: str = os.getenv("OCI_EMBED_MODEL", "cohere.embed-v4.0")
+    OCI_EMBED_DIMENSIONS: int = int(os.getenv("OCI_EMBED_DIMENSIONS", "1536"))
     OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", "~/.oci/config")
     OCI_CONFIG_PROFILE: str = os.getenv("OCI_CONFIG_PROFILE", "svc-embeddings")
 
