@@ -1,59 +1,75 @@
-"""Adaptador de embeddings de OCI Generative AI (`proveedor_oci`) frente al contrato de
+"""Adaptador de embeddings de OCI Generative AI (Cohere Embed 4, 1536) frente al contrato de
 `embeddings.py`.
 
 Nivel: SDK de OCI SUSTITUIDO por dobles. No se llama a Oracle, no se leen credenciales ni el
 archivo de configuración de OCI y no se consumen créditos: estas pruebas NO demuestran que el
-servicio real, el modelo, la dimensión ni los permisos funcionen (eso lo cubre el smoke manual
-`scripts/smoke_embeddings_oci.py`, que NO se ejecutó en esta integración).
+servicio real, el modelo, la dimensión de 1536 ni los permisos funcionen (eso lo comprueba la
+prueba manual `scripts/smoke_embeddings_oci.py`, que ejecuta una persona).
 """
+import math
 import threading
 from types import SimpleNamespace
 
+import oci
 import pytest
 
-from app.exceptions import ExternalServiceError
+from app.exceptions import ExternalServiceError, ExternalServiceTimeoutError
 from app.services.ingesta import proveedor_oci
-from app.services.ingesta.embeddings import IdentidadEmbeddings, embeber_fragmentos
+from app.services.ingesta.embeddings import (
+    IdentidadEmbeddings,
+    embeber_consulta,
+    embeber_fragmentos,
+)
 from app.services.ingesta.fragmentacion import ParametrosFragmentacion, iterar_fragmentos
 
 SECRETO = "SECRETO-OCI-FICTICIO"
+TEXTO_DOCUMENTAL = "TEXTO-DOCUMENTAL-CONFIDENCIAL"
+DIM = 1536
 
 
 def ajustes(**cambios):
     base = dict(
         OCI_REGION="us-chicago-1", OCI_COMPARTMENT_ID="ocid1.compartment.oc1..ficticio",
-        OCI_EMBED_MODEL="cohere.embed-multilingual-v3.0", OCI_EMBED_DIMENSIONS=3,
+        OCI_EMBED_MODEL="cohere.embed-v4.0", OCI_EMBED_DIMENSIONS=DIM,
         OCI_CONFIG_FILE="~/.oci/config-ficticio", OCI_CONFIG_PROFILE="perfil-ficticio",
+        OCI_CONNECT_TIMEOUT_SECONDS="10", OCI_READ_TIMEOUT_SECONDS="60",
     )
     base.update(cambios)
     return SimpleNamespace(**base)
 
 
+def vector(n: int = DIM, valor: float = 0.25) -> list[float]:
+    return [valor] * n
+
+
 class ClienteFalso:
     def __init__(self, respuesta=None, error=None):
-        self.peticiones = []
-        self.hilos = []
+        self.peticiones, self.hilos = [], []
         self.respuesta, self.error = respuesta, error
+        self.compuerta: threading.Event | None = None
+        self.base_client = SimpleNamespace(session=SimpleNamespace(cerrada=0, close=lambda: None))
 
     def embed_text(self, detalles):
         self.hilos.append(threading.get_ident())
         self.peticiones.append(detalles)
+        if self.compuerta is not None:
+            self.compuerta.wait(10)
         if self.error is not None:
             raise self.error
-        vectores = self.respuesta if self.respuesta is not None else [[float(i), 0.5, 0.25] for i, _ in enumerate(detalles.inputs)]
+        vectores = self.respuesta if self.respuesta is not None else [vector(valor=float(i)) for i, _ in enumerate(detalles.inputs)]
         return SimpleNamespace(data=SimpleNamespace(embeddings=vectores))
 
 
 @pytest.fixture
 def oci_falso(monkeypatch):
-    estado = SimpleNamespace(cliente=ClienteFalso(), config_leida=None, construido=None)
+    estado = SimpleNamespace(cliente=ClienteFalso(), config_leida=None, argumentos=None)
 
     def desde_archivo(archivo, perfil):
         estado.config_leida = (archivo, perfil)
         return {"region": "ficticia"}
 
-    def construir(config, service_endpoint):
-        estado.construido = (config, service_endpoint)
+    def construir(**kwargs):
+        estado.argumentos = kwargs
         return estado.cliente
 
     monkeypatch.setattr(proveedor_oci, "settings", ajustes())
@@ -62,29 +78,76 @@ def oci_falso(monkeypatch):
     return estado
 
 
+async def consumir(proveedor, texto="# T\n\nCuerpo.\n", tamano_lote=2):
+    return [lote async for lote in embeber_fragmentos(
+        iterar_fragmentos(texto), proveedor, tamano_lote=tamano_lote, timeout_segundos=5)]
+
+
+# --- Construcción y configuración ---------------------------------------------------------------------
+
 def test_sin_compartimento_no_se_construye_ni_se_lee_la_configuracion(oci_falso, monkeypatch):
     monkeypatch.setattr(proveedor_oci, "settings", ajustes(OCI_COMPARTMENT_ID=None))
     with pytest.raises(ValueError, match="OCI_COMPARTMENT_ID"):
         proveedor_oci.ProveedorEmbeddingsOCI()
-    assert oci_falso.config_leida is None and oci_falso.construido is None
+    assert oci_falso.config_leida is None and oci_falso.argumentos is None
 
 
-def test_identidad_endpoint_y_perfil_salen_de_la_configuracion(oci_falso):
+@pytest.mark.parametrize("cambios, mensaje", [
+    (dict(OCI_EMBED_DIMENSIONS=1000), "OCI_EMBED_DIMENSIONS"),
+    (dict(OCI_EMBED_DIMENSIONS=1024.0 + 1), "OCI_EMBED_DIMENSIONS"),
+    (dict(OCI_CONNECT_TIMEOUT_SECONDS="0"), "OCI_CONNECT_TIMEOUT_SECONDS"),
+    (dict(OCI_CONNECT_TIMEOUT_SECONDS="abc"), "OCI_CONNECT_TIMEOUT_SECONDS"),
+    (dict(OCI_READ_TIMEOUT_SECONDS="-5"), "OCI_READ_TIMEOUT_SECONDS"),
+    (dict(OCI_READ_TIMEOUT_SECONDS="inf"), "OCI_READ_TIMEOUT_SECONDS"),
+    (dict(OCI_READ_TIMEOUT_SECONDS=None), "OCI_READ_TIMEOUT_SECONDS"),
+])
+def test_configuracion_invalida_se_rechaza_antes_de_construir_el_cliente(oci_falso, monkeypatch, cambios, mensaje):
+    monkeypatch.setattr(proveedor_oci, "settings", ajustes(**cambios))
+    with pytest.raises(ValueError, match=mensaje):
+        proveedor_oci.ProveedorEmbeddingsOCI()
+    assert oci_falso.argumentos is None
+
+
+def test_identidad_endpoint_plazos_y_sin_reintentos(oci_falso):
     proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
-    assert proveedor.identidad == IdentidadEmbeddings("oci-cohere", "cohere.embed-multilingual-v3.0", 3)
+    assert proveedor.identidad == IdentidadEmbeddings("oci-cohere", "cohere.embed-v4.0", DIM)
     archivo, perfil = oci_falso.config_leida
     assert archivo.endswith("config-ficticio") and "~" not in archivo and perfil == "perfil-ficticio"
-    assert oci_falso.construido[1] == "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com"
+    argumentos = oci_falso.argumentos
+    assert argumentos["service_endpoint"] == "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com"
+    assert argumentos["timeout"] == (10.0, 60.0)  # conexión y lectura explícitas
+    assert isinstance(argumentos["retry_strategy"], oci.retry.NoneRetryStrategy)  # política explícita: ninguna
 
 
-async def test_la_peticion_conserva_orden_modelo_compartimento_y_tipo_de_entrada(oci_falso):
+# --- Petición efectiva -------------------------------------------------------------------------------------
+
+async def test_la_peticion_envia_modelo_v4_dimension_tipo_y_truncate_none(oci_falso):
     proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
     vectores = await proveedor.generar_embeddings(["uno", "dos", "tres"])
     [detalles] = oci_falso.cliente.peticiones
-    assert detalles.inputs == ["uno", "dos", "tres"] and detalles.input_type == "SEARCH_DOCUMENT"
+    assert detalles.serving_mode.model_id == "cohere.embed-v4.0"
+    assert detalles.output_dimensions == 1536  # ENVIADA en la petición, no solo declarada
+    assert detalles.truncate == "NONE" and detalles.input_type == "SEARCH_DOCUMENT"
+    assert detalles.inputs == ["uno", "dos", "tres"]
     assert detalles.compartment_id == "ocid1.compartment.oc1..ficticio"
-    assert detalles.serving_mode.model_id == "cohere.embed-multilingual-v3.0"
-    assert [v[0] for v in vectores] == [0.0, 1.0, 2.0]
+    assert [v[0] for v in vectores] == [0.0, 1.0, 2.0]  # orden y cantidad
+
+
+async def test_la_consulta_usa_search_query_con_la_misma_dimension_y_truncate(oci_falso):
+    proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
+    consulta = await embeber_consulta("¿Cuánta agua se consumió?", proveedor, timeout_segundos=5)
+    [detalles] = oci_falso.cliente.peticiones
+    assert detalles.input_type == "SEARCH_QUERY" and detalles.output_dimensions == 1536
+    assert detalles.truncate == "NONE" and len(consulta) == DIM
+
+
+async def test_la_dimension_configurada_distinta_se_envia_y_se_exige(oci_falso, monkeypatch):
+    monkeypatch.setattr(proveedor_oci, "settings", ajustes(OCI_EMBED_DIMENSIONS=1024))
+    proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
+    oci_falso.cliente.respuesta = [vector(1024)]
+    lotes = await consumir(proveedor)
+    assert oci_falso.cliente.peticiones[0].output_dimensions == 1024
+    assert len(lotes[0].elementos[0].vector) == 1024
 
 
 async def test_la_llamada_sincrona_del_sdk_no_corre_en_el_hilo_del_bucle(oci_falso):
@@ -92,39 +155,80 @@ async def test_la_llamada_sincrona_del_sdk_no_corre_en_el_hilo_del_bucle(oci_fal
     assert oci_falso.cliente.hilos and oci_falso.cliente.hilos[0] != threading.get_ident()
 
 
-async def test_funciona_a_traves_del_contrato_de_embeddings_con_fragmentos_reales(oci_falso):
+# --- Contrato: aceptación y rechazo de respuestas --------------------------------------------------------------
+
+async def test_acepta_vectores_numericos_finitos_de_1536_a_traves_del_contrato(oci_falso):
     proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
     texto = "# Memoria\n\nIntroducción.\n\n## Agua\n\nConsumo de agua.\n\n## Energía\n\nConsumo energético.\n"
     parametros = ParametrosFragmentacion(max_caracteres=40, max_caracteres_contexto=80)
-    lotes = [
-        lote async for lote in embeber_fragmentos(
-            iterar_fragmentos(texto, parametros), proveedor, tamano_lote=2, timeout_segundos=5
-        )
-    ]
+    lotes = [lote async for lote in embeber_fragmentos(
+        iterar_fragmentos(texto, parametros), proveedor, tamano_lote=2, timeout_segundos=5)]
     elementos = [e for lote in lotes for e in lote.elementos]
     assert len(lotes) >= 2 and elementos
-    assert all(e.vector and len(e.vector) == 3 and all(isinstance(c, float) for c in e.vector) for e in elementos)
+    assert all(len(e.vector) == DIM and all(math.isfinite(c) for c in e.vector) for e in elementos)
     assert [e.fragmento.indice for e in elementos] == sorted(e.fragmento.indice for e in elementos)
-    # Se envía `texto_embedding` (contexto + literal) en el mismo orden.
     enviados = [t for p in oci_falso.cliente.peticiones for t in p.inputs]
-    assert enviados == [e.fragmento.texto_embedding for e in elementos]
+    assert enviados == [e.fragmento.texto_embedding for e in elementos]  # contexto + literal, en orden
 
 
-async def test_un_error_del_sdk_se_convierte_en_error_controlado_sin_filtrar_el_mensaje(oci_falso):
-    oci_falso.cliente.error = RuntimeError(f"401 con clave {SECRETO} y texto del documento")
+@pytest.mark.parametrize("respuesta", [
+    [vector(1024)],                      # dimensión distinta
+    [vector(1537)],                      # una componente de más
+    [vector(1535)],                      # una de menos
+    [vector(), vector()],                # más vectores que textos
+    [],                                  # ninguno
+    [vector(valor=math.nan)],            # NaN
+    [vector(valor=math.inf)],            # infinito
+    [vector(valor=-math.inf)],
+    [[True] * DIM],                      # booleanos no son números
+    [["0.5"] * DIM],                     # texto
+])
+async def test_rechaza_respuestas_invalidas_con_error_controlado(oci_falso, respuesta):
+    oci_falso.cliente.respuesta = respuesta
     proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
     with pytest.raises(ExternalServiceError) as capturado:
-        async for _ in embeber_fragmentos(iterar_fragmentos("# T\n\nCuerpo.\n"), proveedor, tamano_lote=2, timeout_segundos=5):
-            pass
-    assert capturado.value.code == "EMBEDDING_PROVIDER_ERROR"
-    assert SECRETO not in f"{capturado.value} {capturado.value.details} {capturado.value.message}"
-    assert capturado.value.__cause__ is None
-
-
-async def test_una_dimension_distinta_a_la_configurada_se_rechaza(oci_falso):
-    oci_falso.cliente.respuesta = [[0.1, 0.2]]  # 2 componentes; la identidad declara 3
-    proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
-    with pytest.raises(ExternalServiceError) as capturado:
-        async for _ in embeber_fragmentos(iterar_fragmentos("# T\n\nCuerpo.\n"), proveedor, tamano_lote=1, timeout_segundos=5):
-            pass
+        await consumir(proveedor, texto="# T\n\nUn único fragmento.\n", tamano_lote=1)
     assert capturado.value.code == "EMBEDDING_INVALID_RESPONSE"
+    assert TEXTO_DOCUMENTAL not in f"{capturado.value} {capturado.value.details}"
+
+
+# --- Errores y timeout controlados ------------------------------------------------------------------------------
+
+async def test_un_error_del_sdk_no_filtra_secretos_ni_texto(oci_falso):
+    oci_falso.cliente.error = RuntimeError(f"401 con clave {SECRETO} y {TEXTO_DOCUMENTAL}")
+    proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
+    with pytest.raises(ExternalServiceError) as capturado:
+        await consumir(proveedor, texto=f"# T\n\n{TEXTO_DOCUMENTAL}\n")
+    assert capturado.value.code == "EMBEDDING_PROVIDER_ERROR"
+    visible = f"{capturado.value} {capturado.value.details} {capturado.value.message}"
+    assert SECRETO not in visible and TEXTO_DOCUMENTAL not in visible and capturado.value.__cause__ is None
+
+
+async def test_un_timeout_es_un_error_controlado_aunque_el_hilo_siga(oci_falso):
+    oci_falso.cliente.compuerta = threading.Event()
+    proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
+    try:
+        with pytest.raises(ExternalServiceTimeoutError) as capturado:
+            async for _ in embeber_fragmentos(
+                iterar_fragmentos(f"# T\n\n{TEXTO_DOCUMENTAL}\n"), proveedor, tamano_lote=1, timeout_segundos=0.05
+            ):
+                pass
+        assert capturado.value.code == "EMBEDDING_PROVIDER_TIMEOUT"
+        assert TEXTO_DOCUMENTAL not in f"{capturado.value} {capturado.value.details}"
+        # Cancelar la espera NO detuvo la petición: el hilo del SDK sigue bloqueado dentro de `embed_text`.
+        assert len(oci_falso.cliente.peticiones) == 1
+    finally:
+        oci_falso.cliente.compuerta.set()
+
+
+# --- Recursos ---------------------------------------------------------------------------------------------------------
+
+def test_cerrar_libera_la_sesion_y_tolera_clientes_sin_ella(oci_falso):
+    cierres = []
+    oci_falso.cliente.base_client.session.close = lambda: cierres.append(1)
+    proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
+    proveedor.cerrar()
+    proveedor.cerrar()
+    assert cierres == [1, 1]  # idempotente: delega en el cierre de la sesión
+    proveedor._client = SimpleNamespace()  # un cliente sin sesión no falla
+    proveedor.cerrar()

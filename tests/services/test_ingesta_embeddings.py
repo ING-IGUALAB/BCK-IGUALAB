@@ -887,3 +887,14 @@ async def test_embeber_consulta_rechaza_dimension_incorrecta():
     with pytest.raises(ExternalServiceError) as capturado:
         await embeber_consulta("x", proveedor, timeout_segundos=5)
     assert capturado.value.code == "EMBEDDING_INVALID_RESPONSE"
+
+
+async def test_embeber_consulta_exige_una_identidad_valida():
+    class SinIdentidad:
+        identidad = "no es una IdentidadEmbeddings"
+
+        async def generar_embeddings_consulta(self, textos):
+            raise AssertionError("no debe llamarse")
+
+    with pytest.raises(TypeError, match="identidad"):
+        await embeber_consulta("x", SinIdentidad(), timeout_segundos=5)

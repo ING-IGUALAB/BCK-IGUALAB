@@ -75,6 +75,9 @@ class Settings:
     OCI_EMBED_DIMENSIONS: int = int(os.getenv("OCI_EMBED_DIMENSIONS", "1536"))
     OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", "~/.oci/config")
     OCI_CONFIG_PROFILE: str = os.getenv("OCI_CONFIG_PROFILE", "svc-embeddings")
+    # Plazos del SDK de OCI (segundos, como texto). Provisionales: calibrar con la prueba real.
+    OCI_CONNECT_TIMEOUT_SECONDS: str = os.getenv("OCI_CONNECT_TIMEOUT_SECONDS", "10")
+    OCI_READ_TIMEOUT_SECONDS: str = os.getenv("OCI_READ_TIMEOUT_SECONDS", "60")
 
     DEEPSEEK_API_KEY: str | None = os.getenv("DEEPSEEK_API_KEY")
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
