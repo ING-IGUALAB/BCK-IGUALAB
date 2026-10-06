@@ -188,8 +188,8 @@ def _exigir_plazo(nombre: str, valor: object) -> None:
         raise ValueError(f"{nombre} debe ser un número finito mayor que 0; se recibió {valor}.")
 
 
-async def _llamar(
-    proveedor: ProveedorEmbeddings,
+async def _llamar_metodo(
+    metodo,
     identidad: IdentidadEmbeddings,
     textos: tuple[str, ...],
     lote: int,
@@ -198,7 +198,7 @@ async def _llamar(
     datos = {"proveedor": identidad.proveedor, "modelo": identidad.modelo, "lote": lote}
     try:
         async with asyncio.timeout(timeout_segundos):
-            return await proveedor.generar_embeddings(textos)
+            return await metodo(textos)
     except TimeoutError:
         raise ExternalServiceTimeoutError(
             "EMBEDDING_PROVIDER_TIMEOUT",
@@ -215,6 +215,18 @@ async def _llamar(
             "El proveedor de embeddings devolvió un error.",
             details={**datos, "tipo_error": type(exc).__name__},
         ) from None
+
+
+async def _llamar(
+    proveedor: ProveedorEmbeddings,
+    identidad: IdentidadEmbeddings,
+    textos: tuple[str, ...],
+    lote: int,
+    timeout_segundos: float,
+) -> object:
+    return await _llamar_metodo(
+        proveedor.generar_embeddings, identidad, textos, lote, timeout_segundos
+    )
 
 
 async def _procesar(
@@ -265,3 +277,41 @@ def embeber_fragmentos(
     if not callable(getattr(proveedor, "generar_embeddings", None)):
         raise TypeError("El proveedor debe implementar `generar_embeddings`.")
     return _procesar(fragmentos, proveedor, identidad, tamano_lote, timeout_segundos)
+
+
+class ProveedorEmbeddingsConsulta(Protocol):
+    """Capacidad de embeber CONSULTAS. La ingesta indexa con `SEARCH_DOCUMENT`
+    y la consulta busca con `SEARCH_QUERY`: son representaciones asimétricas del
+    mismo modelo y no se deben intercambiar."""
+
+    @property
+    def identidad(self) -> IdentidadEmbeddings: ...
+
+    async def generar_embeddings_consulta(self, textos: Sequence[str]) -> Sequence[Sequence[float]]:
+        """Un vector por texto, en el mismo orden, con `input_type` de consulta."""
+        ...
+
+
+async def embeber_consulta(
+    texto: str,
+    proveedor: ProveedorEmbeddingsConsulta,
+    *,
+    timeout_segundos: float,
+) -> tuple[float, ...]:
+    """Embebe UNA consulta (input_type `SEARCH_QUERY`) y devuelve su vector.
+
+    Reutiliza la misma validación y el mismo manejo de errores que la ingesta
+    (`EMBEDDING_PROVIDER_TIMEOUT`, `EMBEDDING_PROVIDER_ERROR`,
+    `EMBEDDING_INVALID_RESPONSE`). El parámetro se valida al llamar, no al
+    consumir. No se envía texto documental en los mensajes de error.
+    """
+    _exigir_texto_no_vacio("texto", texto)
+    _exigir_plazo("timeout_segundos", timeout_segundos)
+    identidad = getattr(proveedor, "identidad", None)
+    if not isinstance(identidad, IdentidadEmbeddings):
+        raise TypeError("El proveedor debe exponer `identidad` como IdentidadEmbeddings.")
+    metodo = getattr(proveedor, "generar_embeddings_consulta", None)
+    if not callable(metodo):
+        raise TypeError("El proveedor debe implementar `generar_embeddings_consulta`.")
+    respuesta = await _llamar_metodo(metodo, identidad, (texto,), 0, timeout_segundos)
+    return validar_respuesta(respuesta, 1, identidad, 0)[0]
