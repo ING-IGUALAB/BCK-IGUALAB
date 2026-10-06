@@ -2,24 +2,40 @@
 
 CONEXIÓN. Solo HTTPS con certificado verificado (`verify=True`, sin opción para
 desactivarlo), firma v4, direccionamiento por ruta (MinIO), plazos de conexión y de
-lectura de socket explícitos, sin reintentos del SDK (un intento por operación) y
-sin sumas de verificación automáticas de las versiones recientes de boto3
-(`when_required`), que algunos servidores S3 compatibles no aceptan. No crea
-buckets ni modifica permisos.
+lectura de socket explícitos, UNA sola petición por operación (`total_max_attempts=1`;
+ojo: `max_attempts=1` de botocore significaría 2 peticiones) y sin sumas de verificación
+automáticas de las versiones recientes de boto3 (`when_required`), que algunos servidores
+S3 compatibles no aceptan. No crea buckets ni modifica permisos.
+
+PLAZOS EFECTIVOS. `connect_timeout` y `read_timeout` los aplica el SDK (el segundo es la
+inactividad máxima del socket, NO un plazo total). `operation_timeout` lo aplica
+`asyncio.timeout` a la corrutina que espera al hilo: libera al llamador, pero NO detiene
+la petición.
 
 NO BLOQUEA EL BUCLE. El SDK es síncrono: cada operación corre en un hilo
-(`asyncio.to_thread`) bajo `asyncio.timeout(operation_timeout)`. Un hilo no se
-interrumpe: tras un timeout o una cancelación la operación puede seguir y terminar
-en el servidor. Por eso un timeout de `guardar` o `eliminar` se informa con
-`resultado_incierto=True` y quien coordina debe compensar (la eliminación es
-idempotente). La cancelación se propaga siempre.
+(`asyncio.to_thread`). Un hilo no se interrumpe: tras un timeout o una cancelación la
+operación puede seguir y terminar en el servidor MÁS TARDE. Por eso:
+- `guardar` registra el desenlace REAL del hilo (`estado_subida`): `EN_CURSO` mientras
+  corre, y después `CREADA` (con su `VersionId`), `NO_CREADA` o `INCIERTA`. El registro
+  vive solo en este proceso: tras un reinicio el estado es `SIN_REGISTRO`.
+- Un timeout de `guardar` o `eliminar` se informa con `resultado_incierto=True`. Quien
+  coordina NO debe dar por limpio nada mientras la subida siga `EN_CURSO` ni confiar en
+  que `DELETE` + `HEAD` demuestren ausencia: la subida pendiente puede crear el objeto
+  después. La cancelación se propaga siempre.
+
+NO SOBRESCRITURA. No se usa escritura condicional (`If-None-Match`): su soporte en el
+servidor del equipo no está comprobado. Este adaptador solo impide una segunda subida de la
+misma clave (`STORAGE_UPLOAD_ALREADY_ATTEMPTED`) MIENTRAS CONSERVA su registro en memoria. Ese
+registro está acotado (`_MAXIMO_REGISTROS_SUBIDA`): al superarlo se descartan las claves ya
+terminadas más antiguas (nunca las `EN_CURSO`), y se pierde al reiniciar. Una clave olvidada puede
+subirse de nuevo y sobrescribirse; igual que otro proceso que invoque `guardar` con la misma clave.
+La protección DURADERA es la del servicio (UPDATE condicional en BD: un único intento por
+documento); el registro del adaptador es solo una defensa adicional y el origen de `estado_subida`.
+No se amplía a un registro ilimitado.
 
 INTEGRIDAD. `guardar` comprueba que los bytes coinciden con el SHA-256 validado y
 envía `Content-MD5`, de modo que el servidor rechaza un cuerpo alterado en tránsito.
-Se guardan los bytes exactos, BOM incluido. No se usa escritura condicional
-(`If-None-Match`): su soporte en el servidor del equipo no está comprobado; la no
-sobrescritura se garantiza por claves únicas generadas en el servidor y porque cada
-documento sube su original una sola vez.
+Se guardan los bytes exactos, BOM incluido.
 
 ERRORES. `ExternalServiceError` / `ExternalServiceTimeoutError` con códigos
 `STORAGE_ERROR`, `STORAGE_TIMEOUT`, `STORAGE_OBJECT_NOT_FOUND`, `STORAGE_INVALID_KEY`.
@@ -28,26 +44,38 @@ código S3 (si es un identificador corto) y el estado HTTP. Nunca credenciales,
 endpoint, bucket, clave, contenido, URLs firmadas ni la respuesta del servidor ni
 `str(excepción)`. El módulo no escribe logs.
 
-LIMITACIÓN CON VERSIONADO. Si la versión del objeto no se conoce (subida de resultado
-incierto) y el bucket tiene versionado, `eliminar` crea una marca de borrado y la
-versión puede permanecer; no se lista el bucket porque esos permisos no están
-confirmados. Pendiente de definir con infraestructura (D16).
+VERSIONADO. No se presupone que el bucket tenga el versionado desactivado ni se cambia su
+configuración. Con la versión conocida, `eliminar` borra esa versión concreta. Sin ella,
+`eliminar` crearía una marca de borrado y la versión podría seguir detrás: para reconciliar
+existe `listar_versiones` (solo la clave exacta; requiere el permiso
+`s3:ListBucketVersions`, no confirmado). Si no hay permiso, quien coordina deja la
+compensación pendiente. Nunca se borran versiones de otras claves.
 """
 import asyncio
 import base64
 import hashlib
 import re
+import threading
 from collections.abc import Callable
 from typing import Any
 
 import boto3
 from botocore.config import Config
-from botocore.exceptions import ClientError, ConnectTimeoutError, ReadTimeoutError
+from botocore.exceptions import (
+    ClientError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ReadTimeoutError,
+    SSLError,
+)
 
-from app.exceptions import ExternalServiceError, ExternalServiceTimeoutError
+from app.exceptions import ConflictError, ExternalServiceError, ExternalServiceTimeoutError
 from app.services.ingesta.almacenamiento import (
     ConfigAlmacenamiento,
+    EstadoSubida,
     ReferenciaOriginal,
+    SubidaConocida,
+    VersionObjeto,
     clave_pertenece_al_ambiente,
 )
 
@@ -55,6 +83,10 @@ CONTENT_TYPE_MARKDOWN = "text/markdown; charset=utf-8"
 _SHA256_REGEX = re.compile(r"[0-9a-f]{64}")
 _CODIGO_S3_REGEX = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 _SIN_OBJETO = {"404", "NoSuchKey", "NotFound", "NoSuchVersion"}
+# Errores que garantizan que la petición NUNCA llegó al servidor (no se estableció la conexión).
+_SIN_ENVIO = (ConnectTimeoutError, EndpointConnectionError, SSLError)
+_MAXIMO_PAGINAS_VERSIONES = 100
+_MAXIMO_REGISTROS_SUBIDA = 1024
 
 
 def crear_cliente_s3(config: ConfigAlmacenamiento) -> Any:
@@ -71,7 +103,7 @@ def crear_cliente_s3(config: ConfigAlmacenamiento) -> Any:
             s3={"addressing_style": "path"},
             connect_timeout=config.connect_timeout,
             read_timeout=config.read_timeout,
-            retries={"max_attempts": 1, "mode": "standard"},
+            retries={"total_max_attempts": 1, "mode": "standard"},
             request_checksum_calculation="when_required",
             response_checksum_validation="when_required",
         ),
@@ -95,12 +127,56 @@ def _sin_objeto(exc: ClientError) -> bool:
     return codigo in _SIN_OBJETO or estado == 404
 
 
+def _es_rechazo_definitivo(exc: ClientError) -> bool:
+    """Un 4xx (salvo 408/429) significa que el servidor NO guardó el objeto."""
+    _, estado = _datos_cliente(exc)
+    return estado is not None and 400 <= estado < 500 and estado not in (408, 429)
+
+
+def listar_versiones_exactas(cliente: Any, bucket: str, clave: str) -> list[VersionObjeto]:
+    """Versiones y marcas de borrado de la clave EXACTA (síncrono; lo usan el adaptador y el
+    script manual). Lanza `ClientError` si faltan permisos: nunca devuelve una lista vacía
+    por no poder consultar."""
+    resultado: list[VersionObjeto] = []
+    marcador: dict[str, str] = {}
+    for _ in range(_MAXIMO_PAGINAS_VERSIONES):
+        pagina = cliente.list_object_versions(Bucket=bucket, Prefix=clave, **marcador)
+        for entrada in pagina.get("Versions") or []:
+            if entrada.get("Key") == clave and entrada.get("VersionId"):
+                tamano = entrada.get("Size")
+                resultado.append(
+                    VersionObjeto(str(entrada["VersionId"]), False, tamano if isinstance(tamano, int) else None)
+                )
+        for entrada in pagina.get("DeleteMarkers") or []:
+            if entrada.get("Key") == clave and entrada.get("VersionId"):
+                resultado.append(VersionObjeto(str(entrada["VersionId"]), True, None))
+        if not pagina.get("IsTruncated"):
+            return resultado
+        siguiente_clave, siguiente_version = pagina.get("NextKeyMarker"), pagina.get("NextVersionIdMarker")
+        if not siguiente_clave:
+            break
+        marcador = {"KeyMarker": siguiente_clave}
+        if siguiente_version:
+            marcador["VersionIdMarker"] = siguiente_version
+    raise RuntimeError("listado de versiones incompleto")  # un listado cortado no se declara vacío
+
+
+class _Subida:
+    __slots__ = ("estado", "version_id")
+
+    def __init__(self) -> None:
+        self.estado = EstadoSubida.EN_CURSO
+        self.version_id: str | None = None
+
+
 class AlmacenOriginalesS3:
     def __init__(self, config: ConfigAlmacenamiento, cliente: Any | None = None) -> None:
         if not isinstance(config, ConfigAlmacenamiento):
             raise TypeError("config debe ser una ConfigAlmacenamiento.")
         self._config = config
         self._cliente = cliente if cliente is not None else crear_cliente_s3(config)
+        self._candado = threading.Lock()
+        self._subidas: dict[str, _Subida] = {}  # desenlace real de cada `guardar` de este proceso
 
     @property
     def ambiente(self) -> str:
@@ -166,19 +242,77 @@ class AlmacenOriginalesS3:
             raise ValueError("El contenido no corresponde al SHA-256 indicado.")
         md5 = base64.b64encode(hashlib.md5(datos, usedforsecurity=False).digest()).decode("ascii")
 
+        registro = _Subida()
+        with self._candado:
+            if clave in self._subidas:
+                raise ConflictError(
+                    "STORAGE_UPLOAD_ALREADY_ATTEMPTED",
+                    "Ya se intentó guardar esta clave: no se sobrescribe.",
+                )
+            self._podar_registro()
+            self._subidas[clave] = registro
+
         def subir() -> Any:
-            return self._cliente.put_object(
-                Bucket=self._config.bucket,
-                Key=clave,
-                Body=datos,
-                ContentLength=len(datos),
-                ContentMD5=md5,
-                ContentType=CONTENT_TYPE_MARKDOWN,
+            # Corre en un hilo que puede sobrevivir a la corrutina: aquí se anota el
+            # desenlace REAL, aunque nadie esté esperando ya.
+            try:
+                respuesta = self._cliente.put_object(
+                    Bucket=self._config.bucket,
+                    Key=clave,
+                    Body=datos,
+                    ContentLength=len(datos),
+                    ContentMD5=md5,
+                    ContentType=CONTENT_TYPE_MARKDOWN,
+                )
+            except ClientError as exc:
+                self._cerrar_registro(
+                    registro, EstadoSubida.NO_CREADA if _es_rechazo_definitivo(exc) else EstadoSubida.INCIERTA
+                )
+                raise
+            except _SIN_ENVIO:
+                self._cerrar_registro(registro, EstadoSubida.NO_CREADA)
+                raise
+            except BaseException:
+                self._cerrar_registro(registro, EstadoSubida.INCIERTA)
+                raise
+            version = respuesta.get("VersionId") if isinstance(respuesta, dict) else None
+            self._cerrar_registro(
+                registro, EstadoSubida.CREADA, version if isinstance(version, str) and version else None
             )
+            return respuesta
 
         respuesta = await self._ejecutar("guardar", subir, incierto=True)
         version = respuesta.get("VersionId") if isinstance(respuesta, dict) else None
         return ReferenciaOriginal(clave, version if isinstance(version, str) and version else None)
+
+    def _cerrar_registro(self, registro: _Subida, estado: EstadoSubida, version: str | None = None) -> None:
+        with self._candado:
+            registro.version_id = version  # la versión se fija antes de publicar el estado
+            registro.estado = estado
+
+    def _podar_registro(self) -> None:
+        """Acota la memoria: descarta los registros terminados más antiguos (nunca EN_CURSO)."""
+        exceso = len(self._subidas) - _MAXIMO_REGISTROS_SUBIDA + 1
+        if exceso <= 0:
+            return
+        for clave in [c for c, r in self._subidas.items() if r.estado is not EstadoSubida.EN_CURSO][:exceso]:
+            del self._subidas[clave]
+
+    async def estado_subida(self, clave: str) -> SubidaConocida:
+        self._exigir_propia(ReferenciaOriginal(clave), "estado_subida")
+        with self._candado:
+            registro = self._subidas.get(clave)
+            if registro is None:
+                return SubidaConocida(EstadoSubida.SIN_REGISTRO)
+            return SubidaConocida(registro.estado, registro.version_id)
+
+    async def listar_versiones(self, clave: str) -> list[VersionObjeto]:
+        self._exigir_propia(ReferenciaOriginal(clave), "listar_versiones")
+        return await self._ejecutar(
+            "listar_versiones",
+            lambda: listar_versiones_exactas(self._cliente, self._config.bucket, clave),
+            incierto=False,
+        )
 
     def _argumentos(self, referencia: ReferenciaOriginal) -> dict[str, str]:
         argumentos = {"Bucket": self._config.bucket, "Key": referencia.clave}

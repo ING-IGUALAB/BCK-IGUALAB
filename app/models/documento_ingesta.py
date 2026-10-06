@@ -13,7 +13,7 @@ parciales, no solo en los servicios.
 """
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import (
     BigInteger,
@@ -56,8 +56,17 @@ class EstadoCompensacion(str, enum.Enum):
     COMPLETADA = "COMPLETADA"
 
 
+# Vigencia inicial de la propiedad de una operación EN_PROCESO. Provisional (D24): debe
+# superar el plazo de la operación más larga que NO renueva la vigencia (la subida).
+VIGENCIA_PREDETERMINADA = timedelta(minutes=15)
+
+
 def _ahora_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _vigencia_inicial() -> datetime:
+    return _ahora_utc() + VIGENCIA_PREDETERMINADA
 
 
 def _enum(clase: type[enum.Enum], nombre: str) -> Enum:
@@ -119,6 +128,15 @@ class Documento(Base):
     compensacion_intentos: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False)
     ultimo_error_compensacion: Mapped[str | None] = mapped_column(String(64), nullable=True)
     compensada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Propiedad y vigencia de la operación EN_PROCESO. El ejecutor recibe el token al reservar
+    # y TODA transición suya lo exige. La recuperación solo toma operaciones con la vigencia
+    # vencida y ROTA el token: el ejecutor anterior ya no puede publicar ni registrar nada.
+    # La antigüedad (`creado_en`) no interviene: un ejecutor vivo renueva la vigencia.
+    ejecucion_token: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, default=uuid.uuid4)
+    ejecucion_vigente_hasta: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_vigencia_inicial
+    )
 
     # Mientras sea verdadera ocupa su SHA-256 y su empresa/año/tipo.
     reserva_activa: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)

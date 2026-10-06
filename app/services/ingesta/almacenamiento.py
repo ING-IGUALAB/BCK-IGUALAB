@@ -9,8 +9,20 @@ documento tiene su propia clave y solo se sube una vez, así que ninguna operaci
 sobrescribe objetos de otra. Un almacén solo actúa sobre claves con su prefijo y
 esta forma exacta.
 
+NO SOBRESCRITURA. El UUID por sí solo no la garantiza: un adaptador invocado dos veces
+con la misma clave la sobrescribiría (o, con versionado, crearía otra versión). La
+protección real es (1) el servicio, que registra el intento de subida con un UPDATE
+condicional en la BD (`almacenamiento_intentado_en IS NULL`), de modo que solo UNA llamada
+por documento llega al almacén, incluso entre procesos, y (2) el adaptador S3, que rechaza
+en proceso una segunda subida de la misma clave, SOLO mientras conserva su registro: ese
+registro es de memoria, acotado y descarta las claves terminadas más antiguas (y se pierde al
+reiniciar), así que una clave olvidada podría subirse de nuevo. NO se usa escritura condicional de S3
+(`If-None-Match`): su soporte en el MinIO del equipo no está comprobado. La protección DURADERA es
+la del servicio (UPDATE condicional en la BD), no la del adaptador.
+
 SECRETOS. `ConfigAlmacenamiento` no muestra credenciales en `repr`/`str`.
 """
+import enum
 import math
 import re
 import uuid
@@ -33,6 +45,42 @@ class ReferenciaOriginal:
 
     clave: str
     version_id: str | None = None
+
+
+class EstadoSubida(str, enum.Enum):
+    """Lo que ESTE proceso sabe de la subida de una clave (sin consultar la red).
+
+    - `EN_CURSO`: el hilo del SDK sigue ejecutándose (aunque la corrutina ya terminó por
+      timeout o cancelación): el objeto aún puede aparecer.
+    - `CREADA`: el servidor confirmó la creación (con su `version_id` si hay versionado).
+    - `NO_CREADA`: no se creó con certeza (la conexión nunca se estableció o el servidor
+      rechazó la petición con un error 4xx).
+    - `INCIERTA`: terminó con un error que no permite saber si el servidor la completó
+      (lectura agotada, conexión cortada, 5xx).
+    - `SIN_REGISTRO`: este proceso no tiene registro (otro proceso, reinicio, o clave
+      nunca subida desde aquí): el desenlace es desconocido.
+    """
+
+    EN_CURSO = "EN_CURSO"
+    CREADA = "CREADA"
+    NO_CREADA = "NO_CREADA"
+    INCIERTA = "INCIERTA"
+    SIN_REGISTRO = "SIN_REGISTRO"
+
+
+@dataclass(frozen=True)
+class SubidaConocida:
+    estado: EstadoSubida
+    version_id: str | None = None
+
+
+@dataclass(frozen=True)
+class VersionObjeto:
+    """Una versión (o marca de borrado) de la clave EXACTA consultada."""
+
+    version_id: str
+    es_marca_de_borrado: bool = False
+    tamano: int | None = None
 
 
 def validar_ambiente(ambiente: object) -> str:
@@ -76,7 +124,18 @@ class AlmacenOriginales(Protocol):
     async def existe(self, referencia: ReferenciaOriginal) -> bool: ...
 
     async def eliminar(self, referencia: ReferenciaOriginal) -> None:
-        """Idempotente: eliminar algo ya eliminado no es un error."""
+        """Idempotente: eliminar algo ya eliminado no es un error. Con `version_id`
+        elimina SOLO esa versión; sin él, con versionado, crea una marca de borrado."""
+        ...
+
+    async def estado_subida(self, clave: str) -> SubidaConocida:
+        """Desenlace de `guardar` conocido por este proceso. No usa la red ni bloquea."""
+        ...
+
+    async def listar_versiones(self, clave: str) -> list[VersionObjeto]:
+        """TODAS las versiones y marcas de borrado de la clave exacta (no de otras con el
+        mismo prefijo). Puede fallar por permisos: quien llama debe dejar la compensación
+        pendiente, nunca suponer que no hay nada."""
         ...
 
 
