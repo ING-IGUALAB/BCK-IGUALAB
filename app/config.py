@@ -66,6 +66,20 @@ class Settings:
     MINIO_READ_TIMEOUT_SECONDS: str = os.getenv("MINIO_READ_TIMEOUT_SECONDS", "60")
     MINIO_OPERATION_TIMEOUT_SECONDS: str = os.getenv("MINIO_OPERATION_TIMEOUT_SECONDS", "300")
 
+    # Proveedor de embeddings (OCI Generative AI) y LLM de chat (DeepSeek).
+    # La identidad OCI se resuelve con OCI_CONFIG_FILE / OCI_CONFIG_PROFILE; en el
+    # contenedor ese archivo se genera a partir del .env durante el despliegue.
+    OCI_REGION: str = os.getenv("OCI_REGION", "us-chicago-1")
+    OCI_COMPARTMENT_ID: str | None = os.getenv("OCI_COMPARTMENT_ID")
+    OCI_EMBED_MODEL: str = os.getenv("OCI_EMBED_MODEL", "cohere.embed-multilingual-v3.0")
+    OCI_EMBED_DIMENSIONS: int = int(os.getenv("OCI_EMBED_DIMENSIONS", "1024"))
+    OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", "~/.oci/config")
+    OCI_CONFIG_PROFILE: str = os.getenv("OCI_CONFIG_PROFILE", "svc-embeddings")
+
+    DEEPSEEK_API_KEY: str | None = os.getenv("DEEPSEEK_API_KEY")
+    DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-flash")
+
     FRONTEND_RESET_URL: str = os.getenv(
         "FRONTEND_RESET_URL", f"{FRONTEND_URL}/restablecer"
     )
