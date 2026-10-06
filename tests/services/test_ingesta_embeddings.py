@@ -36,6 +36,7 @@ from app.services.ingesta.embeddings import (
     IdentidadEmbeddings,
     LoteEmbebido,
     ProveedorEmbeddings,
+    embeber_consulta,
     embeber_fragmentos,
     validar_respuesta,
 )
@@ -813,3 +814,87 @@ def test_errores_de_servicio_externo_usan_el_contrato_uniforme(excepcion, estado
     assert set(error) == {"code", "message", "details", "request_id"}
     assert error["code"] == codigo
     assert error["request_id"] == response.headers["x-request-id"]
+
+
+# --- Consulta (SEARCH_QUERY): asimétrica respecto a la ingesta ----------------------
+
+class ProveedorConsultaSimulado:
+    """Proveedor simulado con la capacidad de embeber CONSULTAS."""
+
+    identidad = IDENTIDAD
+
+    def __init__(self, respuesta=None, error=None, demora: float = 0.0):
+        self.consultas: list[tuple[str, ...]] = []
+        self._respuesta = respuesta
+        self._error = error
+        self._demora = demora
+
+    async def generar_embeddings_consulta(self, textos):
+        self.consultas.append(tuple(textos))
+        if self._demora:
+            await asyncio.sleep(self._demora)
+        if self._error is not None:
+            raise self._error
+        if self._respuesta is not None:
+            return self._respuesta
+        return respuesta_simulada(textos)
+
+
+async def test_embeber_consulta_devuelve_el_vector_de_una_consulta():
+    proveedor = ProveedorConsultaSimulado()
+    texto = "¿cuánta agua se consumió en 2025?"
+    vector = await embeber_consulta(texto, proveedor, timeout_segundos=5)
+    assert vector == tuple(vector_de(texto))
+    assert proveedor.consultas == [(texto,)]  # se envía la consulta tal cual, sin contexto
+
+
+async def test_embeber_consulta_exige_proveedor_con_capacidad_de_consulta():
+    proveedor = proveedor_con(lambda textos: respuesta_simulada(textos))  # solo ingesta
+    with pytest.raises(TypeError):
+        await embeber_consulta("x", proveedor, timeout_segundos=5)
+
+
+@pytest.mark.parametrize("texto", ["", "   ", None, 5])
+async def test_embeber_consulta_exige_texto_no_vacio(texto):
+    with pytest.raises(ValueError):
+        await embeber_consulta(texto, ProveedorConsultaSimulado(), timeout_segundos=5)
+
+
+@pytest.mark.parametrize("plazo", [0, -1, float("inf"), "5"])
+async def test_embeber_consulta_exige_plazo_valido(plazo):
+    with pytest.raises(ValueError):
+        await embeber_consulta("x", ProveedorConsultaSimulado(), timeout_segundos=plazo)
+
+
+async def test_embeber_consulta_envuelve_error_del_proveedor_sin_filtrar():
+    proveedor = ProveedorConsultaSimulado(error=RuntimeError(SECRETO_CLAVE))
+    with pytest.raises(ExternalServiceError) as capturado:
+        await embeber_consulta(SECRETO_DOCUMENTO, proveedor, timeout_segundos=5)
+    error = capturado.value
+    assert error.code == "EMBEDDING_PROVIDER_ERROR"
+    sin_filtraciones(error)
+
+
+async def test_embeber_consulta_respeta_el_timeout():
+    proveedor = ProveedorConsultaSimulado(demora=0.2)
+    with pytest.raises(ExternalServiceTimeoutError) as capturado:
+        await embeber_consulta("x", proveedor, timeout_segundos=0.01)
+    assert capturado.value.code == "EMBEDDING_PROVIDER_TIMEOUT"
+
+
+async def test_embeber_consulta_rechaza_dimension_incorrecta():
+    proveedor = ProveedorConsultaSimulado(respuesta=[[0.1, 0.2, 0.3]])  # 3 != DIMENSION
+    with pytest.raises(ExternalServiceError) as capturado:
+        await embeber_consulta("x", proveedor, timeout_segundos=5)
+    assert capturado.value.code == "EMBEDDING_INVALID_RESPONSE"
+
+
+async def test_embeber_consulta_exige_una_identidad_valida():
+    class SinIdentidad:
+        identidad = "no es una IdentidadEmbeddings"
+
+        async def generar_embeddings_consulta(self, textos):
+            raise AssertionError("no debe llamarse")
+
+    with pytest.raises(TypeError, match="identidad"):
+        await embeber_consulta("x", SinIdentidad(), timeout_segundos=5)

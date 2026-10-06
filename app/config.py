@@ -71,10 +71,13 @@ class Settings:
     # contenedor ese archivo se genera a partir del .env durante el despliegue.
     OCI_REGION: str = os.getenv("OCI_REGION", "us-chicago-1")
     OCI_COMPARTMENT_ID: str | None = os.getenv("OCI_COMPARTMENT_ID")
-    OCI_EMBED_MODEL: str = os.getenv("OCI_EMBED_MODEL", "cohere.embed-multilingual-v3.0")
-    OCI_EMBED_DIMENSIONS: int = int(os.getenv("OCI_EMBED_DIMENSIONS", "1024"))
+    OCI_EMBED_MODEL: str = os.getenv("OCI_EMBED_MODEL", "cohere.embed-v4.0")
+    OCI_EMBED_DIMENSIONS: int = int(os.getenv("OCI_EMBED_DIMENSIONS", "1536"))
     OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", "~/.oci/config")
     OCI_CONFIG_PROFILE: str = os.getenv("OCI_CONFIG_PROFILE", "svc-embeddings")
+    # Plazos del SDK de OCI (segundos, como texto). Provisionales: calibrar con la prueba real.
+    OCI_CONNECT_TIMEOUT_SECONDS: str = os.getenv("OCI_CONNECT_TIMEOUT_SECONDS", "10")
+    OCI_READ_TIMEOUT_SECONDS: str = os.getenv("OCI_READ_TIMEOUT_SECONDS", "60")
 
     DEEPSEEK_API_KEY: str | None = os.getenv("DEEPSEEK_API_KEY")
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
