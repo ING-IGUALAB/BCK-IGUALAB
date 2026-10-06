@@ -219,8 +219,8 @@ async def test_un_completado_bloquea_cargas_concurrentes_con_fecha_y_cuenta_orig
     datos = datos_de(1)
     async with mundo.fabrica() as db:
         original = await reservar(mundo, datos, db=db)
-        await servicio.almacenar_original(db, almacen, original.id, datos)
-        await servicio.publicar_documento(db, original.id, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
+        await servicio.almacenar_original(db, almacen, original.id, datos, token=original.ejecucion_token)
+        await servicio.publicar_documento(db, original.id, token=original.ejecucion_token, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
     resultados = await asyncio.gather(
         *(reservar(mundo, datos, empresa=empresa, anio=2000 + n) for n, empresa in enumerate(mundo.empresas)),
         return_exceptions=True)
@@ -252,7 +252,7 @@ async def test_reintento_tras_fallo_compensado_y_reserva_retenida_mientras_hay_c
         almacen.fallos["guardar"] = [ExternalServiceError("STORAGE_ERROR", "falla")]
         almacen.fallos["eliminar"] = [ExternalServiceError("STORAGE_ERROR", "falla")]
         with pytest.raises(ExternalServiceError):
-            await servicio.almacenar_original(db, almacen, documento.id, datos)
+            await servicio.almacenar_original(db, almacen, documento.id, datos, token=documento.ejecucion_token)
 
         # Compensación pendiente: la reserva se conserva y el reintento se bloquea.
         pendiente = await db.get(Documento, documento.id, populate_existing=True)
@@ -265,7 +265,7 @@ async def test_reintento_tras_fallo_compensado_y_reserva_retenida_mientras_hay_c
 
         # Recuperación: se limpia y SOLO ENTONCES se libera la reserva.
         resumen = await servicio.recuperar_documentos_pendientes(
-            db, almacen, abandonados_antes_de=datetime.now(timezone.utc) - timedelta(days=1), limite=5)
+            db, almacen, ahora=datetime.now(timezone.utc), limite=5)
         assert resumen.compensados == 1 and almacen.objetos == {}
         limpio = await db.get(Documento, documento.id, populate_existing=True)
         assert limpio.reserva_activa is False and limpio.estado_compensacion is EstadoCompensacion.COMPLETADA
@@ -291,7 +291,7 @@ async def test_compensaciones_concurrentes_del_mismo_documento_son_idempotentes(
         almacen.fallos["guardar"] = [ExternalServiceError("STORAGE_ERROR", "falla")]
         almacen.fallos["eliminar"] = [ExternalServiceError("STORAGE_ERROR", "falla")]
         with pytest.raises(ExternalServiceError):
-            await servicio.almacenar_original(db, almacen, documento.id, datos)
+            await servicio.almacenar_original(db, almacen, documento.id, datos, token=documento.ejecucion_token)
 
     async def compensar():
         async with mundo.fabrica() as sesion:
@@ -310,7 +310,7 @@ async def test_liberada_la_reserva_solo_una_de_varias_cargas_concurrentes_la_obt
     almacen = AlmacenEnMemoria()
     async with mundo.fabrica() as db:
         documento = await reservar(mundo, datos, db=db)
-        await servicio.fallar_documento(db, documento.id, "CARGA_CANCELADA")  # sin intento: se libera de inmediato
+        await servicio.fallar_documento(db, documento.id, "CARGA_CANCELADA", token=documento.ejecucion_token)  # sin intento: se libera de inmediato
     resultados = await asyncio.gather(*(reservar(mundo, datos) for _ in range(6)), return_exceptions=True)
     exitos, errores = separar(resultados)
     assert len(exitos) == 1 and all(isinstance(e, ConflictError) for e in errores)
@@ -323,12 +323,12 @@ async def test_nunca_se_publican_dos_veces_aunque_dos_procesos_lo_intenten_a_la_
     almacen = AlmacenEnMemoria()
     async with mundo.fabrica() as db:
         documento = await reservar(mundo, datos, db=db)
-        await servicio.almacenar_original(db, almacen, documento.id, datos)
+        await servicio.almacenar_original(db, almacen, documento.id, datos, token=documento.ejecucion_token)
 
     async def publicar():
         async with mundo.fabrica() as sesion:
             return await servicio.publicar_documento(
-                sesion, documento.id, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.CON_HALLAZGOS)
+                sesion, documento.id, token=documento.ejecucion_token, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.CON_HALLAZGOS)
 
     resultados = await asyncio.gather(*(publicar() for _ in range(4)), return_exceptions=True)
     exitos, errores = separar(resultados)
@@ -344,13 +344,107 @@ async def test_empresa_desactivada_impide_publicar_en_postgresql(mundo):
     async with mundo.fabrica() as db:
         documento = await reservar(mundo, datos, db=db)
         documento_id = documento.id  # un rollback posterior expira las instancias cargadas
-        await servicio.almacenar_original(db, almacen, documento_id, datos)
+        token = documento.ejecucion_token
+        await servicio.almacenar_original(db, almacen, documento_id, datos, token=token)
         await db.execute(text("UPDATE empresas SET activa = false WHERE id = :id"), {"id": mundo.empresa.id})
         await db.commit()
         from app.exceptions import BusinessValidationError
         with pytest.raises(BusinessValidationError) as capturado:
             await servicio.publicar_documento(
-                db, documento_id, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
+                db, documento_id, token=token, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
         assert capturado.value.code == "COMPANY_INACTIVE"
         asegurado = await db.get(Documento, documento_id, populate_existing=True)
         assert asegurado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO and not asegurado.disponible_para_rag
+
+
+# ============ Etapa 4A (cierre): un solo intento de almacenamiento y vigencia de la operación ============
+
+class AlmacenLento(AlmacenEnMemoria):
+    """Retiene la subida el tiempo suficiente para que los demás intentos coincidan con ella."""
+
+    async def guardar(self, clave, contenido, sha256):
+        await asyncio.sleep(0.3)
+        return await super().guardar(clave, contenido, sha256)
+
+
+async def test_ocho_intentos_simultaneos_de_almacenar_el_mismo_documento_solo_llegan_una_vez_al_almacen(mundo):
+    datos = datos_de(1)
+    documento = await reservar(mundo, datos)
+    almacen = AlmacenLento()
+
+    async def intentar():
+        async with mundo.fabrica() as sesion:  # una sesión propia por intento: nunca se comparten
+            return await servicio.almacenar_original(
+                sesion, almacen, documento.id, datos, token=documento.ejecucion_token
+            )
+
+    resultados = await asyncio.gather(*(intentar() for _ in range(8)), return_exceptions=True)
+    exitos, errores = separar(resultados)
+    assert len(exitos) == 1 and len(errores) == 7 and all(isinstance(e, ConflictError) for e in errores)
+    assert [op for op, _ in almacen.llamadas].count("guardar") == 1  # el UPDATE condicional dejó pasar uno
+    assert len(almacen.objetos) == 1
+
+
+async def test_renovar_y_recuperar_a_la_vez_nunca_dejan_al_ejecutor_y_a_la_recuperacion_con_la_misma_operacion(mundo):
+    """Dos sesiones reales compiten por una operación con la vigencia vencida: o gana la renovación
+    (sigue EN_PROCESO) o gana la recuperación (FALLIDO y el ejecutor ya no puede renovar), nunca ambas."""
+    almacen = AlmacenEnMemoria()
+    gano_renovacion = gano_recuperacion = 0
+    for ronda in range(12):
+        documento = await reservar(mundo, datos_de(100 + ronda), anio=2000 + ronda)
+        async with mundo.fabrica() as db:
+            await db.execute(
+                text("UPDATE documentos SET ejecucion_vigente_hasta = now() - interval '1 second' WHERE id = :id"),
+                {"id": documento.id},
+            )
+            await db.commit()
+
+        async def renovar():
+            async with mundo.fabrica() as sesion:
+                return await servicio.renovar_vigencia(sesion, documento.id, token=documento.ejecucion_token)
+
+        async def recuperar():
+            async with mundo.fabrica() as sesion:
+                return await servicio.recuperar_documentos_pendientes(sesion, almacen, limite=50)
+
+        renovacion, recuperacion = await asyncio.gather(renovar(), recuperar(), return_exceptions=True)
+        assert not isinstance(recuperacion, Exception)
+        async with mundo.fabrica() as db:
+            estado = (await db.get(Documento, documento.id, populate_existing=True)).estado_procesamiento
+        if isinstance(renovacion, ConflictError):
+            assert estado is EstadoProcesamiento.FALLIDO
+            gano_recuperacion += 1
+        else:
+            assert not isinstance(renovacion, Exception) and estado is EstadoProcesamiento.EN_PROCESO
+            gano_renovacion += 1
+    assert gano_renovacion + gano_recuperacion == 12
+
+
+async def test_el_ejecutor_anterior_no_publica_tras_la_recuperacion_en_postgresql(mundo):
+    datos = datos_de(7)
+    almacen = AlmacenEnMemoria()
+    documento = await reservar(mundo, datos)
+    viejo = documento.ejecucion_token
+    async with mundo.fabrica() as db:
+        await servicio.almacenar_original(db, almacen, documento.id, datos, token=viejo)
+        await db.execute(
+            text("UPDATE documentos SET ejecucion_vigente_hasta = now() - interval '1 second' WHERE id = :id"),
+            {"id": documento.id},
+        )
+        await db.commit()
+    async with mundo.fabrica() as db:
+        resumen = await servicio.recuperar_documentos_pendientes(db, almacen, limite=10)
+    assert resumen.abandonados == 1
+
+    async def publicar():
+        async with mundo.fabrica() as sesion:
+            return await servicio.publicar_documento(
+                sesion, documento.id, token=viejo, indexacion_confirmada=True,
+                resultado_analisis=ResultadoAnalisis.OBSERVADO,
+            )
+
+    resultados = await asyncio.gather(*(publicar() for _ in range(4)), return_exceptions=True)
+    assert all(isinstance(r, ConflictError) for r in resultados)
+    async with mundo.fabrica() as db:
+        final = await db.get(Documento, documento.id, populate_existing=True)
+    assert final.estado_procesamiento is EstadoProcesamiento.FALLIDO and final.disponible_para_rag is False

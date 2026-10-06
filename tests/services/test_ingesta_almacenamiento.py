@@ -277,7 +277,7 @@ def test_el_cliente_se_crea_con_tls_verificado_plazos_y_sin_reintentos():
     assert (argumentos["aws_access_key_id"], argumentos["aws_secret_access_key"]) == (ACCESO, SECRETO)
     ajuste = argumentos["config"]
     assert (ajuste.connect_timeout, ajuste.read_timeout) == (5, 30)
-    assert ajuste.retries == {"max_attempts": 1, "mode": "standard"}
+    assert ajuste.retries == {"total_max_attempts": 1, "mode": "standard"}
     assert ajuste.s3 == {"addressing_style": "path"}
     assert ajuste.signature_version == "s3v4"
     assert ajuste.request_checksum_calculation == "when_required"

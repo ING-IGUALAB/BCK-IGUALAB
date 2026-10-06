@@ -35,7 +35,12 @@ from app.models.documento_ingesta import (
 from app.request_id import RequestIDMiddleware
 from app.schemas import MetadatosIngestaRequest
 from app.services.ingesta import documento_service as servicio
-from app.services.ingesta.almacenamiento import ReferenciaOriginal, generar_clave_original
+from app.services.ingesta.almacenamiento import (
+    EstadoSubida,
+    ReferenciaOriginal,
+    SubidaConocida,
+    generar_clave_original,
+)
 from app.services.ingesta.reglas import TAMANO_MAXIMO_BYTES
 from tests.ayudantes_ingesta import (
     BOM,
@@ -84,16 +89,16 @@ def recargar(e, documento: Documento) -> Documento:
 
 
 async def completar(e, documento, datos, resultado=ResultadoAnalisis.OBSERVADO):
-    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     return await servicio.publicar_documento(
-        e.db, documento.id, indexacion_confirmada=True, resultado_analisis=resultado
+        e.db, documento.id, token=documento.ejecucion_token, indexacion_confirmada=True, resultado_analisis=resultado
     )
 
 
 async def fallar_subida(e, documento, datos, error=None):
     e.almacen.fallos["guardar"] = [error or ExternalServiceError("STORAGE_ERROR", "El almacenamiento devolvió un error.")]
     with pytest.raises(ExternalServiceError):
-        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
 
 
 async def conflicto(e, **kwargs) -> ConflictError:
@@ -319,7 +324,7 @@ def test_clasificacion_de_integrityerror():
 
 async def test_el_original_se_guarda_con_los_bytes_exactos_bom_incluido_y_sha256_intacto(e):
     documento, datos = await reservar(e)
-    guardado = await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    guardado = await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
 
     assert e.almacen.objetos == {(documento.clave_original, None): datos}
     assert e.almacen.objetos[(documento.clave_original, None)].startswith(BOM)
@@ -333,12 +338,13 @@ async def test_el_original_se_guarda_con_los_bytes_exactos_bom_incluido_y_sha256
 
 async def test_ninguna_transaccion_de_bd_esta_abierta_durante_las_llamadas_al_almacen(e):
     documento, datos = await reservar(e)
-    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     await servicio.verificar_original(e.db, e.almacen, documento.id)
     otro, datos2 = await reservar(e, datos_unicos(5), anio=2024)
-    await fallar_subida(e, otro, datos2)  # incluye fallar + compensar (eliminar y existe)
+    e.almacen.guardar_y_fallar = True  # resultado incierto: la compensación consulta, lista y elimina
+    await fallar_subida(e, otro, datos2)  # incluye fallar + compensar
     operaciones = [op for op, _ in e.almacen.llamadas]
-    assert {"guardar", "leer", "eliminar", "existe"} <= set(operaciones)
+    assert {"guardar", "leer", "estado_subida", "listar_versiones", "eliminar"} <= set(operaciones)
     assert e.almacen.transaccion_abierta_en_llamada and not any(e.almacen.transaccion_abierta_en_llamada)
 
 
@@ -346,7 +352,7 @@ async def test_contenido_distinto_del_reservado_se_rechaza_sin_cambiar_estado_ni
     documento, datos = await reservar(e)
     for malo in (datos + b"x", datos[:-1], b"x" * len(datos), "texto"):
         with pytest.raises(BusinessValidationError) as capturado:
-            await servicio.almacenar_original(e.db, e.almacen, documento.id, malo)
+            await servicio.almacenar_original(e.db, e.almacen, documento.id, malo, token=documento.ejecucion_token)
         assert capturado.value.code == "ORIGINAL_CONTENT_MISMATCH"
     assert e.almacen.llamadas == []
     assert recargar(e, documento).almacenamiento_intentado_en is None
@@ -354,9 +360,9 @@ async def test_contenido_distinto_del_reservado_se_rechaza_sin_cambiar_estado_ni
 
 async def test_el_original_solo_se_sube_una_vez_y_nunca_se_sobrescribe(e):
     documento, datos = await reservar(e)
-    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     with pytest.raises(ConflictError) as capturado:
-        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     assert capturado.value.code == "DOCUMENT_STATE_CONFLICT"
     assert [op for op, _ in e.almacen.llamadas].count("guardar") == 1
 
@@ -364,43 +370,43 @@ async def test_el_original_solo_se_sube_una_vez_y_nunca_se_sobrescribe(e):
 async def test_un_almacen_de_otro_ambiente_se_rechaza(e):
     documento, datos = await reservar(e)
     with pytest.raises(BusinessValidationError) as capturado:
-        await servicio.almacenar_original(e.db, AlmacenEnMemoria("qa"), documento.id, datos)
+        await servicio.almacenar_original(e.db, AlmacenEnMemoria("qa"), documento.id, datos, token=documento.ejecucion_token)
     assert capturado.value.code == "STORAGE_ENVIRONMENT_MISMATCH"
     assert recargar(e, documento).almacenamiento_intentado_en is None
 
 
 async def test_documento_inexistente_o_ya_fallido_no_se_almacena(e):
     with pytest.raises(NotFoundError):
-        await servicio.almacenar_original(e.db, e.almacen, uuid.uuid4(), CONTENIDO)
+        await servicio.almacenar_original(e.db, e.almacen, uuid.uuid4(), CONTENIDO, token=uuid.uuid4())
     documento, datos = await reservar(e)
-    await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA")
+    await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", token=documento.ejecucion_token)
     with pytest.raises(ConflictError):
-        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     assert e.almacen.llamadas == []
 
 
 async def test_con_versionado_se_guarda_la_version_y_la_compensacion_elimina_solo_esa_version(e):
     e.almacen.versionado = True
     documento, datos = await reservar(e)
-    guardado = await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    guardado = await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     assert guardado.version_id_original == "version-1"
     e.almacen.objetos[(documento.clave_original, "version-previa")] = b"otra version"  # ajena a esta operación
-    await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", requiere_compensacion=True)
+    await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", requiere_compensacion=True, token=documento.ejecucion_token)
     assert await servicio.compensar_documento(e.db, e.almacen, documento.id) is EstadoCompensacion.COMPLETADA
     assert e.almacen.claves() == {documento.clave_original}
     assert (documento.clave_original, "version-previa") in e.almacen.objetos
 
 
-async def test_limitacion_conocida_con_versionado_y_subida_incierta_la_version_puede_quedar(e):
-    """Documenta una limitación REAL: si el resultado de la subida es incierto en un bucket con
-    versionado, la versión se desconoce y la eliminación sin versión no la alcanza. La compensación
-    informa éxito aunque el objeto permanezca (nunca consultable). Pendiente con infraestructura (D16)."""
+async def test_con_versionado_y_subida_incierta_la_version_se_encuentra_y_se_elimina_por_su_id(e):
+    """Antes (limitación): eliminar sin versión dejaba la versión detrás de una marca de borrado y
+    la compensación informaba éxito. Ahora la versión desconocida se reconcilia listando la clave."""
     e.almacen.versionado = True
     e.almacen.guardar_y_fallar = True
     documento, datos = await reservar(e)
     await fallar_subida(e, documento, datos, ExternalServiceTimeoutError("STORAGE_TIMEOUT", "plazo"))
     assert recargar(e, documento).estado_compensacion is EstadoCompensacion.COMPLETADA
-    assert len(e.almacen.objetos) == 1  # residuo físico; no está en ningún estado consultable
+    assert e.almacen.objetos == {} and e.almacen.marcas == set()  # sin versión residual ni marca de borrado
+    assert ("eliminar", documento.clave_original) in e.almacen.llamadas
     assert recargar(e, documento).disponible_para_rag is False
 
 
@@ -418,7 +424,7 @@ async def test_fallo_de_subida_compensado_libera_la_reserva_y_permite_reintentar
     # Reintento: mismo contenido y misma combinación, con un documento nuevo.
     reintento, _ = await reservar(e, datos)
     assert reintento.id != documento.id and reintento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
-    await servicio.almacenar_original(e.db, e.almacen, reintento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, reintento.id, datos, token=reintento.ejecucion_token)
     assert e.almacen.claves() == {reintento.clave_original}
 
 
@@ -427,7 +433,7 @@ async def test_timeout_con_resultado_incierto_deja_el_objeto_y_la_compensacion_l
     documento, datos = await reservar(e)
     with pytest.raises(ExternalServiceTimeoutError):
         e.almacen.fallos["guardar"] = [ExternalServiceTimeoutError("STORAGE_TIMEOUT", "plazo", details={"resultado_incierto": True})]
-        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     assert recargar(e, documento).motivo_fallo == "STORAGE_TIMEOUT"
     assert e.almacen.objetos == {}  # compensado
     assert recargar(e, documento).reserva_activa is False
@@ -475,7 +481,7 @@ async def test_la_recuperacion_completa_la_compensacion_y_recien_entonces_libera
     assert (await conflicto(e, datos=datos)).code == "DOCUMENT_CLEANUP_PENDING"
 
     resumen = await servicio.recuperar_documentos_pendientes(
-        e.db, e.almacen, abandonados_antes_de=datetime.now(timezone.utc) - timedelta(days=1), limite=10
+        e.db, e.almacen, ahora=datetime.now(timezone.utc), limite=10
     )
     assert (resumen.abandonados, resumen.compensados, resumen.pendientes) == (0, 1, 0)
     limpio = recargar(e, documento)
@@ -490,7 +496,7 @@ async def test_recuperacion_que_vuelve_a_fallar_acumula_intentos_y_mantiene_la_r
     e.almacen.fallos["eliminar"] = [ExternalServiceError("STORAGE_ERROR", "1"), ExternalServiceError("STORAGE_ERROR", "2")]
     await fallar_subida(e, documento, datos)
     resumen = await servicio.recuperar_documentos_pendientes(
-        e.db, e.almacen, abandonados_antes_de=datetime.now(timezone.utc), limite=10
+        e.db, e.almacen, ahora=datetime.now(timezone.utc), limite=10
     )
     assert (resumen.compensados, resumen.pendientes) == (0, 1)
     pendiente = recargar(e, documento)
@@ -517,7 +523,7 @@ async def test_la_compensacion_solo_toca_objetos_propios(e):
     ajeno = f"development/documentos/{uuid.uuid4()}/original.md"
     e.almacen.poner_ajeno(ajeno)
     otro, otros_datos = await reservar(e, datos_unicos(1), anio=2024)
-    await servicio.almacenar_original(e.db, e.almacen, otro.id, otros_datos)
+    await servicio.almacenar_original(e.db, e.almacen, otro.id, otros_datos, token=otro.ejecucion_token)
     documento, datos = await reservar(e, datos_unicos(2), anio=2023)
     e.almacen.guardar_y_fallar = True
     await fallar_subida(e, documento, datos)
@@ -532,7 +538,7 @@ async def test_nunca_se_compensa_un_documento_en_proceso_ni_completado(e, prepar
     if preparar == "completado":
         await completar(e, documento, datos)
     else:
-        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     antes = list(e.almacen.llamadas)
     with pytest.raises(ConflictError):
         await servicio.compensar_documento(e.db, e.almacen, documento.id)
@@ -546,7 +552,7 @@ async def test_compensar_un_documento_inexistente(e):
 
 async def test_un_almacen_de_otro_ambiente_no_compensa(e):
     documento, datos = await reservar(e)
-    await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", requiere_compensacion=True)
+    await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", requiere_compensacion=True, token=documento.ejecucion_token)
     with pytest.raises(BusinessValidationError):
         await servicio.compensar_documento(e.db, AlmacenEnMemoria("qa"), documento.id)
     assert recargar(e, documento).reserva_activa is True
@@ -554,7 +560,9 @@ async def test_un_almacen_de_otro_ambiente_no_compensa(e):
 
 async def test_una_clave_rechazada_por_el_almacen_deja_la_compensacion_pendiente_sin_borrar(e):
     documento, datos = await reservar(e)
-    await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", requiere_compensacion=True)
+    await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", requiere_compensacion=True, token=documento.ejecucion_token)
+    e.almacen.objetos[(documento.clave_original, None)] = datos  # la subida llegó a crear el objeto
+    e.almacen.subidas[documento.clave_original] = SubidaConocida(EstadoSubida.CREADA)
     e.almacen.fallos["eliminar"] = [ExternalServiceError("STORAGE_INVALID_KEY", "no es propia")]
     assert await servicio.compensar_documento(e.db, e.almacen, documento.id) is EstadoCompensacion.PENDIENTE
     assert recargar(e, documento).ultimo_error_compensacion == "STORAGE_INVALID_KEY"
@@ -564,7 +572,7 @@ async def test_una_clave_rechazada_por_el_almacen_deja_la_compensacion_pendiente
 
 async def test_fallar_sin_intento_de_subida_libera_la_reserva_de_inmediato(e):
     documento, datos = await reservar(e)
-    fallido = await servicio.fallar_documento(e.db, documento.id, "VALIDACION_POSTERIOR")
+    fallido = await servicio.fallar_documento(e.db, documento.id, "VALIDACION_POSTERIOR", token=documento.ejecucion_token)
     assert fallido.estado_procesamiento is EstadoProcesamiento.FALLIDO
     assert fallido.estado_compensacion is EstadoCompensacion.NINGUNA and fallido.reserva_activa is False
     await reservar(e, datos)
@@ -575,8 +583,8 @@ async def test_fallar_con_intento_de_subida_deja_la_compensacion_pendiente_y_ret
     documento, datos = await reservar(e)
     e.almacen.fallos["guardar"] = [asyncio.CancelledError()]
     with pytest.raises(asyncio.CancelledError):
-        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
-    fallido = await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA")
+        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
+    fallido = await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", token=documento.ejecucion_token)
     assert fallido.estado_compensacion is EstadoCompensacion.PENDIENTE and fallido.reserva_activa is True
 
 
@@ -584,9 +592,9 @@ async def test_fallar_con_false_explicito_y_un_intento_registrado_es_un_conflict
     documento, datos = await reservar(e)
     e.almacen.fallos["guardar"] = [asyncio.CancelledError()]
     with pytest.raises(asyncio.CancelledError):
-        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     with pytest.raises(ConflictError):
-        await servicio.fallar_documento(e.db, documento.id, "X_ERR", requiere_compensacion=False)
+        await servicio.fallar_documento(e.db, documento.id, "X_ERR", requiere_compensacion=False, token=documento.ejecucion_token)
     assert recargar(e, documento).estado_procesamiento is EstadoProcesamiento.EN_PROCESO
 
 
@@ -594,17 +602,17 @@ async def test_fallar_con_false_explicito_y_un_intento_registrado_es_un_conflict
 async def test_el_motivo_debe_ser_un_codigo_no_texto_libre(e, motivo):
     documento, _ = await reservar(e)
     with pytest.raises(ValueError):
-        await servicio.fallar_documento(e.db, documento.id, motivo)
+        await servicio.fallar_documento(e.db, documento.id, motivo, token=documento.ejecucion_token)
     assert recargar(e, documento).estado_procesamiento is EstadoProcesamiento.EN_PROCESO
 
 
 async def test_fallar_dos_veces_o_un_documento_inexistente_es_un_conflicto(e):
     documento, _ = await reservar(e)
-    await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA")
+    await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", token=documento.ejecucion_token)
     with pytest.raises(ConflictError):
-        await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA")
+        await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", token=documento.ejecucion_token)
     with pytest.raises(ConflictError):
-        await servicio.fallar_documento(e.db, uuid.uuid4(), "CARGA_CANCELADA")
+        await servicio.fallar_documento(e.db, uuid.uuid4(), "CARGA_CANCELADA", token=uuid.uuid4())
 
 
 # =============================== Cancelación, abandono y recuperación ===============================
@@ -626,7 +634,7 @@ class AlmacenBloqueante(AlmacenEnMemoria):
 async def test_la_cancelacion_no_toca_la_bd_y_la_recuperacion_limpia_la_reserva_abandonada(e):
     almacen = AlmacenBloqueante(sesion=e.db)
     documento, datos = await reservar(e)
-    tarea = asyncio.create_task(servicio.almacenar_original(e.db, almacen, documento.id, datos))
+    tarea = asyncio.create_task(servicio.almacenar_original(e.db, almacen, documento.id, datos, token=documento.ejecucion_token))
     await almacen.subiendo.wait()
     tarea.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -640,7 +648,7 @@ async def test_la_cancelacion_no_toca_la_bd_y_la_recuperacion_limpia_la_reserva_
     assert (await conflicto(e, datos=datos)).code == "DOCUMENT_UPLOAD_IN_PROGRESS"
 
     resumen = await servicio.recuperar_documentos_pendientes(
-        e.db, almacen, abandonados_antes_de=datetime.now(timezone.utc) + timedelta(minutes=1), limite=10
+        e.db, almacen, ahora=datetime.now(timezone.utc) + timedelta(days=1), limite=10
     )
     assert (resumen.abandonados, resumen.compensados, resumen.pendientes) == (1, 1, 0)
     limpio = recargar(e, documento)
@@ -654,11 +662,11 @@ async def test_la_recuperacion_respeta_el_umbral_el_limite_y_el_ambiente(e):
     reciente, _ = await reservar(e, datos_unicos(2), anio=2023)
     en_qa, _ = await reservar(e, datos_unicos(3), anio=2022, ambiente="qa")
     ayer = datetime.now(timezone.utc) - timedelta(days=1)
-    e.db.sync.execute(update(Documento).where(Documento.id.in_([viejo.id, en_qa.id])).values(creado_en=ayer))
+    e.db.sync.execute(update(Documento).where(Documento.id.in_([viejo.id, en_qa.id])).values(ejecucion_vigente_hasta=ayer))
     e.db.sync.commit()
 
     resumen = await servicio.recuperar_documentos_pendientes(
-        e.db, e.almacen, abandonados_antes_de=datetime.now(timezone.utc) - timedelta(hours=1), limite=10
+        e.db, e.almacen, ahora=datetime.now(timezone.utc), limite=10
     )
     assert resumen.abandonados == 1  # solo el viejo del ambiente del almacén
     assert recargar(e, viejo).estado_procesamiento is EstadoProcesamiento.FALLIDO
@@ -670,20 +678,20 @@ async def test_el_limite_de_la_recuperacion_se_aplica(e):
     for n in range(3):
         d, _ = await reservar(e, datos_unicos(n), anio=2020 + n)
     ayer = datetime.now(timezone.utc) - timedelta(days=1)
-    e.db.sync.execute(update(Documento).values(creado_en=ayer))
+    e.db.sync.execute(update(Documento).values(ejecucion_vigente_hasta=ayer))
     e.db.sync.commit()
     resumen = await servicio.recuperar_documentos_pendientes(
-        e.db, e.almacen, abandonados_antes_de=datetime.now(timezone.utc), limite=2
+        e.db, e.almacen, ahora=datetime.now(timezone.utc), limite=2
     )
     assert resumen.abandonados == 2
 
 
 @pytest.mark.parametrize("cambios", [
-    dict(abandonados_antes_de=datetime(2025, 1, 1)), dict(abandonados_antes_de="ayer"), dict(abandonados_antes_de=None),
+    dict(ahora=datetime(2025, 1, 1)), dict(ahora="ayer"),
     dict(limite=0), dict(limite=-1), dict(limite=True), dict(limite=1.5),
 ])
 async def test_parametros_invalidos_de_la_recuperacion(e, cambios):
-    valores = dict(abandonados_antes_de=datetime.now(timezone.utc), limite=5)
+    valores = dict(ahora=datetime.now(timezone.utc), limite=5)
     valores.update(cambios)
     with pytest.raises(ValueError):
         await servicio.recuperar_documentos_pendientes(e.db, e.almacen, **valores)
@@ -693,7 +701,7 @@ async def test_la_recuperacion_no_toca_completados_ni_en_proceso_recientes(e):
     original, datos = await reservar(e)
     await completar(e, original, datos)
     resumen = await servicio.recuperar_documentos_pendientes(
-        e.db, e.almacen, abandonados_antes_de=datetime.now(timezone.utc) + timedelta(days=1), limite=10
+        e.db, e.almacen, ahora=datetime.now(timezone.utc) + timedelta(days=1), limite=10
     )
     assert (resumen.abandonados, resumen.compensados, resumen.pendientes) == (0, 0, 0)
     assert recargar(e, original).disponible_para_rag and (original.clave_original, None) in e.almacen.objetos
@@ -705,7 +713,7 @@ async def test_verificar_original_detecta_bytes_alterados_y_objeto_ausente(e):
     documento, datos = await reservar(e)
     with pytest.raises(ConflictError):
         await servicio.verificar_original(e.db, e.almacen, documento.id)  # aún sin original
-    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     e.almacen.objetos[(documento.clave_original, None)] = datos[:-1] + b"X"
     with pytest.raises(ExternalServiceError) as capturado:
         await servicio.verificar_original(e.db, e.almacen, documento.id)
@@ -721,9 +729,9 @@ async def test_verificar_original_detecta_bytes_alterados_y_objeto_ausente(e):
 
 async def test_un_documento_con_solo_el_original_no_se_publica(e):
     documento, datos = await reservar(e)
-    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     with pytest.raises(ConflictError) as capturado:
-        await servicio.publicar_documento(e.db, documento.id, indexacion_confirmada=False, resultado_analisis=None)
+        await servicio.publicar_documento(e.db, documento.id, token=documento.ejecucion_token, indexacion_confirmada=False, resultado_analisis=None)
     assert capturado.value.code == "DOCUMENT_NOT_PUBLISHABLE"
     assert capturado.value.details == {"faltantes": ["indexacion_confirmada", "resultado_analisis"]}
     asegurado = recargar(e, documento)
@@ -740,9 +748,9 @@ async def test_un_documento_con_solo_el_original_no_se_publica(e):
 ])
 async def test_la_compuerta_exige_confirmaciones_estrictas(e, indexacion, resultado, faltante):
     documento, datos = await reservar(e)
-    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     with pytest.raises(ConflictError) as capturado:
-        await servicio.publicar_documento(e.db, documento.id, indexacion_confirmada=indexacion, resultado_analisis=resultado)
+        await servicio.publicar_documento(e.db, documento.id, token=documento.ejecucion_token, indexacion_confirmada=indexacion, resultado_analisis=resultado)
     assert capturado.value.details == {"faltantes": faltante}
     assert recargar(e, documento).estado_procesamiento is EstadoProcesamiento.EN_PROCESO
 
@@ -751,18 +759,18 @@ async def test_no_se_publica_sin_original_almacenado(e):
     documento, _ = await reservar(e)
     with pytest.raises(ConflictError) as capturado:
         await servicio.publicar_documento(
-            e.db, documento.id, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.CON_HALLAZGOS)
+            e.db, documento.id, token=documento.ejecucion_token, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.CON_HALLAZGOS)
     assert capturado.value.details == {"faltantes": ["original_almacenado"]}
 
 
 async def test_empresa_desactivada_antes_de_publicar_impide_la_publicacion(e):
     documento, datos = await reservar(e)
-    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     e.empresa.activa = False
     await e.db.commit()
     with pytest.raises(BusinessValidationError) as capturado:
         await servicio.publicar_documento(
-            e.db, documento.id, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
+            e.db, documento.id, token=documento.ejecucion_token, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
     assert capturado.value.code == "COMPANY_INACTIVE"
     asegurado = recargar(e, documento)
     assert asegurado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO and not asegurado.disponible_para_rag
@@ -770,12 +778,12 @@ async def test_empresa_desactivada_antes_de_publicar_impide_la_publicacion(e):
 
 async def test_cambio_de_sector_de_la_empresa_tambien_se_revalida(e):
     documento, datos = await reservar(e)
-    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     e.empresa.sector = SectorEmpresa.ENERGIA
     await e.db.commit()
     with pytest.raises(BusinessValidationError) as capturado:
         await servicio.publicar_documento(
-            e.db, documento.id, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
+            e.db, documento.id, token=documento.ejecucion_token, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
     assert capturado.value.code == "COMPANY_SECTOR_MISMATCH"
 
 
@@ -788,13 +796,13 @@ async def test_con_todo_confirmado_y_empresa_valida_la_compuerta_permite_complet
     assert completo.reserva_activa is True  # un completado sigue bloqueando duplicados
     with pytest.raises(ConflictError) as repetido:  # no se publica dos veces
         await servicio.publicar_documento(
-            e.db, documento.id, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
+            e.db, documento.id, token=documento.ejecucion_token, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
     assert repetido.value.details == {"faltantes": ["documento_en_proceso"]}
 
 
 async def test_nada_asigna_observado_ni_completa_por_si_solo(e):
     documento, datos = await reservar(e)
-    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     otro, otros = await reservar(e, datos_unicos(1), anio=2024)
     await fallar_subida(e, otro, otros)
     for d in (documento, otro):
@@ -816,7 +824,8 @@ def _app(e):
 
     @app.post("/subir/{documento_id}")
     async def ruta_subir(documento_id: uuid.UUID):
-        await servicio.almacenar_original(e.db, e.almacen, documento_id, CONTENIDO)
+        token = e.db.sync.get(Documento, documento_id).ejecucion_token
+        await servicio.almacenar_original(e.db, e.almacen, documento_id, CONTENIDO, token=token)
 
     return app
 
@@ -864,7 +873,7 @@ async def test_si_la_bd_falla_al_registrar_el_fallo_se_relanza_el_error_del_alma
 
     monkeypatch.setattr(servicio, "fallar_documento", bd_caida)
     with pytest.raises(ExternalServiceError) as capturado:  # NO se enmascara con el error de la BD
-        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     assert capturado.value.code == "STORAGE_ERROR"
     monkeypatch.undo()
 
@@ -872,7 +881,7 @@ async def test_si_la_bd_falla_al_registrar_el_fallo_se_relanza_el_error_del_alma
     assert asegurado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
     assert asegurado.almacenamiento_intentado_en is not None and asegurado.reserva_activa is True
     resumen = await servicio.recuperar_documentos_pendientes(
-        e.db, e.almacen, abandonados_antes_de=datetime.now(timezone.utc) + timedelta(minutes=1), limite=5)
+        e.db, e.almacen, ahora=datetime.now(timezone.utc) + timedelta(days=1), limite=5)
     assert (resumen.abandonados, resumen.compensados) == (1, 1) and e.almacen.objetos == {}
 
 
@@ -886,7 +895,7 @@ async def test_si_tampoco_funciona_el_rollback_el_error_original_sigue_siendo_el
     monkeypatch.setattr(servicio, "fallar_documento", falla)
     monkeypatch.setattr(e.db, "rollback", falla)
     with pytest.raises(ExternalServiceError) as capturado:
-        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+        await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     assert capturado.value.code == "STORAGE_TIMEOUT"
 
 
@@ -905,7 +914,7 @@ async def test_si_el_documento_cambia_de_estado_durante_la_subida_se_informa_con
 
     almacen = AlmacenQueCambiaElEstado(sesion=e.db)
     with pytest.raises(ConflictError) as capturado:
-        await servicio.almacenar_original(e.db, almacen, documento.id, datos)
+        await servicio.almacenar_original(e.db, almacen, documento.id, datos, token=documento.ejecucion_token)
     assert capturado.value.code == "DOCUMENT_STATE_CONFLICT"
     assert len(almacen.objetos) == 1 and recargar(e, documento).original_almacenado_en is None
     assert await servicio.compensar_documento(e.db, almacen, documento.id) is EstadoCompensacion.COMPLETADA
@@ -915,7 +924,7 @@ async def test_si_el_documento_cambia_de_estado_durante_la_subida_se_informa_con
 async def test_la_recuperacion_omite_lo_que_otro_proceso_ya_resolvio(e, monkeypatch):
     primero, _ = await reservar(e, datos_unicos(1), anio=2022)
     segundo, _ = await reservar(e, datos_unicos(2), anio=2023)
-    e.db.sync.execute(update(Documento).values(creado_en=datetime.now(timezone.utc) - timedelta(days=1)))
+    e.db.sync.execute(update(Documento).values(ejecucion_vigente_hasta=datetime.now(timezone.utc) - timedelta(days=1)))
     e.db.sync.commit()
     original = servicio.fallar_documento
 
@@ -926,7 +935,7 @@ async def test_la_recuperacion_omite_lo_que_otro_proceso_ya_resolvio(e, monkeypa
 
     monkeypatch.setattr(servicio, "fallar_documento", uno_ya_resuelto)
     resumen = await servicio.recuperar_documentos_pendientes(
-        e.db, e.almacen, abandonados_antes_de=datetime.now(timezone.utc), limite=10)
+        e.db, e.almacen, ahora=datetime.now(timezone.utc), limite=10)
     assert resumen.abandonados == 1
     assert recargar(e, primero).estado_procesamiento is EstadoProcesamiento.EN_PROCESO
     assert recargar(e, segundo).estado_procesamiento is EstadoProcesamiento.FALLIDO
@@ -943,13 +952,13 @@ async def test_la_recuperacion_omite_compensaciones_que_dejaron_de_estar_pendien
 
     monkeypatch.setattr(servicio, "compensar_documento", ya_no_pendiente)
     resumen = await servicio.recuperar_documentos_pendientes(
-        e.db, e.almacen, abandonados_antes_de=datetime.now(timezone.utc), limite=10)
+        e.db, e.almacen, ahora=datetime.now(timezone.utc), limite=10)
     assert (resumen.compensados, resumen.pendientes) == (0, 0)
 
 
 async def test_si_el_documento_deja_de_estar_en_proceso_durante_la_publicacion_no_se_completa(e, monkeypatch):
     documento, datos = await reservar(e)
-    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos)
+    await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     original = servicio._transicion
 
     async def pierde_la_carrera(db, documento_id, condiciones, valores):
@@ -960,7 +969,7 @@ async def test_si_el_documento_deja_de_estar_en_proceso_durante_la_publicacion_n
     monkeypatch.setattr(servicio, "_transicion", pierde_la_carrera)
     with pytest.raises(ConflictError) as capturado:
         await servicio.publicar_documento(
-            e.db, documento.id, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
+            e.db, documento.id, token=documento.ejecucion_token, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
     assert capturado.value.code == "DOCUMENT_STATE_CONFLICT"
     monkeypatch.undo()
     asegurado = recargar(e, documento)

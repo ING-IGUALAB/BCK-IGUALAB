@@ -12,6 +12,17 @@ Secuencia, estados e invariantes: `docs/ingesta/03-arquitectura-y-decisiones.md`
   consulta previa solo sirve para informar. Solo se traducen a 409 las violaciones
   de esos índices; cualquier otra `IntegrityError` se propaga.
 - La reserva de un intento fallido NO se libera hasta confirmar la limpieza.
+- PROPIEDAD DE LA OPERACIÓN. `reservar_documento` entrega un token de ejecución y una
+  vigencia. Toda transición del ejecutor (registrar el intento, registrar el original,
+  fallar, publicar) exige el token; el ejecutor renueva la vigencia con `renovar_vigencia`.
+  La recuperación solo toma operaciones con la vigencia VENCIDA (la antigüedad no cuenta) y
+  ROTA el token, de modo que el ejecutor anterior ya no puede publicar.
+- LIMPIEZA CON INCERTIDUMBRE. Una subida pudo terminar después del timeout o la
+  cancelación. La compensación consulta el desenlace real (`estado_subida`), elimina la
+  versión concreta si se conoce, o reconcilia listando las versiones de la clave exacta.
+  Nunca declara limpio por «DELETE + HEAD 404», ni mientras la subida siga en curso, ni
+  cuando la ausencia no prueba que el objeto no se creó (queda PENDIENTE y requiere
+  intervención documentada en `docs/ingesta/07-almacenamiento-minio.md`).
 - Este módulo NO publica nada: no existe coordinación con vectores ni detector.
   `publicar_documento` es solo una compuerta que exige lo que aún no existe.
 
@@ -22,7 +33,7 @@ import hashlib
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -37,6 +48,7 @@ from app.exceptions import (
 )
 from app.models import RolUsuario, Usuario
 from app.models.documento_ingesta import (
+    VIGENCIA_PREDETERMINADA,
     Documento,
     EstadoCompensacion,
     EstadoProcesamiento,
@@ -46,6 +58,7 @@ from app.schemas import MetadatosIngestaRequest
 from app.services.ingesta import validacion
 from app.services.ingesta.almacenamiento import (
     AlmacenOriginales,
+    EstadoSubida,
     ReferenciaOriginal,
     generar_clave_original,
     validar_ambiente,
@@ -65,6 +78,24 @@ def _ahora() -> datetime:
 
 def _iso_utc(valor: datetime) -> str:
     return (valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).isoformat()
+
+
+def _exigir_token(token: object) -> uuid.UUID:
+    if not isinstance(token, uuid.UUID):
+        raise TypeError("token debe ser el UUID de ejecución entregado al reservar.")
+    return token
+
+
+def _exigir_instante(valor: object) -> datetime:
+    if not isinstance(valor, datetime) or valor.tzinfo is None:
+        raise ValueError("Se requiere un datetime con zona horaria.")
+    return valor
+
+
+def _exigir_duracion(duracion: object) -> timedelta:
+    if not isinstance(duracion, timedelta) or duracion <= timedelta(0):
+        raise ValueError("La vigencia debe ser un timedelta positivo.")
+    return duracion
 
 
 def _conflicto_de_estado() -> ConflictError:
@@ -234,6 +265,8 @@ async def reservar_documento(
         tamano_bytes=tamano_bytes,
         usuario_id=usuario.id,
         clave_original=generar_clave_original(ambiente, documento_id),
+        ejecucion_token=uuid.uuid4(),
+        ejecucion_vigente_hasta=_ahora() + VIGENCIA_PREDETERMINADA,
     )
     db.add(documento)
     try:
@@ -265,29 +298,41 @@ async def fallar_documento(
     motivo: str,
     *,
     requiere_compensacion: bool | None = None,
+    token: uuid.UUID | None = None,
+    vencido_antes_de: datetime | None = None,
 ) -> Documento:
-    """Marca `FALLIDO` un documento `EN_PROCESO`.
+    """Marca `FALLIDO` un documento `EN_PROCESO` y ROTA su token de ejecución.
 
     `motivo` es un código (p. ej. `STORAGE_ERROR`), nunca texto libre. Con compensación
     pendiente la reserva se CONSERVA; solo se libera de inmediato si no hay nada
     externo que limpiar. `None` lo deduce: hay algo que limpiar si ya se registró un
     intento de subida. Con `False` explícito, un intento registrado es un conflicto.
+
+    Quien llama debe demostrar su derecho: el ejecutor, con su `token`; la recuperación, con
+    `vencido_antes_de` (solo actúa si la vigencia ya venció en ese instante). Exactamente uno.
     """
     if not isinstance(motivo, str) or _CODIGO_REGEX.fullmatch(motivo) is None:
         raise ValueError("El motivo del fallo debe ser un código en mayúsculas, no texto libre.")
+    if (token is None) == (vencido_antes_de is None):
+        raise ValueError("Indique exactamente uno: el token del ejecutor o `vencido_antes_de`.")
     ahora = _ahora()
     comunes = {
         "estado_procesamiento": EstadoProcesamiento.FALLIDO,
         "motivo_fallo": motivo,
         "fallido_en": ahora,
+        "ejecucion_token": uuid.uuid4(),  # el ejecutor anterior ya no puede publicar
     }
-    en_proceso = Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO
+    propiedad = [Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO]
+    if token is not None:
+        propiedad.append(Documento.ejecucion_token == _exigir_token(token))
+    else:
+        propiedad.append(Documento.ejecucion_vigente_hasta < _exigir_instante(vencido_antes_de))
     liberado = False
     if requiere_compensacion is not True:
         liberado = await _transicion(
             db,
             documento_id,
-            [en_proceso, Documento.almacenamiento_intentado_en.is_(None)],
+            [*propiedad, Documento.almacenamiento_intentado_en.is_(None)],
             {**comunes, "estado_compensacion": EstadoCompensacion.NINGUNA, "reserva_activa": False},
         )
     if not liberado:
@@ -295,7 +340,7 @@ async def fallar_documento(
             await db.rollback()
             raise _conflicto_de_estado()
         if not await _transicion(
-            db, documento_id, [en_proceso], {**comunes, "estado_compensacion": EstadoCompensacion.PENDIENTE}
+            db, documento_id, propiedad, {**comunes, "estado_compensacion": EstadoCompensacion.PENDIENTE}
         ):
             await db.rollback()
             raise _conflicto_de_estado()
@@ -310,15 +355,103 @@ def _codigo_seguro(exc: Exception) -> str:
     return codigo if isinstance(codigo, str) and _CODIGO_REGEX.fullmatch(codigo) else "UNEXPECTED_ERROR"
 
 
+async def _anotar_existencia(db: AsyncSession, documento_id: uuid.UUID, version: str | None) -> None:
+    """Deja constancia DURABLE de que el original existió, ANTES de eliminarlo. Así, si la
+    compensación se interrumpe tras borrar, un reintento sabe que la ausencia es limpieza y
+    no un objeto que quizá nunca se creó."""
+    await _transicion(
+        db,
+        documento_id,
+        [
+            Documento.estado_procesamiento == EstadoProcesamiento.FALLIDO,
+            Documento.estado_compensacion == EstadoCompensacion.PENDIENTE,
+            Documento.original_almacenado_en.is_(None),
+        ],
+        {"original_almacenado_en": _ahora(), "version_id_original": version},
+    )
+    await db.commit()
+
+
+def _sin_confirmar(codigo: str, mensaje: str) -> ExternalServiceError:
+    return ExternalServiceError(codigo, mensaje)
+
+
+async def _eliminar_y_verificar(almacen: AlmacenOriginales, referencia: ReferenciaOriginal) -> None:
+    await almacen.eliminar(referencia)
+    if await almacen.existe(referencia):
+        raise _sin_confirmar("STORAGE_CLEANUP_NOT_CONFIRMED", "No se pudo confirmar la eliminación del original.")
+
+
+async def _reconciliar_y_eliminar(
+    db: AsyncSession,
+    almacen: AlmacenOriginales,
+    documento_id: uuid.UUID,
+    clave: str,
+    tamano: int,
+    version_bd: str | None,
+    existencia_conocida: bool,
+) -> None:
+    """Retorna SOLO si el original quedó eliminado y verificado, o se probó que nunca se creó.
+    En cualquier otro caso lanza `ExternalServiceError` con un código estable.
+
+    1. Subida aún en curso en este proceso: no hay nada que concluir, el objeto puede aparecer.
+    2. Versión conocida (la subida terminó y la devolvió, o la BD la guardó): se elimina ESA
+       versión y se comprueba ESA versión. Una subida terminada sin versión en la respuesta no
+       creó versiones: se elimina la clave y se comprueba.
+    3. Rechazo definitivo (nunca creada): basta comprobar que no hay objeto.
+    4. Desenlace incierto o desconocido: se listan TODAS las versiones de la clave exacta.
+       - un objeto de otro tamaño, o más de uno: no es lo esperado, no se borra nada;
+       - objeto hallado: se anota su existencia, se elimina por `VersionId` y se relista, que
+         debe quedar vacío (hay un único intento por clave y ya terminó: no puede reaparecer);
+       - nada hallado: solo es limpieza si ya constaba que existió; si no, la ausencia no
+         prueba que no se vaya a crear (petición lenta, otro proceso) y sigue PENDIENTE;
+       - sin permiso para listar: PENDIENTE, sin presumir nada.
+    """
+    subida = await almacen.estado_subida(clave)
+    if subida.estado is EstadoSubida.EN_CURSO:
+        raise _sin_confirmar("STORAGE_UPLOAD_IN_FLIGHT", "La subida sigue en curso: el objeto aún puede crearse.")
+
+    version = subida.version_id if subida.estado is EstadoSubida.CREADA else version_bd
+    if subida.estado is EstadoSubida.CREADA or version is not None:
+        await _anotar_existencia(db, documento_id, version)
+        await _eliminar_y_verificar(almacen, ReferenciaOriginal(clave, version))
+        return
+
+    if subida.estado is EstadoSubida.NO_CREADA:
+        if await almacen.existe(ReferenciaOriginal(clave)):
+            raise _sin_confirmar("STORAGE_UNEXPECTED_OBJECT", "Existe un objeto que esta subida no pudo crear.")
+        return
+
+    try:
+        versiones = await almacen.listar_versiones(clave)
+    except Exception:
+        raise _sin_confirmar(
+            "STORAGE_RECONCILIATION_UNAVAILABLE",
+            "No se pudieron listar las versiones del objeto (permisos o error del servidor).",
+        ) from None
+    objetos = [v for v in versiones if not v.es_marca_de_borrado]
+    if len(objetos) > 1 or any(v.tamano != tamano for v in objetos):
+        raise _sin_confirmar("STORAGE_UNEXPECTED_OBJECT", "El objeto hallado no es el que se esperaba.")
+    if not objetos and not existencia_conocida:
+        raise _sin_confirmar("STORAGE_OUTCOME_UNCERTAIN", "No se puede probar que la subida no creó el objeto.")
+    if objetos:
+        await _anotar_existencia(db, documento_id, objetos[0].version_id)
+    for hallada in versiones:
+        await almacen.eliminar(ReferenciaOriginal(clave, hallada.version_id))
+    if await almacen.listar_versiones(clave):
+        raise _sin_confirmar("STORAGE_CLEANUP_NOT_CONFIRMED", "No se pudo confirmar la eliminación del original.")
+
+
 async def compensar_documento(
     db: AsyncSession, almacen: AlmacenOriginales, documento_id: uuid.UUID
 ) -> EstadoCompensacion:
     """Elimina el original propio de un intento fallido y libera su reserva.
 
     Idempotente y repetible. Solo actúa sobre documentos `FALLIDO` con compensación
-    `PENDIENTE`: jamás sobre `EN_PROCESO` ni `COMPLETADO`. Si eliminar o comprobar la
-    ausencia falla, deja la compensación `PENDIENTE` (con contador y código del último
-    error) y conserva la reserva; no se informa limpieza. No relanza errores del almacén:
+    `PENDIENTE`: jamás sobre `EN_PROCESO` ni `COMPLETADO`. La limpieza solo se declara si
+    `_reconciliar_y_eliminar` la prueba (subida en curso, versión conocida o no, resultado
+    incierto). Si no, deja la compensación `PENDIENTE` (con contador y código del último
+    error), CONSERVA la reserva y no informa limpieza. No relanza errores del almacén:
     devuelve el estado resultante.
     """
     documento = await _cargar(db, documento_id)
@@ -336,7 +469,8 @@ async def compensar_documento(
         raise BusinessValidationError(
             "STORAGE_ENVIRONMENT_MISMATCH", "El almacén no corresponde al ambiente del documento."
         )
-    referencia = ReferenciaOriginal(documento.clave_original, documento.version_id_original)
+    clave, tamano = documento.clave_original, documento.tamano_bytes
+    version_bd, existencia_conocida = documento.version_id_original, documento.original_almacenado_en is not None
     await _terminar_lectura(db)  # sin transacción abierta durante la llamada externa
 
     pendiente = [
@@ -344,12 +478,9 @@ async def compensar_documento(
         Documento.estado_compensacion == EstadoCompensacion.PENDIENTE,
     ]
     try:
-        await almacen.eliminar(referencia)
-        if await almacen.existe(referencia):
-            raise ExternalServiceError(
-                "STORAGE_CLEANUP_NOT_CONFIRMED", "No se pudo confirmar la eliminación del original."
-            )
+        await _reconciliar_y_eliminar(db, almacen, documento_id, clave, tamano, version_bd, existencia_conocida)
     except Exception as exc:
+        await db.rollback()
         await _transicion(
             db,
             documento_id,
@@ -379,12 +510,13 @@ async def compensar_documento(
 
 
 async def _fallar_y_compensar(
-    db: AsyncSession, almacen: AlmacenOriginales, documento_id: uuid.UUID, motivo: str
+    db: AsyncSession, almacen: AlmacenOriginales, documento_id: uuid.UUID, motivo: str, token: uuid.UUID
 ) -> None:
     """Mejor esfuerzo tras un fallo de subida. Si la propia BD falla, el documento queda
-    `EN_PROCESO` con el intento registrado y lo recupera `recuperar_documentos_pendientes`."""
+    `EN_PROCESO` con el intento registrado y lo recupera `recuperar_documentos_pendientes`
+    cuando su vigencia venza. Si la subida sigue en curso, la compensación queda PENDIENTE."""
     try:
-        await fallar_documento(db, documento_id, motivo, requiere_compensacion=True)
+        await fallar_documento(db, documento_id, motivo, requiere_compensacion=True, token=token)
         await compensar_documento(db, almacen, documento_id)
     except Exception:
         try:
@@ -396,22 +528,38 @@ async def _fallar_y_compensar(
 # --- Almacenamiento del original ------------------------------------------------------
 
 async def almacenar_original(
-    db: AsyncSession, almacen: AlmacenOriginales, documento_id: uuid.UUID, contenido: bytes
+    db: AsyncSession,
+    almacen: AlmacenOriginales,
+    documento_id: uuid.UUID,
+    contenido: bytes,
+    *,
+    token: uuid.UUID,
+    duracion_vigencia: timedelta = VIGENCIA_PREDETERMINADA,
 ) -> Documento:
-    """Sube los bytes originales (BOM incluido) de un documento `EN_PROCESO`.
+    """Sube los bytes originales (BOM incluido) de un documento `EN_PROCESO` que el
+    llamador posee (`token`).
 
-    El intento se registra ANTES de subir. Un fallo de la subida (o un timeout, que
-    puede dejar el objeto creado) marca el documento `FALLIDO`, intenta compensar y
-    relanza el error del almacén. Una CANCELACIÓN se propaga sin tocar la BD: el
-    documento queda `EN_PROCESO` con el intento registrado para su recuperación.
-    Solo se permite un intento por documento: nunca se sobrescribe su clave.
+    El intento se registra ANTES de subir con un UPDATE condicional que SOLO una llamada
+    puede ganar: dos intentos simultáneos (incluso desde procesos distintos) para el mismo
+    documento no llegan ambos al almacén. Esa es la protección contra la sobrescritura; el
+    UUID de la clave solo evita colisiones entre documentos y no se usa escritura condicional
+    de S3. Al registrar el intento se extiende la vigencia `duracion_vigencia`, que debe
+    cubrir el plazo de la subida (D24). Un fallo o timeout marca el documento `FALLIDO`,
+    intenta compensar y relanza el error del almacén: si la subida sigue en curso, la
+    compensación queda PENDIENTE hasta conocer su desenlace. Una CANCELACIÓN se propaga sin
+    tocar la BD: el documento queda `EN_PROCESO` y la recuperación lo toma al vencer su
+    vigencia.
     """
+    token = _exigir_token(token)
+    duracion_vigencia = _exigir_duracion(duracion_vigencia)
     documento = await _cargar(db, documento_id)
     clave, sha256, tamano = documento.clave_original, documento.sha256, documento.tamano_bytes
-    en_proceso = documento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
+    es_ejecutor = (
+        documento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO and documento.ejecucion_token == token
+    )
     ambiente = documento.ambiente
     await _terminar_lectura(db)
-    if not en_proceso:
+    if not es_ejecutor:
         raise _conflicto_de_estado()
     if ambiente != almacen.ambiente:
         raise BusinessValidationError(
@@ -426,14 +574,17 @@ async def almacenar_original(
             "ORIGINAL_CONTENT_MISMATCH", "El contenido no corresponde al documento reservado."
         )
 
+    ahora = _ahora()
     if not await _transicion(
         db,
         documento_id,
         [
             Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO,
+            Documento.ejecucion_token == token,
+            Documento.ejecucion_vigente_hasta > ahora,  # una operación vencida no empieza a subir
             Documento.almacenamiento_intentado_en.is_(None),
         ],
-        {"almacenamiento_intentado_en": _ahora()},
+        {"almacenamiento_intentado_en": ahora, "ejecucion_vigente_hasta": ahora + duracion_vigencia},
     ):
         await db.rollback()
         raise _conflicto_de_estado()
@@ -442,13 +593,16 @@ async def almacenar_original(
     try:
         referencia = await almacen.guardar(clave, bytes(contenido), sha256)
     except Exception as exc:
-        await _fallar_y_compensar(db, almacen, documento_id, _codigo_seguro(exc))
+        await _fallar_y_compensar(db, almacen, documento_id, _codigo_seguro(exc), token)
         raise
 
     if not await _transicion(
         db,
         documento_id,
-        [Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO],
+        [
+            Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO,
+            Documento.ejecucion_token == token,  # si la recuperaron, ya no es suyo
+        ],
         {"original_almacenado_en": _ahora(), "version_id_original": referencia.version_id},
     ):
         await db.rollback()
@@ -457,6 +611,29 @@ async def almacenar_original(
     documento = await _cargar(db, documento_id)
     await _terminar_lectura(db)
     return documento
+
+
+async def renovar_vigencia(
+    db: AsyncSession,
+    documento_id: uuid.UUID,
+    *,
+    token: uuid.UUID,
+    duracion: timedelta = VIGENCIA_PREDETERMINADA,
+) -> datetime:
+    """El ejecutor demuestra que sigue vivo: extiende su vigencia. Falla (conflicto) si ya no
+    posee la operación porque la recuperaron o terminó; entonces debe abandonar el trabajo."""
+    token = _exigir_token(token)
+    nueva = _ahora() + _exigir_duracion(duracion)
+    if not await _transicion(
+        db,
+        documento_id,
+        [Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO, Documento.ejecucion_token == token],
+        {"ejecucion_vigente_hasta": nueva},
+    ):
+        await db.rollback()
+        raise _conflicto_de_estado()
+    await db.commit()
+    return nueva
 
 
 async def verificar_original(db: AsyncSession, almacen: AlmacenOriginales, documento_id: uuid.UUID) -> None:
@@ -490,18 +667,20 @@ async def recuperar_documentos_pendientes(
     db: AsyncSession,
     almacen: AlmacenOriginales,
     *,
-    abandonados_antes_de: datetime,
     limite: int,
+    ahora: datetime | None = None,
 ) -> ResumenRecuperacion:
-    """Marca como fallidas las reservas `EN_PROCESO` anteriores a `abandonados_antes_de`
-    y reintenta las compensaciones `PENDIENTE`, solo del ambiente del almacén.
+    """Marca como fallidas las operaciones `EN_PROCESO` cuya VIGENCIA venció y reintenta las
+    compensaciones `PENDIENTE`, solo del ambiente del almacén.
 
-    El umbral lo fija quien llama y debe superar el tiempo máximo de una ingesta: sin
-    latido de vida no se distingue una ingesta lenta de una caída. Se procesa de forma
-    secuencial, con transacciones cortas.
+    La antigüedad de la reserva NO es criterio: un ejecutor vivo renueva su vigencia
+    (`renovar_vigencia`) y una operación lenta no se recupera. Al recuperar se rota el
+    token: el ejecutor anterior ya no puede registrar el original ni publicar. Limitación:
+    la vigencia se compara con la hora de quien recupera; entre instancias con relojes
+    desfasados hace falta margen. Un ejecutor vivo que no renovó a tiempo pierde la operación
+    (falla); nunca se publica dos veces. Procesa de forma secuencial, con transacciones cortas.
     """
-    if not isinstance(abandonados_antes_de, datetime) or abandonados_antes_de.tzinfo is None:
-        raise ValueError("abandonados_antes_de debe ser un datetime con zona horaria.")
+    ahora = _ahora() if ahora is None else _exigir_instante(ahora)
     if isinstance(limite, bool) or not isinstance(limite, int) or limite < 1:
         raise ValueError("limite debe ser un entero de al menos 1.")
 
@@ -511,9 +690,9 @@ async def recuperar_documentos_pendientes(
             .where(
                 Documento.ambiente == almacen.ambiente,
                 Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO,
-                Documento.creado_en < abandonados_antes_de,
+                Documento.ejecucion_vigente_hasta < ahora,
             )
-            .order_by(Documento.creado_en)
+            .order_by(Documento.ejecucion_vigente_hasta)
             .limit(limite)
         )
     ).scalars().all()
@@ -521,9 +700,9 @@ async def recuperar_documentos_pendientes(
     abandonados = 0
     for documento_id in ids_abandonados:
         try:
-            await fallar_documento(db, documento_id, "RESERVA_ABANDONADA")
+            await fallar_documento(db, documento_id, "RESERVA_ABANDONADA", vencido_antes_de=ahora)
         except ConflictError:
-            continue  # otro proceso lo resolvió entre la lectura y la marca
+            continue  # otro proceso lo resolvió, o su ejecutor renovó entre la lectura y la marca
         abandonados += 1
 
     ids_pendientes = (
@@ -558,6 +737,7 @@ async def publicar_documento(
     db: AsyncSession,
     documento_id: uuid.UUID,
     *,
+    token: uuid.UUID,
     indexacion_confirmada: bool,
     resultado_analisis: ResultadoAnalisis | None,
 ) -> Documento:
@@ -568,12 +748,16 @@ async def publicar_documento(
     REVALIDA la empresa (activa y con el mismo sector) antes de pasar a `COMPLETADO`.
     Quien llama es responsable de que las confirmaciones sean verdaderas: este módulo no
     puede verificar vectores ni análisis que todavía no existen. Si algo falta o la
-    empresa dejó de ser válida, no se modifica nada.
+    empresa dejó de ser válida, no se modifica nada. Solo publica quien posee la operación
+    (`token`): si la recuperaron, el token rotó y la publicación se rechaza.
     """
+    token = _exigir_token(token)
     documento = await _cargar(db, documento_id, bloquear=True)
     faltantes = []
     if documento.estado_procesamiento is not EstadoProcesamiento.EN_PROCESO:
         faltantes.append("documento_en_proceso")
+    if documento.ejecucion_token != token:
+        faltantes.append("propiedad_de_la_operacion")
     if documento.original_almacenado_en is None:
         faltantes.append("original_almacenado")
     if indexacion_confirmada is not True:
@@ -597,6 +781,7 @@ async def publicar_documento(
         documento_id,
         [
             Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO,
+            Documento.ejecucion_token == token,
             Documento.original_almacenado_en.is_not(None),
         ],
         {
