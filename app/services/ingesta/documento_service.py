@@ -32,6 +32,7 @@ comparte entre tareas concurrentes). No registra auditoría (Etapa 6).
 import hashlib
 import re
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -46,7 +47,7 @@ from app.exceptions import (
     ExternalServiceError,
     NotFoundError,
 )
-from app.models import RolUsuario, Usuario
+from app.models import Empresa, RolUsuario, Usuario
 from app.models.documento_ingesta import (
     VIGENCIA_PREDETERMINADA,
     Documento,
@@ -447,6 +448,10 @@ async def compensar_documento(
 ) -> EstadoCompensacion:
     """Elimina el original propio de un intento fallido y libera su reserva.
 
+    SOLO limpia el almacén de originales (MinIO): no toca la base vectorial. El coordinador y la
+    recuperación deberán confirmar además `fragmentos_vectoriales.eliminar_fragmentos` +
+    `contar_fragmentos == 0` antes de liberar la reserva de un documento que haya llegado a indexarse.
+
     Idempotente y repetible. Solo actúa sobre documentos `FALLIDO` con compensación
     `PENDIENTE`: jamás sobre `EN_PROCESO` ni `COMPLETADO`. La limpieza solo se declara si
     `_reconciliar_y_eliminar` la prueba (subida en curso, versión conocida o no, resultado
@@ -796,3 +801,38 @@ async def publicar_documento(
     documento = await _cargar(db, documento_id)
     await _terminar_lectura(db)
     return documento
+
+
+# --- Recuperabilidad (condición transaccional de la Etapa 4B) -------------------------------
+
+async def documentos_recuperables(
+    db: AsyncSession, *, ambiente: str, documento_ids: Sequence[uuid.UUID]
+) -> set[uuid.UUID]:
+    """De los `documento_ids` dados, los que SÍ pueden aparecer en una recuperación: documento
+    `COMPLETADO` con análisis ejecutado (`resultado_analisis` no nulo; incluye OBSERVADO) de una empresa
+    ACTIVA, en ese ambiente.
+
+    Es la mitad transaccional del contrato de visibilidad: un fragmento está `publicado` en la base
+    vectorial, pero esa marca NO sustituye esta comprobación (las bases no comparten transacción). Quien
+    recupere debe descartar los fragmentos cuyo `documento_id` no esté en el resultado.
+    """
+    validar_ambiente(ambiente)
+    ids = [i for i in documento_ids]
+    if not all(isinstance(i, uuid.UUID) for i in ids):
+        raise ValueError("documento_ids debe contener solo UUID.")
+    recuperables: set[uuid.UUID] = set()
+    for inicio in range(0, len(ids), 500):
+        consulta = (
+            select(Documento.id)
+            .join(Empresa, Empresa.id == Documento.empresa_id)
+            .where(
+                Documento.ambiente == ambiente,
+                Documento.id.in_(ids[inicio:inicio + 500]),
+                Documento.estado_procesamiento == EstadoProcesamiento.COMPLETADO,
+                Documento.resultado_analisis.is_not(None),
+                Empresa.activa.is_(True),
+            )
+        )
+        recuperables.update((await db.execute(consulta)).scalars().all())
+    await _terminar_lectura(db)
+    return recuperables

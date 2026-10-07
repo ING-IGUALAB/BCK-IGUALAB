@@ -1,8 +1,10 @@
 """Validaciones de admisión de documentos Markdown.
 
 LTX:RF-012, RF-013, RN-018, RN-021, RN-022, RN-024; RNF-007, RNF-011, RNF-015.
-Decisiones aplicadas: D07 (tamaño), D08 (sector), D09 (tablas opcionales),
-D18 (vacío), D19 (UTF-8/BOM/hash).
+Decisiones aplicadas: D07 (tamaño), D08 (sector), D09 (tablas opcionales y
+tolerantes: una tabla con columnas inconsistentes NO rechaza el documento, se
+conserva como texto literal con una advertencia de calidad; decisión de
+2026-10-07), D18 (vacío), D19 (UTF-8/BOM/hash).
 
 No persiste contenido, no llama al proveedor de embeddings y no registra
 auditoría: eso pertenece al coordinador de etapas posteriores.
@@ -12,7 +14,7 @@ import re
 import unicodedata
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +64,51 @@ class ArchivoLeido:
 
 
 @dataclass(frozen=True)
+class InconsistenciaTabla:
+    """Fila de una tabla pipes cuyo número de columnas difiere del encabezado.
+
+    Solo localiza: no corrige ni completa nada. `inicio` es la posición en
+    caracteres del inicio de la fila dentro del texto interpretado (sin BOM), la
+    misma base que los offsets de los fragmentos; `linea` y `linea_tabla` (línea
+    del encabezado de la tabla) empiezan en 1."""
+
+    linea: int
+    inicio: int
+    linea_tabla: int
+    columnas_esperadas: int
+    columnas_encontradas: int
+
+
+@dataclass(frozen=True)
+class DiagnosticoTablas:
+    """Resultado de revisar las tablas pipes. `total_inconsistencias` es el
+    recuento real; `detalles` conserva solo las primeras
+    `MAX_ERRORES_TABLA_REPORTADOS`, en orden de documento."""
+
+    tablas: int = 0
+    tablas_inconsistentes: int = 0
+    total_inconsistencias: int = 0
+    detalles: tuple[InconsistenciaTabla, ...] = ()
+
+    @property
+    def tiene_inconsistencias(self) -> bool:
+        return self.total_inconsistencias > 0
+
+
+ADVERTENCIA_TABLAS_INCONSISTENTES = "MARKDOWN_TABLE_INCONSISTENT"
+
+
+@dataclass(frozen=True)
+class AdvertenciaCalidad:
+    """Aviso que no impide la admisión. Es independiente de OBSERVADO: ese
+    resultado depende de los hallazgos del detector, no del formato."""
+
+    codigo: str
+    mensaje: str
+    detalles: dict
+
+
+@dataclass(frozen=True)
 class DocumentoValidado:
     nombre_archivo: str
     # Bytes originales sin modificar, BOM incluido (D19).
@@ -71,11 +118,38 @@ class DocumentoValidado:
     # Texto interpretado, sin el BOM inicial.
     texto: str
     tiene_bom: bool
-    tablas: int
+    diagnostico_tablas: DiagnosticoTablas = DiagnosticoTablas()
 
     @property
     def tamano_bytes(self) -> int:
         return len(self.contenido)
+
+    @property
+    def tablas(self) -> int:
+        return self.diagnostico_tablas.tablas
+
+    @property
+    def advertencias(self) -> tuple[AdvertenciaCalidad, ...]:
+        diagnostico = self.diagnostico_tablas
+        if not diagnostico.tiene_inconsistencias:
+            return ()
+        return (
+            AdvertenciaCalidad(
+                codigo=ADVERTENCIA_TABLAS_INCONSISTENTES,
+                mensaje=(
+                    "El documento contiene tablas Markdown con un número de columnas "
+                    "inconsistente. Se conservan como texto literal, sin completar "
+                    "celdas ni reconstruir datos; sus valores no deben leerse como "
+                    "una estructura fila/columna fiable."
+                ),
+                detalles={
+                    "tablas": diagnostico.tablas,
+                    "tablas_inconsistentes": diagnostico.tablas_inconsistentes,
+                    "total_inconsistencias": diagnostico.total_inconsistencias,
+                    "inconsistencias": [asdict(d) for d in diagnostico.detalles],
+                },
+            ),
+        )
 
 
 async def obtener_empresa_activa(
@@ -240,52 +314,67 @@ def _inicia_tabla(lineas: list[str], i: int) -> bool:
 
 
 class _ErroresDeTabla:
-    """Cuenta todos los errores pero conserva solo los primeros
-    `MAX_ERRORES_TABLA_REPORTADOS` detalles del documento, entre todas las tablas."""
+    """Cuenta todas las inconsistencias pero conserva solo las primeras
+    `MAX_ERRORES_TABLA_REPORTADOS` del documento, entre todas las tablas.
+    Guarda números de línea; los offsets se calculan después solo para esas."""
 
     def __init__(self) -> None:
         self.total = 0
-        self.detalles: list[dict[str, int]] = []
+        # (línea, línea del encabezado de la tabla, esperadas, encontradas)
+        self.detalles: list[tuple[int, int, int, int]] = []
 
-    def registrar(self, linea: int, esperadas: int, encontradas: int) -> None:
+    def registrar(self, linea: int, esperadas: int, encontradas: int, linea_tabla: int = 0) -> None:
         self.total += 1
         if len(self.detalles) < MAX_ERRORES_TABLA_REPORTADOS:
-            self.detalles.append(
-                {
-                    "linea": linea,
-                    "columnas_esperadas": esperadas,
-                    "columnas_encontradas": encontradas,
-                }
-            )
+            self.detalles.append((linea, linea_tabla, esperadas, encontradas))
 
 
-def _revisar_tabla(lineas: list[str], inicio: int, errores: _ErroresDeTabla) -> int:
+def _revisar_tabla(lineas: list[str], inicio: int, errores: _ErroresDeTabla) -> tuple[int, bool]:
     """Compara cada fila con el encabezado en `inicio`, registra las diferencias
-    en `errores` y devuelve el índice de la primera línea posterior a la tabla."""
+    en `errores` y devuelve (índice de la primera línea posterior a la tabla, si
+    la tabla tuvo alguna inconsistencia)."""
     esperadas = len(markdown.celdas(lineas[inicio]))
+    antes = errores.total
     j = inicio + 1
     while j < len(lineas) and markdown.puede_ser_fila(lineas[j]):
         encontradas = len(markdown.celdas(lineas[j]))
         if encontradas != esperadas:
-            errores.registrar(j + 1, esperadas, encontradas)
+            errores.registrar(j + 1, esperadas, encontradas, inicio + 1)
         j += 1
-    return j
+    return j, errores.total > antes
 
 
-def validar_tablas(texto: str) -> int:
-    """D09: tablas pipes opcionales; si existen, todas sus filas deben tener
-    el mismo número de columnas que el encabezado. Devuelve cuántas hay.
+def _offsets_de_linea(texto: str, lineas: set[int]) -> dict[int, int]:
+    """Posición en caracteres del inicio de cada línea pedida (base 1), con los
+    mismos terminadores que `markdown.dividir_lineas`. Un solo recorrido, que se
+    detiene en la última línea necesaria."""
+    if not lineas:
+        return {}
+    ultima = max(lineas)
+    offsets = {1: 0}
+    for numero, terminador in enumerate(markdown.FIN_DE_LINEA.finditer(texto), start=2):
+        if numero > ultima:
+            break
+        offsets[numero] = terminador.end()
+    return {linea: offsets[linea] for linea in lineas}
+
+
+def diagnosticar_tablas(texto: str) -> DiagnosticoTablas:
+    """D09: tablas pipes opcionales y tolerantes. Si una fila tiene un número de
+    columnas distinto del encabezado se registra como inconsistencia; el
+    documento NO se rechaza y el texto no se modifica.
 
     Simplificación respecto de GFM (ver `markdown`): la tabla termina en la
     primera línea que no puede ser fila, y se ignoran las tablas dentro de
     bloques de código cercados. Las líneas se separan solo en LF, CRLF y CR.
 
-    Se recorre todo el documento aunque haya muchos errores: el total es real,
-    pero los detalles guardados nunca pasan de `MAX_ERRORES_TABLA_REPORTADOS`.
+    Se recorre todo el documento aunque haya muchas inconsistencias: el total es
+    real, pero los detalles guardados nunca pasan de `MAX_ERRORES_TABLA_REPORTADOS`.
     """
     lineas = markdown.dividir_lineas(texto)
     errores = _ErroresDeTabla()
     tablas = 0
+    tablas_inconsistentes = 0
     cerca_abierta: str | None = None
     i = 0
     while i < len(lineas):
@@ -294,15 +383,26 @@ def validar_tablas(texto: str) -> int:
             i += 1
             continue
         tablas += 1
-        i = _revisar_tabla(lineas, i, errores)
+        i, inconsistente = _revisar_tabla(lineas, i, errores)
+        tablas_inconsistentes += inconsistente
 
-    if errores.total:
-        raise BusinessValidationError(
-            "INVALID_MARKDOWN_TABLE",
-            "El documento contiene tablas Markdown con un número de columnas inconsistente.",
-            details={"total_errores": errores.total, "errores": errores.detalles},
+    offsets = _offsets_de_linea(texto, {d[0] for d in errores.detalles})
+    detalles = tuple(
+        InconsistenciaTabla(
+            linea=linea,
+            inicio=offsets[linea],
+            linea_tabla=linea_tabla,
+            columnas_esperadas=esperadas,
+            columnas_encontradas=encontradas,
         )
-    return tablas
+        for linea, linea_tabla, esperadas, encontradas in errores.detalles
+    )
+    return DiagnosticoTablas(
+        tablas=tablas,
+        tablas_inconsistentes=tablas_inconsistentes,
+        total_inconsistencias=errores.total,
+        detalles=detalles,
+    )
 
 
 async def validar_archivo(
@@ -310,19 +410,19 @@ async def validar_archivo(
     leer: LectorBytes,
     limite_bytes: int = TAMANO_MAXIMO_BYTES,
 ) -> DocumentoValidado:
-    """Valida el archivo en orden: nombre, tamaño real, UTF-8, formato ajeno,
-    contenido y tablas."""
+    """Valida el archivo en orden: nombre, tamaño real, UTF-8, formato ajeno y
+    contenido. Diagnostica las tablas, pero no rechaza el documento por ellas."""
     nombre = validar_nombre_archivo(nombre_archivo)
     archivo = await leer_archivo_limitado(leer, limite_bytes)
     texto, tiene_bom = decodificar_utf8(archivo.contenido)
     validar_formato(archivo.contenido)
     validar_texto(texto)
-    tablas = validar_tablas(texto)
+    diagnostico_tablas = diagnosticar_tablas(texto)
     return DocumentoValidado(
         nombre_archivo=nombre,
         contenido=archivo.contenido,
         sha256=archivo.sha256,
         texto=texto,
         tiene_bom=tiene_bom,
-        tablas=tablas,
+        diagnostico_tablas=diagnostico_tablas,
     )

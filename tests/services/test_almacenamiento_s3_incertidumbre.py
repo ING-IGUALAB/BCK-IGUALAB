@@ -198,6 +198,7 @@ async def test_el_registro_de_subidas_esta_acotado_y_nunca_descarta_las_que_sigu
         await almacen.guardar(clave, DATOS, SHA)
     assert len(almacen._subidas) == 2
     cliente.compuerta = threading_event()
+    cliente.put_iniciado.clear()  # las subidas anteriores ya lo activaron: se espera la de esta clave
     en_curso = asyncio.create_task(almacen.guardar(claves[3], DATOS, SHA))
     await asyncio.to_thread(cliente.put_iniciado.wait, 5)
     assert (await almacen.estado_subida(claves[3])).estado is EstadoSubida.EN_CURSO

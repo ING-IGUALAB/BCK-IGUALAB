@@ -288,6 +288,58 @@ def test_tabla_grande_se_divide_por_filas_y_repite_el_encabezado_solo_como_conte
     assert "Agua" not in fragmentos[2].contexto
 
 
+TABLA_DETERIORADA = (
+    "| Indicador | Valor | Unidad |\n"
+    "|---|---|\n"
+    "| Agua | 10 |\n"
+    "| Energía | 20 | GWh | extra |\n"
+    "| Residuos |\n"
+)
+
+
+async def test_tabla_inconsistente_se_fragmenta_con_literales_exactos_y_sin_contexto_de_encabezado():
+    # La decisión 2026-10-07 deja pasar la tabla; la fragmentación no inventa
+    # correspondencias columna-celda ni completa celdas.
+    texto = "# Datos\n\n" + TABLA_DETERIORADA
+    original = texto.encode("utf-8")
+    documento = await validacion.validar_archivo("memoria.md", lector(original))
+    assert documento.diagnostico_tablas.total_inconsistencias == 4
+    assert documento.contenido == original
+    assert documento.sha256 == hashlib.sha256(original).hexdigest()
+
+    fragmentos = comprobar(documento.texto, params(50))
+    assert len(fragmentos) > 2  # se dividió de verdad
+    assert "".join(f.texto_literal for f in fragmentos) == texto
+    # Ninguna fila se alteró ni se reordenó: cada línea original sigue íntegra.
+    for fila in TABLA_DETERIORADA.splitlines():
+        assert any(fila in f.texto_literal for f in fragmentos)
+    assert all("Encabezado de tabla" not in f.contexto for f in fragmentos)
+    # Los offsets del diagnóstico coinciden con los de los fragmentos.
+    for detalle in documento.diagnostico_tablas.detalles:
+        dueno = next(f for f in fragmentos if f.inicio <= detalle.inicio < f.fin)
+        assert dueno.texto_literal[detalle.inicio - dueno.inicio] == "|"
+        assert dueno.texto_literal[detalle.inicio - dueno.inicio - 1:][:1] in ("\n", "|")
+
+
+def test_tabla_inconsistente_pequena_se_mantiene_junta_y_literal():
+    texto = TABLA_DETERIORADA
+    [f] = comprobar(texto)
+    assert f.texto_literal == texto and f.contexto == ""
+
+
+def test_tabla_bien_formada_sigue_repitiendo_el_encabezado_como_contexto():
+    tabla = "| A | B |\n|---|---|\n" + "".join(f"| {i} | {i} |\n" for i in range(10))
+    fragmentos = comprobar(tabla, params(40))
+    assert all(f.contexto == "Encabezado de tabla: | A | B |\n\n" for f in fragmentos[1:])
+
+
+def test_una_fila_inconsistente_basta_para_omitir_el_contexto_de_encabezado():
+    tabla = "| A | B |\n|---|---|\n" + "| 1 | 2 |\n" * 6 + "| 3 |\n" + "| 1 | 2 |\n" * 6
+    fragmentos = comprobar(tabla, params(40))
+    assert len(fragmentos) > 2
+    assert all("Encabezado de tabla" not in f.contexto for f in fragmentos)
+
+
 def test_encabezado_y_delimitador_de_tabla_no_se_separan():
     tabla = ENCABEZADO + "".join(FILAS)
     for maximo in range(len(ENCABEZADO), len(tabla)):
@@ -318,7 +370,8 @@ def test_encabezado_de_tabla_mayor_que_el_limite_se_divide_sin_perdida():
 def test_contexto_de_tabla_se_acota_y_se_marca_con_puntos_suspensivos():
     encabezado = "| " + " | ".join(f"Columna{i}" for i in range(30)) + " |\n"
     delimitador = "|" + "---|" * 30 + "\n"
-    texto = encabezado + delimitador + "".join(f"| {i} |\n" for i in range(40))
+    fila = "| " + " | ".join(str(i) for i in range(30)) + " |\n"  # 30 columnas: tabla bien formada
+    texto = encabezado + delimitador + fila * 10
     assert len(encabezado + delimitador) < 600 < len(texto)
     fragmentos = comprobar(texto, params(600, 60))
     assert len(fragmentos) > 1

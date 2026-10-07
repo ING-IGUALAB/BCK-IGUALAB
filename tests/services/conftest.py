@@ -125,3 +125,99 @@ async def fabrica_pg(url_pg_aislado):
         yield async_sessionmaker(motor, expire_on_commit=False)
     finally:
         await motor.dispose()
+
+
+# ============ PostgreSQL + pgvector DESECHABLE (Etapa 4B) ============
+# Un contenedor Docker efímero (sin volumen: datos en tmpfs; `--rm`; solo 127.0.0.1; puerto libre)
+# creado desde una imagen que YA debe existir localmente (no se descarga nada durante las pruebas:
+# `docker pull pgvector/pgvector:pg16`). No toca el Docker Compose del proyecto, ni `DATABASE_URL`,
+# ni `VECTOR_DATABASE_URL`, ni ninguna base compartida. Se destruye al terminar la sesión.
+# Si Docker o la imagen no están disponibles (o `IGUALAB_SKIP_PGVECTOR_TESTS=1`), esas pruebas se
+# OMITEN con motivo visible (`pytest -rs`) y NO cuentan como ejecutadas; no se sustituyen por mocks.
+# Imagen: `IGUALAB_TEST_PGVECTOR_IMAGE` (por defecto `pgvector/pgvector:pg16`).
+import uuid as _uuid
+
+import asyncpg
+
+_SQL_VECTORIAL = Path(__file__).resolve().parents[2] / "db" / "vector" / "001_fragmentos_documento.sql"
+
+
+def _docker(argumentos: list[str], tiempo: int = 60) -> subprocess.CompletedProcess:
+    return subprocess.run(["docker", *argumentos], capture_output=True, text=True, timeout=tiempo, stdin=subprocess.DEVNULL)
+
+
+async def _esperar_tcp(dsn: str) -> None:
+    async with asyncio.timeout(90):
+        while True:
+            try:
+                conexion = await asyncpg.connect(dsn, timeout=3)
+            except (OSError, asyncpg.PostgresError, asyncio.TimeoutError):
+                await asyncio.sleep(0.5)
+                continue
+            try:
+                await conexion.fetchval("SELECT 1")
+                return
+            finally:
+                await conexion.close()
+
+
+@pytest.fixture(scope="session")
+def url_pgvector_aislado():
+    if os.environ.get("IGUALAB_SKIP_PGVECTOR_TESTS") == "1":
+        pytest.skip("IGUALAB_SKIP_PGVECTOR_TESTS=1: pruebas con pgvector omitidas a petición.")
+    if shutil.which("docker") is None:
+        pytest.skip("Docker no está instalado: pruebas con pgvector real NO ejecutadas.")
+    imagen = os.environ.get("IGUALAB_TEST_PGVECTOR_IMAGE", "pgvector/pgvector:pg16")
+    try:
+        servidor = _docker(["version", "--format", "{{.Server.Version}}"], 30)
+        if servidor.returncode != 0:
+            pytest.skip("El motor de Docker no responde: pruebas con pgvector real NO ejecutadas.")
+        if _docker(["image", "inspect", imagen], 30).returncode != 0:
+            pytest.skip(f"Falta la imagen local {imagen} (docker pull {imagen}): pruebas con pgvector NO ejecutadas.")
+    except (subprocess.SubprocessError, OSError) as exc:
+        pytest.skip(f"Docker no disponible ({type(exc).__name__}): pruebas con pgvector NO ejecutadas.")
+    nombre = f"igualab-test-pgvector-{_uuid.uuid4().hex[:8]}"
+    creado = False
+    try:
+        ejecucion = _docker([
+            "run", "-d", "--rm", "--name", nombre, "-p", "127.0.0.1::5432",
+            "-e", "POSTGRES_USER=pruebas", "-e", "POSTGRES_DB=vectorial", "-e", "POSTGRES_HOST_AUTH_METHOD=trust",
+            "--tmpfs", "/var/lib/postgresql/data", imagen,
+        ], 120)
+        if ejecucion.returncode != 0:
+            pytest.skip("No se pudo iniciar el contenedor de pgvector: pruebas NO ejecutadas.")
+        creado = True
+        puerto = _docker(["port", nombre, "5432/tcp"], 30).stdout.strip().splitlines()[0].rsplit(":", 1)[1]
+        dsn = f"postgresql://pruebas@127.0.0.1:{puerto}/vectorial"
+        try:
+            asyncio.run(_esperar_tcp(dsn))
+        except (TimeoutError, asyncio.TimeoutError):
+            pytest.skip("El contenedor de pgvector no aceptó conexiones a tiempo: pruebas NO ejecutadas.")
+        url = f"postgresql+asyncpg://pruebas@127.0.0.1:{puerto}/vectorial"
+        from app.config import settings
+
+        assert url not in (settings.DATABASE_URL, settings.VECTOR_DATABASE_URL)  # nunca una base configurada
+        yield url
+    finally:
+        if creado:
+            try:
+                _docker(["rm", "-f", nombre], 60)
+            except (subprocess.SubprocessError, OSError):
+                pass
+
+
+@pytest_asyncio.fixture
+async def fabrica_vectorial(url_pgvector_aislado):
+    """`async_sessionmaker` sobre la instancia desechable, con el esquema REAL aplicado desde
+    `db/vector/001_fragmentos_documento.sql` (la extensión se crea aquí: es un prerrequisito)."""
+    conexion = await asyncpg.connect(url_pgvector_aislado.replace("+asyncpg", "", 1))
+    try:
+        await conexion.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public; CREATE EXTENSION vector;")
+        await conexion.execute(_SQL_VECTORIAL.read_text(encoding="utf-8"))
+    finally:
+        await conexion.close()
+    motor = create_async_engine(url_pgvector_aislado)
+    try:
+        yield async_sessionmaker(motor, expire_on_commit=False)
+    finally:
+        await motor.dispose()

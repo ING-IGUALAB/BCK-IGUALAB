@@ -195,3 +195,17 @@ def test_tiene_pipe_respeta_el_rango():
     texto = "sin\n|\n"
     assert markdown.tiene_pipe(texto) is True
     assert markdown.tiene_pipe(texto, 0, 3) is False
+
+
+@pytest.mark.parametrize(
+    "linea",
+    ["| a | b |", "a | b", "|a|b|", "  | a |  b  |  ", "| a \| b | c |", "|", "||", "| |", "a", "", "| a | b \|",
+     "\t| x |\t", "| ñ | é |", "| a | | c |"],
+)
+def test_rangos_de_celdas_coinciden_con_celdas(linea):
+    prefijo = "xx\n"
+    texto = prefijo + linea + "\nyy"
+    inicio, fin = len(prefijo), len(prefijo) + len(linea)
+    rangos = markdown.rangos_de_celdas(texto, inicio, fin)
+    assert [texto[a:b] for a, b in rangos] == markdown.celdas(linea)
+    assert all(inicio <= a <= b <= fin for a, b in rangos)

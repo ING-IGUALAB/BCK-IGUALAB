@@ -130,6 +130,35 @@ def celdas(linea: str) -> list[str]:
     return [celda.strip() for celda in _PIPE_NO_ESCAPADO.split(contenido)]
 
 
+def rangos_de_celdas(texto: str, inicio: int, fin: int) -> list[tuple[int, int]]:
+    """Rangos (inicio, fin) de cada celda de la fila `texto[inicio:fin]`, sin
+    espacios en los extremos. Mismo criterio que `celdas`:
+    `[texto[a:b] for a, b in rangos_de_celdas(...)] == celdas(texto[inicio:fin])`."""
+    linea = texto[inicio:fin]
+    izquierda = len(linea) - len(linea.lstrip())
+    derecha = len(linea.rstrip())
+    desde, hasta = izquierda, derecha
+    if linea[desde:hasta].startswith("|"):
+        desde += 1
+    if linea[desde:hasta].endswith("|") and not linea[desde:hasta].endswith("\\|"):
+        hasta -= 1
+    rangos = []
+    cursor = desde
+    for separador in _PIPE_NO_ESCAPADO.finditer(linea, desde, hasta):
+        rangos.append(_recortar(linea, cursor, separador.start(), inicio))
+        cursor = separador.end()
+    rangos.append(_recortar(linea, cursor, hasta, inicio))
+    return rangos
+
+
+def _recortar(linea: str, desde: int, hasta: int, base: int) -> tuple[int, int]:
+    segmento = linea[desde:hasta]
+    izquierda = len(segmento) - len(segmento.lstrip())
+    inicio_util = desde + izquierda
+    fin_util = max(inicio_util, desde + len(segmento.rstrip()))
+    return base + inicio_util, base + fin_util
+
+
 def _sangria(texto: str, inicio: int, fin: int) -> int:
     return len(_SANGRIA.match(texto, inicio, fin).group().expandtabs(4))
 

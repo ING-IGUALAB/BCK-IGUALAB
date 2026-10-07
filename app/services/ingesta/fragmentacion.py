@@ -44,6 +44,10 @@ ESTRATEGIA
   filas, con encabezado + delimitador como unidad; cada fila se divide solo si
   ella sola supera el límite. El encabezado de tabla se repite únicamente en el
   contexto (una línea, acotada), nunca como literal ni la tabla completa.
+  Tabla con columnas inconsistentes (decisión 2026-10-07): se divide igual, con
+  literales exactos; no se repite su encabezado como contexto porque sugeriría
+  relaciones columna-celda que el documento no sostiene. No se rellenan celdas
+  ni se reordenan columnas.
 - Bloque mayor que el límite: corte preferente en salto de línea, luego fin de
   oración, luego espacio, y por último corte duro; los tres primeros solo se
   aceptan si dejan al menos la mitad del espacio disponible. El corte no separa
@@ -60,7 +64,7 @@ tiempo con documentos de hasta 50 MB NO están medidos (T27 pendiente).
 import re
 import unicodedata
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.services.ingesta import markdown
 
@@ -348,6 +352,11 @@ class _Empaquetador:
         if bloque.fin - bloque.inicio <= self._max:
             yield from self._agregar(bloque.inicio, bloque.fin)
             return
+        if not self._columnas_consistentes(bloque):
+            # Tabla deteriorada: se divide igual y el literal es exacto, pero no
+            # se repite su encabezado como contexto; sugeriría una correspondencia
+            # columna-celda que el documento no sostiene.
+            tabla = replace(tabla, encabezado="")
         # Encabezado + delimitador son una unidad; la última fila arrastra las
         # líneas en blanco finales.
         hay_filas = tabla.inicio_cuerpo < tabla.fin_filas
@@ -358,6 +367,19 @@ class _Empaquetador:
             fin_fila = bloque.fin if fin_linea >= tabla.fin_filas else fin_linea
             yield from self._agregar(posicion, fin_fila, tabla=tabla)
             posicion = fin_linea
+
+    def _columnas_consistentes(self, bloque: _Bloque) -> bool:
+        """Mismo criterio que el validador: cada fila (delimitador incluido) tiene
+        tantas celdas como el encabezado. Se detiene en la primera diferencia."""
+        texto = self._texto
+        fin_encabezado, posicion = markdown.limites_de_linea(texto, bloque.inicio)
+        esperadas = len(markdown.celdas(texto[bloque.inicio:fin_encabezado]))
+        while posicion < bloque.tabla.fin_filas:
+            fin_contenido, siguiente = markdown.limites_de_linea(texto, posicion)
+            if len(markdown.celdas(texto[posicion:fin_contenido])) != esperadas:
+                return False
+            posicion = siguiente
+        return True
 
     def _agregar(
         self,

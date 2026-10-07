@@ -16,7 +16,10 @@ class Settings:
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL", "postgresql+asyncpg://usuario:password@localhost:5432/igualab"
     )
-    VECTOR_DATABASE_URL: str = os.getenv("VECTOR_DATABASE_URL", DATABASE_URL)
+    # Base VECTORIAL (fragmentos y embeddings). SIN valor por defecto: antes caía en DATABASE_URL y los
+    # vectores habrían ido a la base transaccional sin aviso. Si falta, solo la funcionalidad vectorial
+    # informa el problema al usarse (`app.database_vectorial`); el resto de módulos no se ve afectado.
+    VECTOR_DATABASE_URL: str | None = os.getenv("VECTOR_DATABASE_URL")
 
     BACKEND_URL: str = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
