@@ -26,10 +26,11 @@ CONTRATO DE VISIBILIDAD (léase antes de usar este módulo desde un coordinador 
   reconciliador repite `publicar_fragmentos`, idempotente). NUNCA publicar fragmentos antes de
   completar el documento. Quien recupere debe comprobar (a) sobre los `documento_id` devueltos
   (`buscar_similares` no puede consultar la otra base) y descartar los demás.
-- **ESTADO ACTUAL DE LA COMPENSACIÓN**: `documento_service.compensar_documento` solo limpia MinIO. NO
-  elimina ni confirma la eliminación de fragmentos vectoriales. El futuro coordinador y la recuperación
-  deben, además, llamar `eliminar_fragmentos` y comprobar con `contar_fragmentos` que no quedan filas ANTES de
-  liberar la reserva; hasta entonces un documento con fragmentos no debe darse por limpio.
+- **COMPENSACIÓN CONJUNTA** (coordinador): `documento_service.compensar_documento` limpia MinIO Y esta base
+  (`cerrar_y_eliminar_fragmentos` + `contar_fragmentos == 0`) antes de liberar la reserva. El CIERRE del
+  documento (`cierres_documento`, tomado en la misma transacción que el borrado y serializado con la inserción
+  mediante un bloqueo asesor) impide que una escritura tardía de un ejecutor anterior reintroduzca fragmentos
+  después de declarada la limpieza; `publicar_fragmentos` tampoco publica un documento cerrado.
 - Limpieza de un documento fallido: eliminar su original (MinIO), `eliminar_fragmentos` y comprobar
   con `contar_fragmentos` que no quedan filas antes de liberar la reserva. No hace falta una columna
   nueva en `documentos`: todo documento con fragmentos tuvo antes el intento de almacenamiento
@@ -90,7 +91,17 @@ _INSERTAR = text(
 )
 _PUBLICAR = text(
     "UPDATE fragmentos_documento SET publicado = true, publicado_en = now() "
-    "WHERE ambiente = :ambiente AND documento_id = :documento_id AND NOT publicado"
+    "WHERE ambiente = :ambiente AND documento_id = :documento_id AND NOT publicado "
+    "AND NOT EXISTS (SELECT 1 FROM cierres_documento c "
+    "WHERE c.ambiente = fragmentos_documento.ambiente AND c.documento_id = fragmentos_documento.documento_id)"
+)
+# Cierre del documento (`db/vector/002_cierres_documento.sql`): el bloqueo asesor serializa la inserción
+# de fragmentos con la limpieza, de modo que ninguna escritura tardía aterriza después de la limpieza.
+_BLOQUEAR = text("SELECT pg_advisory_xact_lock(hashtextextended(:clave, 0))")
+_CERRADO = text("SELECT 1 FROM cierres_documento WHERE ambiente = :ambiente AND documento_id = :documento_id")
+_CERRAR = text(
+    "INSERT INTO cierres_documento (ambiente, documento_id) VALUES (:ambiente, :documento_id) "
+    "ON CONFLICT (ambiente, documento_id) DO NOTHING"
 )
 _ELIMINAR = text("DELETE FROM fragmentos_documento WHERE ambiente = :ambiente AND documento_id = :documento_id")
 _CONTAR = text(
@@ -265,8 +276,18 @@ async def guardar_lote(
     filas = _filas(ambiente, documento_id, empresa_id, anio, tipo, sector, lote)
     _exigir_sin_transaccion(db)
     try:
+        # Mismo bloqueo que la limpieza: o este lote termina antes (y la limpieza lo borra) o ve el cierre.
+        await db.execute(_BLOQUEAR, {"clave": _clave_de_bloqueo(ambiente, documento_id)})
+        if (await db.execute(_CERRADO, {"ambiente": ambiente, "documento_id": documento_id})).first() is not None:
+            await db.rollback()
+            raise ConflictError(
+                "FRAGMENTS_DOCUMENT_CLOSED",
+                "El documento ya fue cerrado por su limpieza: no admite nuevos fragmentos.",
+            )
         await db.execute(_INSERTAR, filas)
         await db.commit()
+    except ConflictError:
+        raise
     except IntegrityError as exc:
         await db.rollback()
         if _UNICA in f"{exc.orig} {getattr(getattr(exc.orig, '__cause__', None), 'constraint_name', '')}":
@@ -279,6 +300,10 @@ async def guardar_lote(
         await db.rollback()
         raise
     return len(filas)
+
+
+def _clave_de_bloqueo(ambiente: str, documento_id: uuid.UUID) -> str:
+    return f"fragmentos:{ambiente}:{documento_id}"
 
 
 async def _por_documento(db: AsyncSession, sentencia, ambiente: str, documento_id: uuid.UUID):
@@ -306,6 +331,28 @@ async def eliminar_fragmentos(db: AsyncSession, *, ambiente: str, documento_id: 
     """Elimina TODOS los fragmentos (publicados o no) del documento en ese ambiente y de ningún otro
     documento ni ambiente. Idempotente: devuelve cuántas filas eliminó (0 si no había)."""
     return await _por_documento(db, _ELIMINAR, ambiente, documento_id)
+
+
+async def cerrar_y_eliminar_fragmentos(db: AsyncSession, *, ambiente: str, documento_id: uuid.UUID) -> int:
+    """Limpieza DEFINITIVA de un documento fallido: en UNA transacción toma el bloqueo del documento,
+    registra su CIERRE y elimina todos sus fragmentos. Devuelve cuántas filas eliminó.
+
+    Tras el commit, ninguna inserción (`guardar_lote` → `FRAGMENTS_DOCUMENT_CLOSED`) ni publicación puede
+    afectar a ese documento: una escritura tardía de un ejecutor anterior ya no puede reintroducir contenido.
+    Idempotente. Requiere `db/vector/002_cierres_documento.sql`."""
+    ambiente = validar_ambiente(ambiente)
+    _exigir_uuid("documento_id", documento_id)
+    _exigir_sin_transaccion(db)
+    parametros = {"ambiente": ambiente, "documento_id": documento_id}
+    try:
+        await db.execute(_BLOQUEAR, {"clave": _clave_de_bloqueo(ambiente, documento_id)})
+        await db.execute(_CERRAR, parametros)
+        eliminadas = (await db.execute(_ELIMINAR, parametros)).rowcount
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    return eliminadas
 
 
 async def contar_fragmentos(db: AsyncSession, *, ambiente: str, documento_id: uuid.UUID) -> ConteoFragmentos:

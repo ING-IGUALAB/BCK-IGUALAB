@@ -69,6 +69,19 @@ class Settings:
     MINIO_READ_TIMEOUT_SECONDS: str = os.getenv("MINIO_READ_TIMEOUT_SECONDS", "60")
     MINIO_OPERATION_TIMEOUT_SECONDS: str = os.getenv("MINIO_OPERATION_TIMEOUT_SECONDS", "300")
 
+    # Coordinador de ingesta (HTTP). Texto; se validan al construir el gestor (`gestor_ingesta`) para que un valor
+    # mal escrito deje sin ingesta, con error controlado, y no impida arrancar el resto de la aplicación.
+    # Tamaño de lote y plazos son PROVISIONALES (D12, D23): calibrar con la prueba real de 50 MB.
+    INGESTA_TAMANO_LOTE: str = os.getenv("INGESTA_TAMANO_LOTE", "16")
+    INGESTA_TIMEOUT_EMBEDDINGS_SEGUNDOS: str = os.getenv("INGESTA_TIMEOUT_EMBEDDINGS_SEGUNDOS", "120")
+    # Vigencia RENOVABLE de una operación (no una duración máxima): un latido la renueva mientras el ejecutor viva.
+    INGESTA_VIGENCIA_MINUTOS: str = os.getenv("INGESTA_VIGENCIA_MINUTOS", "15")
+    # Recuperación periódica (abandonados, compensaciones y publicaciones pendientes). Segura con varias instancias.
+    INGESTA_RECUPERACION_HABILITADA: str = os.getenv("INGESTA_RECUPERACION_HABILITADA", "true")
+    INGESTA_RECUPERACION_INTERVALO_SEGUNDOS: str = os.getenv("INGESTA_RECUPERACION_INTERVALO_SEGUNDOS", "60")
+    # Al apagar, cuánto se espera a las ingestas en curso antes de cancelarlas (quedan EN_PROCESO y se recuperan).
+    INGESTA_CIERRE_ESPERA_SEGUNDOS: str = os.getenv("INGESTA_CIERRE_ESPERA_SEGUNDOS", "30")
+
     # Proveedor de embeddings (OCI Generative AI) y LLM de chat (DeepSeek).
     # La identidad OCI se resuelve con OCI_CONFIG_FILE / OCI_CONFIG_PROFILE; en el
     # contenedor ese archivo se genera a partir del .env durante el despliegue.
@@ -78,6 +91,11 @@ class Settings:
     OCI_EMBED_DIMENSIONS: int = int(os.getenv("OCI_EMBED_DIMENSIONS", "1536"))
     OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", "~/.oci/config")
     OCI_CONFIG_PROFILE: str = os.getenv("OCI_CONFIG_PROFILE", "svc-embeddings")
+    # Identidad por variables (contenedores sin ~/.oci/config). La llave PEM va en base64, una sola línea.
+    OCI_USER_OCID: str | None = os.getenv("OCI_USER_OCID")
+    OCI_FINGERPRINT: str | None = os.getenv("OCI_FINGERPRINT")
+    OCI_TENANCY_OCID: str | None = os.getenv("OCI_TENANCY_OCID")
+    OCI_KEY_PEM_B64: str | None = os.getenv("OCI_KEY_PEM_B64")
     # Plazos del SDK de OCI (segundos, como texto). Provisionales: calibrar con la prueba real.
     OCI_CONNECT_TIMEOUT_SECONDS: str = os.getenv("OCI_CONNECT_TIMEOUT_SECONDS", "10")
     OCI_READ_TIMEOUT_SECONDS: str = os.getenv("OCI_READ_TIMEOUT_SECONDS", "60")

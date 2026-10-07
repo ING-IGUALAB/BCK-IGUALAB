@@ -225,18 +225,31 @@ def test_generar_el_ddl_no_abre_conexiones(monkeypatch):
     assert "CREATE TABLE documentos" in generar_ddl()
 
 
-def test_el_arranque_no_registra_la_tabla_documentos_ni_la_crea_create_all():
-    """`lifespan` ejecuta `create_all`: la tabla NO debe estar en los metadatos tras importar
-    la aplicación (D17). Se comprueba en un proceso limpio, sin el registro de otras pruebas."""
+def test_el_arranque_no_crea_documentos_ni_operaciones_aunque_la_aplicacion_cargue_sus_modelos():
+    """`lifespan` ejecuta `crear_tablas` (D17). Desde que el router de documentos forma parte de la aplicación,
+    `import app.main` SÍ registra `Documento` y `OperacionIngesta` en los metadatos (el router y el gestor los usan);
+    antes no los cargaba y esta prueba exigía que NO estuvieran registradas. La garantía que importa se mantiene y se
+    comprueba aquí en un proceso limpio: lo que ejecuta el arranque (`crear_tablas._crear_permitidas`) no crea ninguna de
+    las dos tablas, y `app.models` sigue sin exportar `Documento`. La versión sobre PostgreSQL real está en
+    `test_operaciones_ingesta_sql.py`."""
     codigo = (
         "import app.main\n"
+        "from sqlalchemy import create_engine, inspect\n"
         "from app.database import Base\n"
         "import app.models as m\n"
-        "print('documentos' in Base.metadata.tables, hasattr(m, 'Documento'))\n"
+        "from scripts import crear_tablas\n"
+        "motor = create_engine('sqlite://')\n"
+        "with motor.begin() as conexion:\n"
+        "    crear_tablas._crear_permitidas(conexion)\n"
+        "tablas = set(inspect(motor).get_table_names())\n"
+        "print(sorted(t for t in ('documentos', 'operaciones_ingesta') if t in Base.metadata.tables), "
+        "hasattr(m, 'Documento'), sorted(t for t in ('documentos', 'operaciones_ingesta') if t in tablas), "
+        "{'usuarios', 'empresas', 'auditoria'} <= tablas)\n"
     )
     entorno = {**os.environ, "JWT_SECRET_KEY": "clave-solo-para-esta-prueba", "PYTHONPATH": str(RAIZ)}
     resultado = subprocess.run(
         [sys.executable, "-c", codigo], cwd=RAIZ, env=entorno, capture_output=True, text=True, timeout=120
     )
     assert resultado.returncode == 0, resultado.stderr[-500:]
-    assert resultado.stdout.strip().splitlines()[-1] == "False False"
+    # registradas en los metadatos: sí; exportadas por app.models: no; creadas por el arranque: ninguna.
+    assert resultado.stdout.strip().splitlines()[-1] == "['documentos', 'operaciones_ingesta'] False [] True"

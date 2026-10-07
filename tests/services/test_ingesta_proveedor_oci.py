@@ -232,3 +232,78 @@ def test_cerrar_libera_la_sesion_y_tolera_clientes_sin_ella(oci_falso):
     assert cierres == [1, 1]  # idempotente: delega en el cierre de la sesión
     proveedor._client = SimpleNamespace()  # un cliente sin sesión no falla
     proveedor.cerrar()
+
+
+# --- Identidad OCI por variables de entorno (contenedores sin ~/.oci/config) ------------------------------------
+
+def _llave_pem_ficticia() -> str:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    llave = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return llave.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()
+    ).decode("ascii")
+
+
+def identidad_por_variables(pem: str | None = None, **cambios):
+    import base64
+
+    base = dict(
+        OCI_USER_OCID="ocid1.user.oc1..ficticio", OCI_TENANCY_OCID="ocid1.tenancy.oc1..ficticio",
+        OCI_FINGERPRINT=":".join(["aa"] * 16),
+        OCI_KEY_PEM_B64=base64.b64encode((pem or _llave_pem_ficticia()).encode("ascii")).decode("ascii"),
+        OCI_CONFIG_FILE="~/.oci/no-existe-en-el-contenedor",
+    )
+    base.update(cambios)
+    return ajustes(**base)
+
+
+def test_sin_archivo_la_identidad_se_arma_en_memoria_con_las_variables_y_el_archivo_no_se_lee(oci_falso, monkeypatch):
+    pem = _llave_pem_ficticia()
+    monkeypatch.setattr(proveedor_oci, "settings", identidad_por_variables(pem))
+    proveedor_oci.ProveedorEmbeddingsOCI()
+    assert oci_falso.config_leida is None  # no se consultó ningún archivo
+    config = oci_falso.argumentos["config"]
+    assert config["key_content"] == pem and config["region"] == "us-chicago-1"
+    assert (config["user"], config["tenancy"]) == ("ocid1.user.oc1..ficticio", "ocid1.tenancy.oc1..ficticio")
+    assert config["fingerprint"] == ":".join(["aa"] * 16) and "key_file" not in config
+
+
+def test_con_variables_la_llave_no_se_escribe_en_disco_ni_en_el_repr(oci_falso, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(proveedor_oci, "settings", identidad_por_variables())
+    proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
+    assert list(tmp_path.iterdir()) == []
+    assert "PRIVATE KEY" not in repr(proveedor) and "PRIVATE KEY" not in repr(proveedor.identidad)
+
+
+def test_si_el_archivo_existe_manda_el_archivo(oci_falso, monkeypatch, tmp_path):
+    archivo = tmp_path / "config"
+    archivo.write_text("[perfil-ficticio]\n", encoding="utf-8")
+    monkeypatch.setattr(proveedor_oci, "settings", identidad_por_variables(OCI_CONFIG_FILE=str(archivo)))
+    proveedor_oci.ProveedorEmbeddingsOCI()
+    assert oci_falso.config_leida == (str(archivo), "perfil-ficticio")
+    assert oci_falso.argumentos["config"] == {"region": "ficticia"}  # lo que devolvió el archivo, no las variables
+
+
+@pytest.mark.parametrize("faltante", ["OCI_USER_OCID", "OCI_FINGERPRINT", "OCI_TENANCY_OCID", "OCI_KEY_PEM_B64"])
+def test_con_variables_incompletas_se_intenta_el_archivo_como_antes(oci_falso, monkeypatch, faltante):
+    monkeypatch.setattr(proveedor_oci, "settings", identidad_por_variables(**{faltante: None}))
+    proveedor_oci.ProveedorEmbeddingsOCI()
+    assert oci_falso.config_leida is not None and oci_falso.argumentos["config"] == {"region": "ficticia"}
+
+
+@pytest.mark.parametrize("llave", ["esto no es base64!!", "####", "bm8tZXMtdW4tcGVtñ"])
+def test_una_llave_invalida_falla_sin_repetir_su_valor(oci_falso, monkeypatch, llave):
+    monkeypatch.setattr(proveedor_oci, "settings", identidad_por_variables(OCI_KEY_PEM_B64=llave))
+    with pytest.raises(ValueError, match="OCI_KEY_PEM_B64") as error:
+        proveedor_oci.ProveedorEmbeddingsOCI()
+    assert llave not in str(error.value) and oci_falso.argumentos is None
+
+
+def test_una_huella_o_un_ocid_con_formato_invalido_lo_rechaza_el_sdk(oci_falso, monkeypatch):
+    monkeypatch.setattr(proveedor_oci, "settings", identidad_por_variables(OCI_FINGERPRINT="no-es-una-huella"))
+    with pytest.raises(oci.exceptions.InvalidConfig):
+        proveedor_oci.ProveedorEmbeddingsOCI()
+    assert oci_falso.argumentos is None

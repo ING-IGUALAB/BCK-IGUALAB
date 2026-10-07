@@ -29,11 +29,14 @@ espere ya el resultado.
 
 SECRETOS. Este módulo no registra ni imprime configuración, credenciales ni textos. La
 identidad OCI se lee del archivo `OCI_CONFIG_FILE` y su perfil; la llave privada vive fuera
-del repositorio (`.oci/` y `*.pem` están ignorados).
+del repositorio (`.oci/` y `*.pem` están ignorados). En contenedores sin ese archivo se arma
+la identidad EN MEMORIA con `OCI_USER_OCID`, `OCI_FINGERPRINT`, `OCI_TENANCY_OCID`, `OCI_REGION`
+y `OCI_KEY_PEM_B64` (llave PEM en base64); el archivo, si existe, tiene prioridad.
 """
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 from collections.abc import Sequence
 
@@ -57,6 +60,42 @@ def _plazo(nombre: str, valor: object) -> float:
     return plazo
 
 
+_VARIABLES_IDENTIDAD = ("OCI_USER_OCID", "OCI_FINGERPRINT", "OCI_TENANCY_OCID", "OCI_KEY_PEM_B64")
+
+
+def _identidad_desde_variables() -> dict | None:
+    """Identidad OCI armada EN MEMORIA con las variables de entorno (contenedores sin archivo `~/.oci/config`).
+    `None` si no están las cuatro. La llave privada llega en base64 de una sola línea (`OCI_KEY_PEM_B64`); no se
+    escribe en disco ni se registra, y los errores nunca repiten su valor."""
+    valores = {nombre: getattr(settings, nombre, None) for nombre in _VARIABLES_IDENTIDAD}
+    if not all(isinstance(v, str) and v.strip() for v in valores.values()):
+        return None
+    try:
+        llave = base64.b64decode(valores["OCI_KEY_PEM_B64"].strip(), validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError("OCI_KEY_PEM_B64 debe ser la llave privada PEM en base64 de una sola línea.") from None
+    config = {
+        "user": valores["OCI_USER_OCID"].strip(),
+        "fingerprint": valores["OCI_FINGERPRINT"].strip(),
+        "tenancy": valores["OCI_TENANCY_OCID"].strip(),
+        "region": settings.OCI_REGION,
+        "key_content": llave,
+    }
+    oci.config.validate_config(config)
+    return config
+
+
+def _cargar_identidad() -> dict:
+    """El archivo `OCI_CONFIG_FILE` (con su perfil) manda si existe; si no, las variables `OCI_*` (ver arriba); si
+    tampoco están completas, se intenta el archivo y el SDK informa que falta."""
+    ruta = os.path.expanduser(settings.OCI_CONFIG_FILE)
+    if not os.path.isfile(ruta):
+        config = _identidad_desde_variables()
+        if config is not None:
+            return config
+    return oci.config.from_file(ruta, settings.OCI_CONFIG_PROFILE)
+
+
 class ProveedorEmbeddingsOCI:
     """Proveedor de embeddings respaldado por OCI Generative AI (Cohere Embed 4)."""
 
@@ -75,10 +114,7 @@ class ProveedorEmbeddingsOCI:
             dimension=dimension,
         )
 
-        config = oci.config.from_file(
-            os.path.expanduser(settings.OCI_CONFIG_FILE),
-            settings.OCI_CONFIG_PROFILE,
-        )
+        config = _cargar_identidad()
         self._client = GenerativeAiInferenceClient(
             config=config,
             service_endpoint=(

@@ -185,6 +185,12 @@ class AlmacenOriginalesS3:
     def __repr__(self) -> str:  # sin credenciales, endpoint ni bucket
         return f"AlmacenOriginalesS3(ambiente={self._config.ambiente!r})"
 
+    def cerrar(self) -> None:
+        """Libera las conexiones del cliente. Idempotente; no falla si el cliente no expone `close`."""
+        cerrar = getattr(self._cliente, "close", None)
+        if callable(cerrar):
+            cerrar()
+
     # --- validaciones previas a cualquier llamada de red -----------------------
 
     def _exigir_propia(self, referencia: ReferenciaOriginal, operacion: str) -> None:

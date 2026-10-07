@@ -1,13 +1,14 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import auth, usuarios, empresas
+from app.routers import auth, usuarios, empresas, documentos
 from app.exception_handlers import register_exception_handlers
 from app.logging_config import configure_logging
 from app.request_id import RequestIDMiddleware
 from app.config import settings
 from scripts.crear_tablas import crear_tablas
 from scripts.crear_superadmin_inicial import crear_superadmin_inicial
+from app.services.ingesta.gestor import detener_ingesta, iniciar_ingesta
 
 configure_logging()
 
@@ -16,7 +17,12 @@ configure_logging()
 async def lifespan(app: FastAPI):
     await crear_tablas()
     await crear_superadmin_inicial()
-    yield
+    # Recursos de ingesta: una vez, y cierre ordenado. Si falta configuración la aplicación arranca igual.
+    await iniciar_ingesta(app)
+    try:
+        yield
+    finally:
+        await detener_ingesta(app)
 
 
 app = FastAPI(
@@ -40,6 +46,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(usuarios.router)
 app.include_router(empresas.router)
+app.include_router(documentos.router)
 
 # verificar si corre
 @app.get("/health", tags=["Infraestructura"])

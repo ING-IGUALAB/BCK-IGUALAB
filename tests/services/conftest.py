@@ -140,6 +140,8 @@ import uuid as _uuid
 import asyncpg
 
 _SQL_VECTORIAL = Path(__file__).resolve().parents[2] / "db" / "vector" / "001_fragmentos_documento.sql"
+# Todos los scripts de db/vector en orden numérico (001 fragmentos, 002 cierres, ...).
+_SQL_VECTORIAL_TODOS = sorted((Path(__file__).resolve().parents[2] / "db" / "vector").glob("[0-9][0-9][0-9]_*.sql"))
 
 
 def _docker(argumentos: list[str], tiempo: int = 60) -> subprocess.CompletedProcess:
@@ -209,11 +211,12 @@ def url_pgvector_aislado():
 @pytest_asyncio.fixture
 async def fabrica_vectorial(url_pgvector_aislado):
     """`async_sessionmaker` sobre la instancia desechable, con el esquema REAL aplicado desde
-    `db/vector/001_fragmentos_documento.sql` (la extensión se crea aquí: es un prerrequisito)."""
+    `db/vector/*.sql` (la extensión se crea aquí: es un prerrequisito)."""
     conexion = await asyncpg.connect(url_pgvector_aislado.replace("+asyncpg", "", 1))
     try:
         await conexion.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public; CREATE EXTENSION vector;")
-        await conexion.execute(_SQL_VECTORIAL.read_text(encoding="utf-8"))
+        for script in _SQL_VECTORIAL_TODOS:
+            await conexion.execute(script.read_text(encoding="utf-8"))
     finally:
         await conexion.close()
     motor = create_async_engine(url_pgvector_aislado)
@@ -221,3 +224,41 @@ async def fabrica_vectorial(url_pgvector_aislado):
         yield async_sessionmaker(motor, expire_on_commit=False)
     finally:
         await motor.dispose()
+
+
+# ============ Entorno del coordinador de ingesta (PostgreSQL + pgvector aislados, MinIO/OCI dobles) ============
+from tests.ayudantes_coordinador import (  # noqa: E402
+    Entorno,
+    FabricaTransaccionalInstrumentada,
+    FabricaVectorialInstrumentada,
+    ProveedorDoble,
+    config_prueba,
+)
+from tests.ayudantes_ingesta import AlmacenEnMemoria, crear_empresa, crear_usuario, metadatos  # noqa: E402
+
+
+@pytest_asyncio.fixture
+async def entorno(fabrica_pg, fabrica_vectorial):
+    """Coordinador sobre las dos bases REALES aisladas; solo OCI y MinIO son dobles."""
+    from app.services.ingesta.coordinador import DependenciasIngesta
+
+    async with fabrica_pg() as db:
+        usuario = await crear_usuario(db)
+        empresa = await crear_empresa(db)
+    almacen = AlmacenEnMemoria("development")
+    proveedor = ProveedorDoble()
+    transaccional = FabricaTransaccionalInstrumentada(fabrica_pg)
+    vectorial = FabricaVectorialInstrumentada(fabrica_vectorial)
+    return Entorno(
+        deps=DependenciasIngesta(transaccional, vectorial, almacen, proveedor),
+        config=config_prueba(),
+        almacen=almacen,
+        proveedor=proveedor,
+        fabrica_pg=fabrica_pg,
+        fabrica_vectorial=fabrica_vectorial,
+        vectorial=vectorial,
+        transaccional=transaccional,
+        usuario=usuario,
+        empresa=empresa,
+        metadatos=metadatos(empresa),
+    )

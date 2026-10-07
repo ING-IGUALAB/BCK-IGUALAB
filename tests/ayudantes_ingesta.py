@@ -16,8 +16,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base
 from app.exceptions import ExternalServiceError
-from app.models import Empresa, RolUsuario, SectorEmpresa, TipoDocumento, Usuario
-from app.models.documento_ingesta import Documento
+from app.models import Empresa, RegistroAuditoria, RolUsuario, SectorEmpresa, TipoDocumento, Usuario
+from app.models.documento_ingesta import Documento, OperacionIngesta
 from app.schemas import MetadatosIngestaRequest
 from app.services.ingesta.almacenamiento import (
     EstadoSubida,
@@ -50,7 +50,8 @@ class SesionSQLite:
             "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
         )
         Base.metadata.create_all(
-            self.engine, tables=[Usuario.__table__, Empresa.__table__, Documento.__table__]
+            self.engine,
+            tables=[Usuario.__table__, Empresa.__table__, Documento.__table__, OperacionIngesta.__table__, RegistroAuditoria.__table__],
         )
         self.sync = Session(self.engine, expire_on_commit=False)
 
@@ -65,6 +66,9 @@ class SesionSQLite:
 
     async def get(self, *args, **kwargs):
         return self.sync.get(*args, **kwargs)
+
+    async def flush(self) -> None:
+        self.sync.flush()
 
     async def commit(self) -> None:
         self.sync.commit()

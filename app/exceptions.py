@@ -60,3 +60,13 @@ class ExternalServiceError(AppException):
 class ExternalServiceTimeoutError(ExternalServiceError):
     """El servicio externo no respondió dentro del plazo."""
 
+
+
+class InternalProcessingError(AppException):
+    """Falló un proceso interno de la aplicación (no es un error del cliente ni de un servicio
+    externo): se responde 500 con su código específico y sin detalles de la causa."""
+
+
+class ServiceUnavailableError(AppException):
+    """Una capacidad de la aplicación no está disponible por su configuración (p. ej. la ingesta sin
+    almacenamiento configurado). Se responde 503 nombrando componentes o variables, nunca valores."""

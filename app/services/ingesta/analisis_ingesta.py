@@ -29,7 +29,7 @@ import json
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 
-from app.exceptions import AppException
+from app.exceptions import InternalProcessingError
 from app.models.documento_ingesta import ResultadoAnalisis
 from app.services.ingesta.catalogo_gri import CatalogoGri, catalogo_predeterminado
 from app.services.ingesta.deteccion_gri import (
@@ -58,7 +58,7 @@ ADV_GRI_FORMATO = "GRI_FORMATO_A_REVISAR"
 ADV_SANCION_A_REVISAR = "SANCION_A_REVISAR"
 
 
-class AnalisisIngestaError(AppException):
+class AnalisisIngestaError(InternalProcessingError):
     """Un detector falló. El análisis NO se completó y no debe tratarse como OBSERVADO.
 
     `details` identifica el detector y la clase de la excepción; nunca el mensaje de
