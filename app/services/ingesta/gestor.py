@@ -50,6 +50,7 @@ from app.services.ingesta import documento_service as servicio
 from app.services.ingesta import operacion_service
 from app.services.ingesta.almacenamiento import config_desde_settings, validar_ambiente
 from app.services.ingesta.coordinador import ConfigCoordinador, DependenciasIngesta, PublicacionVectorialPendiente
+from app.services.ingesta.parametros import PARAMETROS_INGESTA, ParametrosIngesta
 from app.services.ingesta.reglas import TAMANO_MAXIMO_BYTES
 
 logger = logging.getLogger("igualab.ingesta.http")
@@ -382,18 +383,6 @@ def _motivo_seguro(exc: BaseException) -> str:
     return type(exc).__name__
 
 
-def _numero(nombre: str, valor: object, *, entero: bool = False) -> float | int:
-    try:
-        numero = float(valor)
-        if entero:
-            if numero != int(numero):
-                raise ValueError
-            numero = int(numero)
-    except (TypeError, ValueError):
-        raise ValueError(f"{nombre} debe ser un número{' entero' if entero else ''} válido.") from None
-    return numero
-
-
 def _intentar(problemas: list[dict], componente: str, construir: Callable[[], Any], *, motivo_de_clase: bool = False):
     """Ejecuta `construir()`; si falla anota el componente y el motivo (seguro) y devuelve `None`."""
     try:
@@ -411,50 +400,46 @@ def _cerrar_recursos(*recursos: object) -> None:
                 cerrar()
 
 
-def _parametros_de_ingesta(configuracion: object) -> tuple[ConfigCoordinador, OpcionesGestor]:
-    from datetime import timedelta
-
-    deshabilitada = str(configuracion.INGESTA_RECUPERACION_HABILITADA).strip().lower() in ("0", "false", "no", "off")
+def configuracion_del_gestor(parametros: ParametrosIngesta) -> tuple[ConfigCoordinador, OpcionesGestor]:
+    """Traduce los parámetros fijos de código a la configuración del coordinador y a las opciones del gestor."""
     config = ConfigCoordinador(
-        tamano_lote=_numero("INGESTA_TAMANO_LOTE", configuracion.INGESTA_TAMANO_LOTE, entero=True),
-        timeout_embeddings_segundos=_numero(
-            "INGESTA_TIMEOUT_EMBEDDINGS_SEGUNDOS", configuracion.INGESTA_TIMEOUT_EMBEDDINGS_SEGUNDOS
-        ),
-        vigencia=timedelta(minutes=_numero("INGESTA_VIGENCIA_MINUTOS", configuracion.INGESTA_VIGENCIA_MINUTOS)),
+        tamano_lote=parametros.tamano_lote,
+        timeout_embeddings_segundos=parametros.timeout_embeddings_segundos,
+        vigencia=parametros.vigencia,
     )
     opciones = OpcionesGestor(
-        recuperacion_habilitada=not deshabilitada,
-        intervalo_recuperacion=_numero(
-            "INGESTA_RECUPERACION_INTERVALO_SEGUNDOS", configuracion.INGESTA_RECUPERACION_INTERVALO_SEGUNDOS
-        ),
-        espera_cierre=_numero("INGESTA_CIERRE_ESPERA_SEGUNDOS", configuracion.INGESTA_CIERRE_ESPERA_SEGUNDOS),
+        recuperacion_habilitada=parametros.recuperacion_habilitada,
+        intervalo_recuperacion=parametros.intervalo_recuperacion_segundos,
+        espera_cierre=parametros.espera_cierre_segundos,
     )
     return config, opciones
 
 
-def _construir_almacen(configuracion: object, problemas: list[dict]):
+def _construir_almacen(configuracion: object, parametros: ParametrosIngesta, problemas: list[dict]):
     from app.services.ingesta.almacenamiento_s3 import AlmacenOriginalesS3
 
-    config = _intentar(problemas, "almacenamiento", lambda: config_desde_settings(configuracion))
+    config = _intentar(problemas, "almacenamiento", lambda: config_desde_settings(configuracion, parametros))
     if config is None:
         return None
     # Fallo al crear el cliente de MinIO: solo se informa la clase del error (nunca su mensaje).
     return _intentar(problemas, "almacenamiento", lambda: AlmacenOriginalesS3(config), motivo_de_clase=True)
 
 
-def construir_gestor(configuracion: object | None = None) -> GestorIngesta:
-    """Construye los recursos compartidos. Si falta o es inválida alguna configuración lanza
+def construir_gestor(configuracion: object | None = None, parametros: ParametrosIngesta | None = None) -> GestorIngesta:
+    """Construye los recursos compartidos. `configuracion` son los ajustes del entorno (por defecto
+    `app.config.settings`); `parametros` los valores fijos de código (por defecto `PARAMETROS_INGESTA`): en pruebas se
+    sustituyen directamente, sin editar ningún `.env`. Si falta o es inválida alguna configuración lanza
     `ServiceUnavailableError('INGESTION_NOT_CONFIGURED')` con los componentes afectados y libera lo ya creado."""
     from app.database import AsyncSessionLocal
     from app.database_vectorial import cerrar_motor_vectorial, fabrica_sesiones_vectoriales
     from app.services.ingesta.proveedor_oci import ProveedorEmbeddingsOCI
 
     configuracion = configuracion if configuracion is not None else settings
+    parametros = parametros if parametros is not None else PARAMETROS_INGESTA
     problemas: list[dict] = []
-    almacen = _construir_almacen(configuracion, problemas)
-    embeddings = _intentar(problemas, "embeddings", ProveedorEmbeddingsOCI)
+    almacen = _construir_almacen(configuracion, parametros, problemas)
+    embeddings = _intentar(problemas, "embeddings", lambda: ProveedorEmbeddingsOCI(parametros))
     sesiones_vectoriales = _intentar(problemas, "base_vectorial", fabrica_sesiones_vectoriales)
-    parametros = _intentar(problemas, "parametros_de_ingesta", lambda: _parametros_de_ingesta(configuracion))
 
     if problemas:
         _cerrar_recursos(embeddings, almacen)
@@ -474,20 +459,37 @@ def construir_gestor(configuracion: object | None = None) -> GestorIngesta:
     dependencias = DependenciasIngesta(
         sesiones=AsyncSessionLocal, sesiones_vectoriales=sesiones_vectoriales, almacen=almacen, embeddings=embeddings
     )
-    return GestorIngesta(dependencias, *parametros, liberar_recursos=liberar)
+    return GestorIngesta(dependencias, *configuracion_del_gestor(parametros), liberar_recursos=liberar)
 
 
-async def iniciar_ingesta(app) -> None:
-    """Para el `lifespan`: deja `app.state.ingesta` (gestor) o `app.state.ingesta_error` (por qué no está
-    disponible). NUNCA impide el arranque."""
+async def iniciar_ingesta(app, parametros: ParametrosIngesta | None = None, preparar_esquema=None) -> None:
+    """Para el `lifespan`: deja `app.state.ingesta` (gestor) o `app.state.ingesta_error` (por qué no está disponible).
+    NUNCA impide el arranque ni afecta a los demás módulos.
+
+    Orden: (1) construir los recursos (valida la configuración, sin red); (2) PREPARAR EL ESQUEMA de las dos bases con migraciones
+    versionadas (`app.migraciones`; `preparar_esquema` permite sustituirlo en pruebas); (3) solo entonces habilitar la ingesta. Si
+    algo falla, la ingesta responde 503 y los recursos ya creados se liberan."""
+    from app.migraciones.catalogo import asegurar_esquema_ingesta
+    from app.migraciones.motor import ErrorMigracion
+
+    preparar = preparar_esquema if preparar_esquema is not None else asegurar_esquema_ingesta
     app.state.ingesta = None
     app.state.ingesta_error = None
+    gestor = None
     try:
-        gestor = construir_gestor()
+        gestor = construir_gestor(parametros=parametros)
+        await preparar()
         await gestor.iniciar()
     except ServiceUnavailableError as exc:
         app.state.ingesta_error = (exc.code, exc.message, exc.details)
         logger.warning("Ingesta no disponible: %s", [c["componente"] for c in (exc.details or {}).get("componentes", [])])
+    except ErrorMigracion as exc:
+        app.state.ingesta_error = (
+            "INGESTION_SCHEMA_NOT_READY",
+            f"La ingesta no está disponible: no se pudo preparar el esquema de la base {exc.base}. {exc.mensaje}",
+            {"base": exc.base, "motivo": exc.codigo, **exc.detalles},
+        )
+        logger.error("Ingesta no disponible: preparación del esquema de la base %s falló (%s).", exc.base, exc.codigo)
     except Exception as exc:
         app.state.ingesta_error = (
             "INGESTION_NOT_CONFIGURED",
@@ -497,6 +499,9 @@ async def iniciar_ingesta(app) -> None:
         logger.warning("Ingesta no disponible: error de inicialización (%s).", type(exc).__name__)
     else:
         app.state.ingesta = gestor
+        return
+    if gestor is not None:
+        await gestor.cerrar()  # liberar lo ya construido (no llegó a iniciarse)
 
 
 async def detener_ingesta(app) -> None:

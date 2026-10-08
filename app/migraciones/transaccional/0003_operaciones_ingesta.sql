@@ -1,7 +1,6 @@
--- Operaciones de ingesta (identificador entregado ANTES de cargar el archivo). DDL PARA REVISIÓN:
--- no se ejecuta desde la aplicación ni desde el arranque. Aplicar DESPUÉS de la tabla `documentos`
--- (001_documentos.sql, o 001 + 002 si ya existía). Requiere las tablas `usuarios` y `documentos`.
--- Sin tipos enumerados nuevos: el estado es VARCHAR con CHECK.
+-- Migración 0003 (transaccional): operaciones de ingesta (identificador entregado ANTES de cargar el archivo).
+-- La aplica `app/migraciones` al arrancar, una sola vez y en una transacción; no se ejecuta a mano.
+-- Requiere las tablas `usuarios` y `documentos`. Sin tipos enumerados nuevos: el estado es VARCHAR con CHECK.
 
 CREATE TABLE operaciones_ingesta (
 	id UUID NOT NULL, 

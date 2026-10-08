@@ -225,8 +225,7 @@ def test_region_opcional_y_configurable():
 def ajustes(**cambios):
     valores = dict(
         MINIO_ENDPOINT_URL=ENDPOINT, MINIO_BUCKET=BUCKET, MINIO_REGION="", MINIO_ACCESS_KEY=ACCESO,
-        MINIO_SECRET_KEY=SECRETO, MINIO_PREFIX="qa", MINIO_CONNECT_TIMEOUT_SECONDS="10",
-        MINIO_READ_TIMEOUT_SECONDS="60", MINIO_OPERATION_TIMEOUT_SECONDS="300",
+        MINIO_SECRET_KEY=SECRETO, APP_ENV="qa",
     )
     valores.update(cambios)
     return SimpleNamespace(**valores)
@@ -241,27 +240,52 @@ def test_config_desde_settings_completa():
 
 def test_config_desde_settings_nombra_lo_que_falta_sin_valores():
     with pytest.raises(ValueError) as capturado:
-        config_desde_settings(ajustes(MINIO_BUCKET=None, MINIO_SECRET_KEY="  ", MINIO_PREFIX=None))
+        config_desde_settings(ajustes(MINIO_BUCKET=None, MINIO_SECRET_KEY="  "))
     mensaje = str(capturado.value)
-    assert "MINIO_BUCKET" in mensaje and "MINIO_SECRET_KEY" in mensaje and "MINIO_PREFIX" in mensaje
-    assert "MINIO_ACCESS_KEY" not in mensaje
+    assert "MINIO_BUCKET" in mensaje and "MINIO_SECRET_KEY" in mensaje
+    assert "MINIO_ACCESS_KEY" not in mensaje and "MINIO_PREFIX" not in mensaje
     assert ACCESO not in mensaje and ENDPOINT not in mensaje
 
 
-@pytest.mark.parametrize("valor", ["abc", "0", "-5", "nan", "inf", "", None])
-def test_plazos_invalidos_nombran_la_variable_no_el_valor(valor):
-    with pytest.raises(ValueError, match="MINIO_READ_TIMEOUT_SECONDS") as capturado:
-        config_desde_settings(ajustes(MINIO_READ_TIMEOUT_SECONDS=valor))
-    assert str(capturado.value) == "MINIO_READ_TIMEOUT_SECONDS debe ser un número de segundos mayor que 0."
+@pytest.mark.parametrize("ambiente", ["development", "qa", "uat", " qa "])
+def test_el_ambiente_se_deriva_de_app_env(ambiente):
+    assert config_desde_settings(ajustes(APP_ENV=ambiente)).ambiente == ambiente.strip()
+
+
+@pytest.mark.parametrize("valor", ["prod", "production", "QA", "Development", "staging", "", "  ", None, 3])
+def test_app_env_invalido_se_rechaza_sin_repetir_el_valor(valor):
+    with pytest.raises(ValueError, match="APP_ENV") as capturado:
+        config_desde_settings(ajustes(APP_ENV=valor))
+    assert str(capturado.value) == "APP_ENV debe ser exactamente development, qa o uat."
+
+
+def test_sin_app_env_en_los_ajustes_se_rechaza():
+    ajuste = ajustes()
+    del ajuste.APP_ENV
+    with pytest.raises(ValueError, match="APP_ENV"):
+        config_desde_settings(ajuste)
+
+
+def test_los_plazos_salen_de_los_parametros_de_codigo_y_se_pueden_sustituir():
+    from app.services.ingesta.parametros import ParametrosIngesta
+
+    por_defecto = config_desde_settings(ajustes())
+    assert (por_defecto.connect_timeout, por_defecto.read_timeout, por_defecto.operation_timeout) == (10.0, 60.0, 300.0)
+    propios = ParametrosIngesta(
+        minio_connect_timeout_segundos=1, minio_read_timeout_segundos=2.5, minio_operation_timeout_segundos=7
+    )
+    resultado = config_desde_settings(ajustes(), propios)
+    assert (resultado.connect_timeout, resultado.read_timeout, resultado.operation_timeout) == (1.0, 2.5, 7.0)
 
 
 def test_los_ajustes_de_la_aplicacion_declaran_los_nombres_sin_valores_por_defecto():
     from app.config import settings
 
-    for nombre in ("MINIO_ENDPOINT_URL", "MINIO_BUCKET", "MINIO_REGION", "MINIO_ACCESS_KEY",
-                   "MINIO_SECRET_KEY", "MINIO_PREFIX"):
+    for nombre in ("MINIO_ENDPOINT_URL", "MINIO_BUCKET", "MINIO_REGION", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "APP_ENV"):
         assert hasattr(settings, nombre)
-    assert type(settings).MINIO_CONNECT_TIMEOUT_SECONDS is not None
+    # Ya no se leen del entorno: el ambiente se deriva de APP_ENV y los plazos están en código.
+    for nombre in ("MINIO_PREFIX", "MINIO_CONNECT_TIMEOUT_SECONDS", "MINIO_READ_TIMEOUT_SECONDS", "MINIO_OPERATION_TIMEOUT_SECONDS"):
+        assert not hasattr(settings, nombre)
 
 
 # --- Cliente boto3: TLS, plazos, sin red --------------------------------------------------------------------
@@ -532,7 +556,7 @@ async def test_el_adaptador_expone_su_ambiente_y_leer_distingue_ausente_de_error
 
 def test_config_desde_settings_usa_los_ajustes_de_la_aplicacion_por_defecto(monkeypatch):
     # Se sustituyen los ajustes: así la prueba no depende de un `.env` local ni lo lee.
-    monkeypatch.setattr("app.config.settings", ajustes(MINIO_PREFIX="uat"))
+    monkeypatch.setattr("app.config.settings", ajustes(APP_ENV="uat"))
     resultado = config_desde_settings()
     assert (resultado.ambiente, resultado.bucket) == ("uat", BUCKET)
     monkeypatch.setattr("app.config.settings", ajustes(MINIO_ENDPOINT_URL=None))

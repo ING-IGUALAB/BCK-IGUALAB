@@ -97,14 +97,6 @@ def test_el_motivo_de_configuracion_nunca_repite_valores(exc, esperado):
     assert "SECRETO" not in motivo and "clave@" not in motivo and "://" not in motivo
 
 
-def test_los_numeros_de_configuracion_se_validan_sin_repetir_el_valor():
-    assert modulo._numero("X", "16", entero=True) == 16 and modulo._numero("X", "2.5") == 2.5
-    for valor in ("abc", None, "1.5"):
-        with pytest.raises(ValueError, match="X") as error:
-            modulo._numero("X", valor, entero=True)
-        assert "abc" not in str(error.value)
-
-
 def test_el_openapi_publica_el_contrato_de_ingesta():
     from app.main import app
 

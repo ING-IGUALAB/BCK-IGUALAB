@@ -1,8 +1,8 @@
 """SQL del coordinador de ingesta, EJECUTADO tal cual en un PostgreSQL REAL, AISLADO y TEMPORAL (el clúster de
 `conftest.py`: `initdb` local en 127.0.0.1, sin `DATABASE_URL` ni bases compartidas; se destruye al terminar).
 
-- `db/transaccional/001_documentos.sql` (instalación nueva) coincide con lo que genera el modelo.
-- `db/transaccional/002_documentos_coordinador.sql` actualiza una tabla creada con el DDL de la Etapa 4A
+- El DDL que genera el modelo (`generar_ddl`) es la referencia de instalación nueva.
+- La migración `app/migraciones/transaccional/0002_documentos_coordinador.sql` actualiza una tabla creada con el DDL de la Etapa 4A
   (congelado en `tests/services/datos/documentos_etapa_4a.sql`) y deja un esquema IDÉNTICO al de instalación nueva.
 - Las restricciones CHECK (consistencia análisis/clasificación, estructura del JSON, publicación vectorial, etapas,
   contadores) rechazan en la propia BD lo que el servicio ya valida.
@@ -28,8 +28,8 @@ from tests.ayudantes_ingesta import SesionSQLite, crear_empresa, crear_usuario, 
 from tests.services.test_documento_ddl_postgres import _crear_base_con_prerequisitos
 
 RAIZ = Path(__file__).resolve().parents[2]
-SQL_NUEVA = RAIZ / "db" / "transaccional" / "001_documentos.sql"
-SQL_ACTUALIZACION = RAIZ / "db" / "transaccional" / "002_documentos_coordinador.sql"
+MIGRACIONES = RAIZ / "app" / "migraciones" / "transaccional"
+SQL_ACTUALIZACION = MIGRACIONES / "0002_documentos_coordinador.sql"
 SQL_ETAPA_4A = Path(__file__).parent / "datos" / "documentos_etapa_4a.sql"
 
 COLUMNAS_NUEVAS = {
@@ -40,7 +40,9 @@ COLUMNAS_NUEVAS = {
 
 
 def leer(ruta: Path) -> str:
-    return ruta.read_text(encoding="utf-8")
+    texto = ruta.read_text(encoding="utf-8")
+    # La migración 0002 no trae transacción propia (la pone el motor): aquí se envuelve para probar su atomicidad.
+    return "BEGIN;" + chr(10) + texto + chr(10) + "COMMIT;" if ruta == SQL_ACTUALIZACION else texto
 
 
 async def ejecutar(esquema, sql: str) -> None:
@@ -83,7 +85,7 @@ async def descripcion_del_esquema(esquema) -> dict:
 @pytest_asyncio.fixture
 async def esquema_nuevo(url_pg_aislado):
     esquema = await _crear_base_con_prerequisitos(url_pg_aislado)
-    await ejecutar(esquema, leer(SQL_NUEVA))
+    await ejecutar(esquema, generar_ddl())
     return esquema
 
 
@@ -96,13 +98,11 @@ async def esquema_4a(url_pg_aislado):
 
 # ============================================ Los archivos SQL ============================================
 
-def test_el_sql_de_instalacion_nueva_versionado_coincide_con_el_generador():
-    assert leer(SQL_NUEVA).replace("\r\n", "\n") == generar_ddl()
-
-
-def test_los_scripts_no_ejecutan_nada_en_el_arranque_ni_por_importar_modelos():
-    cabecera = leer(SQL_ACTUALIZACION).split("BEGIN;")[0]
-    assert "NO lo ejecuta la aplicación" in cabecera and "Sin IF NOT EXISTS" in cabecera
+def test_la_migracion_0002_no_abre_transacciones_y_documenta_su_naturaleza():
+    texto = SQL_ACTUALIZACION.read_text(encoding="utf-8")
+    cabecera = texto.split("ALTER TABLE")[0]
+    assert "Migración automática" in cabecera and "Sin IF NOT EXISTS" in cabecera
+    assert not any(linea.strip() in ("BEGIN;", "COMMIT;") for linea in texto.splitlines())
 
 
 async def test_la_actualizacion_deja_el_mismo_esquema_que_la_instalacion_nueva(esquema_nuevo, esquema_4a):

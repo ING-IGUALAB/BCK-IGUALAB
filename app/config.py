@@ -54,37 +54,19 @@ class Settings:
     MAIL_SSL_TLS: bool = False
 
 
-    # Almacenamiento de originales de ingesta (MinIO, API S3). Se leen como texto y
-    # se validan solo al construir el adaptador (`config_desde_settings`), para que
-    # un valor mal escrito no impida arrancar el resto de la aplicación. Sin
-    # valores por defecto para endpoint, bucket, credenciales ni prefijo.
+    # Almacenamiento de originales de ingesta (MinIO, API S3). Se leen como texto y se validan solo al construir
+    # el adaptador (`config_desde_settings`), para que un valor mal escrito no impida arrancar el resto de la
+    # aplicación. Sin valores por defecto para endpoint, bucket ni credenciales. El prefijo/ambiente se DERIVA de
+    # APP_ENV y los plazos son parámetros fijos en código (`app.services.ingesta.parametros`).
     MINIO_ENDPOINT_URL: str | None = os.getenv("MINIO_ENDPOINT_URL")
     MINIO_BUCKET: str | None = os.getenv("MINIO_BUCKET")
     MINIO_REGION: str | None = os.getenv("MINIO_REGION")  # opcional: sin confirmar
     MINIO_ACCESS_KEY: str | None = os.getenv("MINIO_ACCESS_KEY")
     MINIO_SECRET_KEY: str | None = os.getenv("MINIO_SECRET_KEY")
-    MINIO_PREFIX: str | None = os.getenv("MINIO_PREFIX")  # development | qa | uat
-    # Plazos provisionales en segundos (D23); calibrar con la prueba de 50 MB.
-    MINIO_CONNECT_TIMEOUT_SECONDS: str = os.getenv("MINIO_CONNECT_TIMEOUT_SECONDS", "10")
-    MINIO_READ_TIMEOUT_SECONDS: str = os.getenv("MINIO_READ_TIMEOUT_SECONDS", "60")
-    MINIO_OPERATION_TIMEOUT_SECONDS: str = os.getenv("MINIO_OPERATION_TIMEOUT_SECONDS", "300")
-
-    # Coordinador de ingesta (HTTP). Texto; se validan al construir el gestor (`gestor_ingesta`) para que un valor
-    # mal escrito deje sin ingesta, con error controlado, y no impida arrancar el resto de la aplicación.
-    # Tamaño de lote y plazos son PROVISIONALES (D12, D23): calibrar con la prueba real de 50 MB.
-    INGESTA_TAMANO_LOTE: str = os.getenv("INGESTA_TAMANO_LOTE", "16")
-    INGESTA_TIMEOUT_EMBEDDINGS_SEGUNDOS: str = os.getenv("INGESTA_TIMEOUT_EMBEDDINGS_SEGUNDOS", "120")
-    # Vigencia RENOVABLE de una operación (no una duración máxima): un latido la renueva mientras el ejecutor viva.
-    INGESTA_VIGENCIA_MINUTOS: str = os.getenv("INGESTA_VIGENCIA_MINUTOS", "15")
-    # Recuperación periódica (abandonados, compensaciones y publicaciones pendientes). Segura con varias instancias.
-    INGESTA_RECUPERACION_HABILITADA: str = os.getenv("INGESTA_RECUPERACION_HABILITADA", "true")
-    INGESTA_RECUPERACION_INTERVALO_SEGUNDOS: str = os.getenv("INGESTA_RECUPERACION_INTERVALO_SEGUNDOS", "60")
-    # Al apagar, cuánto se espera a las ingestas en curso antes de cancelarlas (quedan EN_PROCESO y se recuperan).
-    INGESTA_CIERRE_ESPERA_SEGUNDOS: str = os.getenv("INGESTA_CIERRE_ESPERA_SEGUNDOS", "30")
 
     # Proveedor de embeddings (OCI Generative AI) y LLM de chat (DeepSeek).
-    # La identidad OCI se resuelve con OCI_CONFIG_FILE / OCI_CONFIG_PROFILE; en el
-    # contenedor ese archivo se genera a partir del .env durante el despliegue.
+    # La identidad OCI se resuelve con el archivo OCI_CONFIG_FILE / OCI_CONFIG_PROFILE si existe; en el contenedor,
+    # sin ese archivo, se arma en memoria con OCI_USER_OCID, OCI_FINGERPRINT, OCI_TENANCY_OCID y OCI_KEY_PEM_B64.
     OCI_REGION: str = os.getenv("OCI_REGION", "us-chicago-1")
     OCI_COMPARTMENT_ID: str | None = os.getenv("OCI_COMPARTMENT_ID")
     OCI_EMBED_MODEL: str = os.getenv("OCI_EMBED_MODEL", "cohere.embed-v4.0")
@@ -96,9 +78,7 @@ class Settings:
     OCI_FINGERPRINT: str | None = os.getenv("OCI_FINGERPRINT")
     OCI_TENANCY_OCID: str | None = os.getenv("OCI_TENANCY_OCID")
     OCI_KEY_PEM_B64: str | None = os.getenv("OCI_KEY_PEM_B64")
-    # Plazos del SDK de OCI (segundos, como texto). Provisionales: calibrar con la prueba real.
-    OCI_CONNECT_TIMEOUT_SECONDS: str = os.getenv("OCI_CONNECT_TIMEOUT_SECONDS", "10")
-    OCI_READ_TIMEOUT_SECONDS: str = os.getenv("OCI_READ_TIMEOUT_SECONDS", "60")
+    # Los plazos del SDK de OCI son parámetros fijos en código (`app.services.ingesta.parametros`).
 
     DEEPSEEK_API_KEY: str | None = os.getenv("DEEPSEEK_API_KEY")
     DEEPSEEK_BASE_URL: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")

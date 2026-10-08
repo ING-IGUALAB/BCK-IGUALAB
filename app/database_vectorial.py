@@ -6,8 +6,8 @@
   nunca conecta ni falla, así que un `VECTOR_DATABASE_URL` ausente no bloquea otros módulos ni el
   arranque. Al usarla sin configuración se informa un error controlado
   (`VECTOR_DATABASE_NOT_CONFIGURED`) que nunca revela la URL (puede contener credenciales).
-- Este módulo no crea tablas ni extensiones: el esquema vectorial se aplica con
-  `db/vector/001_fragmentos_documento.sql` por quien administre esa base (D17).
+- Este módulo no crea tablas ni extensiones: el esquema vectorial (y la comprobación de pgvector) lo prepara
+  `app.migraciones` al arrancar, con migraciones versionadas.
 """
 from collections.abc import AsyncIterator
 

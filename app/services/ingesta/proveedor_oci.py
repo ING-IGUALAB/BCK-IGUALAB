@@ -18,8 +18,8 @@ entrada en total por petición; las dimensiones admitidas son 256, 512, 1024 y 1
 número máximo de textos por petición vía API no está confirmado: el tamaño de lote lo decide
 quien llama (`tamano_lote`) y debe validarse con la prueba real.
 
-PLAZOS Y REINTENTOS. Plazos explícitos de conexión y lectura (`OCI_CONNECT_TIMEOUT_SECONDS`,
-`OCI_READ_TIMEOUT_SECONDS`, aplicados por el SDK) y `oci.retry.NoneRetryStrategy()`: una sola
+PLAZOS Y REINTENTOS. Plazos explícitos de conexión y lectura (`ParametrosIngesta.oci_connect_timeout_segundos`
+y `oci_read_timeout_segundos`, fijos en código y aplicados por el SDK) y `oci.retry.NoneRetryStrategy()`: una sola
 petición, sin reintentos, hasta decidir una política (primera prueba).
 
 CANCELACIÓN. El SDK de OCI es síncrono y se ejecuta en un hilo (`asyncio.to_thread`).
@@ -46,18 +46,9 @@ from oci.generative_ai_inference.models import EmbedTextDetails, OnDemandServing
 
 from app.config import settings
 from app.services.ingesta.embeddings import IdentidadEmbeddings
+from app.services.ingesta.parametros import PARAMETROS_INGESTA, ParametrosIngesta
 
 DIMENSIONES_EMBED_V4 = (256, 512, 1024, 1536)
-
-
-def _plazo(nombre: str, valor: object) -> float:
-    try:
-        plazo = float(valor)
-    except (TypeError, ValueError):
-        raise ValueError(f"{nombre} debe ser un número de segundos mayor que 0.") from None
-    if not plazo > 0 or plazo == float("inf"):
-        raise ValueError(f"{nombre} debe ser un número de segundos mayor que 0.")
-    return plazo
 
 
 _VARIABLES_IDENTIDAD = ("OCI_USER_OCID", "OCI_FINGERPRINT", "OCI_TENANCY_OCID", "OCI_KEY_PEM_B64")
@@ -99,14 +90,15 @@ def _cargar_identidad() -> dict:
 class ProveedorEmbeddingsOCI:
     """Proveedor de embeddings respaldado por OCI Generative AI (Cohere Embed 4)."""
 
-    def __init__(self) -> None:
+    def __init__(self, parametros: ParametrosIngesta | None = None) -> None:
+        parametros = parametros if parametros is not None else PARAMETROS_INGESTA
         if not settings.OCI_COMPARTMENT_ID:
             raise ValueError("Falta OCI_COMPARTMENT_ID en el entorno.")
         dimension = settings.OCI_EMBED_DIMENSIONS
         if dimension not in DIMENSIONES_EMBED_V4:
             raise ValueError(f"OCI_EMBED_DIMENSIONS debe ser una de {DIMENSIONES_EMBED_V4}.")
-        conexion = _plazo("OCI_CONNECT_TIMEOUT_SECONDS", settings.OCI_CONNECT_TIMEOUT_SECONDS)
-        lectura = _plazo("OCI_READ_TIMEOUT_SECONDS", settings.OCI_READ_TIMEOUT_SECONDS)
+        conexion = parametros.oci_connect_timeout_segundos
+        lectura = parametros.oci_read_timeout_segundos
 
         self.identidad = IdentidadEmbeddings(
             proveedor="oci-cohere",

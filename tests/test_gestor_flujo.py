@@ -414,3 +414,165 @@ async def test_la_fuente_en_memoria_entrega_los_bytes_en_orden_y_se_vacia():
     assert fuente.tamano == 10
     assert [await fuente.leer(4), await fuente.leer(4), await fuente.leer(4), await fuente.leer(4)] == [b"abcd", b"efgh", b"ij", b""]
     assert fuente.tamano == 0 and await fuente.leer(4) == b""
+
+
+# ============================================ Preparación del esquema en el arranque ============================================
+
+class _AppDoble:
+    def __init__(self):
+        self.state = SimpleNamespace()
+
+
+def _gestor_doble(registro: list, monkeypatch):
+    from app.services.ingesta import gestor as modulo
+
+    deps = DependenciasIngesta(sesion_nula, sesion_nula, AlmacenEnMemoria("development"), SimpleNamespace())
+
+    async def liberar():
+        registro.append("liberado")
+
+    gestor = GestorIngesta(deps, opciones=OpcionesGestor(recuperacion_habilitada=False), liberar_recursos=liberar)
+
+    def construir(*args, **kwargs):
+        registro.append("construido")
+        return gestor
+
+    monkeypatch.setattr(modulo, "construir_gestor", construir)
+    return gestor
+
+
+async def test_el_esquema_se_prepara_despues_de_construir_y_antes_de_habilitar_la_ingesta(monkeypatch):
+    from app.services.ingesta.gestor import iniciar_ingesta
+
+    orden = []
+    gestor = _gestor_doble(orden, monkeypatch)
+
+    async def preparar():
+        orden.append("esquema")
+        assert gestor._bucle is None and _app.state.ingesta is None  # todavía no habilitada
+
+    _app = _AppDoble()
+    await iniciar_ingesta(_app, preparar_esquema=preparar)
+    assert orden == ["construido", "esquema"] and _app.state.ingesta is gestor and _app.state.ingesta_error is None
+
+
+async def test_si_falla_la_preparacion_del_esquema_la_ingesta_queda_en_503_y_se_liberan_los_recursos(monkeypatch, caplog):
+    from app.migraciones.motor import ErrorMigracion
+    from app.services.ingesta.gestor import iniciar_ingesta
+
+    orden = []
+    gestor = _gestor_doble(orden, monkeypatch)
+
+    async def preparar():
+        raise ErrorMigracion("PGVECTOR_REQUIRED", "Falta la extensión pgvector. Requisito: instalarla.", "vectorial", {"sqlstate": "42501"})
+
+    app = _AppDoble()
+    with caplog.at_level(logging.ERROR, logger="igualab.ingesta.http"):
+        await iniciar_ingesta(app, preparar_esquema=preparar)  # NO lanza: el arranque de la aplicación continúa
+    assert app.state.ingesta is None and orden == ["construido", "liberado"] and gestor._cerrado
+    codigo, mensaje, detalles = app.state.ingesta_error
+    assert codigo == "INGESTION_SCHEMA_NOT_READY" and "Requisito: instalarla" in mensaje
+    assert detalles == {"base": "vectorial", "motivo": "PGVECTOR_REQUIRED", "sqlstate": "42501"}
+    assert any("PGVECTOR_REQUIRED" in r.message for r in caplog.records)
+
+
+async def test_un_error_inesperado_al_preparar_el_esquema_tampoco_impide_el_arranque(monkeypatch):
+    from app.services.ingesta.gestor import iniciar_ingesta
+
+    orden = []
+    _gestor_doble(orden, monkeypatch)
+
+    async def preparar():
+        raise RuntimeError("detalle interno con credenciales")
+
+    app = _AppDoble()
+    await iniciar_ingesta(app, preparar_esquema=preparar)
+    assert app.state.ingesta is None and orden == ["construido", "liberado"]
+    assert app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED" and "credenciales" not in str(app.state.ingesta_error)
+
+
+async def test_con_configuracion_incompleta_no_se_intenta_migrar(monkeypatch):
+    from app.services.ingesta import gestor as modulo
+
+    llamadas = []
+
+    def sin_config(*args, **kwargs):
+        raise ServiceUnavailableError("INGESTION_NOT_CONFIGURED", "Falta configuración.", details={"componentes": []})
+
+    async def preparar():
+        llamadas.append(1)
+
+    monkeypatch.setattr(modulo, "construir_gestor", sin_config)
+    app = _AppDoble()
+    await modulo.iniciar_ingesta(app, preparar_esquema=preparar)
+    assert llamadas == [] and app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED"
+
+
+async def test_con_el_esquema_sin_preparar_solo_la_ingesta_responde_503_y_el_resto_sigue(monkeypatch):
+    import httpx
+    from fastapi import FastAPI
+
+    from app.exception_handlers import register_exception_handlers
+    from app.migraciones.motor import ErrorMigracion
+    from app.request_id import RequestIDMiddleware
+    from app.routers import documentos
+    from app.services.ingesta.gestor import iniciar_ingesta
+    from app.database import get_db
+    from app.dependencies import get_current_user
+    from app.models import RolUsuario
+
+    _gestor_doble([], monkeypatch)
+
+    async def preparar():
+        raise ErrorMigracion("MIGRATION_SCHEMA_MISMATCH", "El objeto 'documentos' no coincide.", "transaccional", {"objeto": "documentos"})
+
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.add_middleware(RequestIDMiddleware)
+    app.include_router(documentos.router)
+    app.dependency_overrides[get_db] = lambda: SimpleNamespace()
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid.uuid4(), rol=RolUsuario.SUPERADMIN)
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    await iniciar_ingesta(app, preparar_esquema=preparar)
+    transporte = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transporte, base_url="http://prueba") as cliente:
+        assert (await cliente.get("/health")).json() == {"status": "ok"}
+        for metodo, ruta in (("post", "/documentos/operaciones"), ("get", "/documentos")):
+            respuesta = await getattr(cliente, metodo)(ruta)
+            assert respuesta.status_code == 503
+            error = respuesta.json()["error"]
+            assert error["code"] == "INGESTION_SCHEMA_NOT_READY"
+            assert error["details"] == {"base": "transaccional", "motivo": "MIGRATION_SCHEMA_MISMATCH", "objeto": "documentos"}
+            assert "postgresql" not in respuesta.text.lower()
+
+
+async def test_el_lifespan_real_prepara_el_esquema_tras_los_modulos_existentes_y_sobrevive_a_su_fallo(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app import main
+    from app.migraciones.motor import ErrorMigracion
+
+    orden = []
+
+    async def crear_tablas():
+        orden.append("crear_tablas")
+
+    async def superadmin():
+        orden.append("superadmin")
+
+    async def preparar():
+        orden.append("esquema")
+        raise ErrorMigracion("MIGRATION_DB_UNAVAILABLE", "No se pudo conectar a la base vectorial.", "vectorial", {"causa": "OSError"})
+
+    monkeypatch.setattr(main, "crear_tablas", crear_tablas)
+    monkeypatch.setattr(main, "crear_superadmin_inicial", superadmin)
+    monkeypatch.setattr("app.migraciones.catalogo.asegurar_esquema_ingesta", preparar)
+    _gestor_doble(orden, monkeypatch)
+    async with main.app.router.lifespan_context(main.app):
+        assert orden == ["crear_tablas", "superadmin", "construido", "esquema", "liberado"]
+        assert main.app.state.ingesta is None
+        assert main.app.state.ingesta_error[0] == "INGESTION_SCHEMA_NOT_READY"

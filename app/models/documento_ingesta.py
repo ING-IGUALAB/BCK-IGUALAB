@@ -23,7 +23,7 @@ COORDINADOR DE INGESTA (2026-10-07). Se añaden, SIN tocar las columnas anterior
   insertar el primer lote: obliga a limpiar la base vectorial al compensar), `vector_publicado_en`
   (NULL en un `COMPLETADO` = publicación pendiente, recuperable e idempotente),
   `vector_publicacion_intentos` y `vector_ultimo_error`.
-SQL: `db/transaccional/` (instalación nueva y actualización de una tabla existente).
+SQL: migraciones versionadas en `app/migraciones/transaccional/` (las aplica `app.migraciones` al arrancar, una sola vez).
 
 OPERACIONES DE INGESTA (2026-10-07). `OperacionIngesta` es el identificador que el frontend obtiene ANTES de
 subir el archivo (`POST /documentos/operaciones`). No es un documento: no tiene hash, empresa ni metadatos

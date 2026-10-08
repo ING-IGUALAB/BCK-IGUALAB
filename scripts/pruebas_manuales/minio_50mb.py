@@ -30,7 +30,7 @@ LIMPIEZA Y VERSIONADO. No se presupone que el bucket tenga el versionado desacti
 PLAZOS EFECTIVOS. El script usa el SDK síncrono directamente. Solo se aplican el plazo de
 CONEXIÓN (10 s) y el de LECTURA DE SOCKET (120 s sin recibir bytes). NO existe un plazo total
 por operación: una subida o descarga lenta pero activa puede durar más de 120 s, y un servidor
-que deje la conexión abierta sin enviar datos corta a los 120 s. `MINIO_OPERATION_TIMEOUT_SECONDS`
+que deje la conexión abierta sin enviar datos corta a los 120 s. `ParametrosIngesta.minio_operation_timeout_segundos`
 NO se aplica aquí. Sin reintentos: una sola petición por operación.
 
 Qué NO hace: no crea buckets, no cambia permisos ni versionado, no toca otros objetos, no

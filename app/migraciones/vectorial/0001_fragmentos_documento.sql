@@ -3,13 +3,11 @@
 --  PostgreSQL 16 + pgvector (probado con pgvector 0.8.6 en una instancia desechable).
 --  Modelo de embeddings: cohere.embed-v4.0 (OCI Generative AI), 1536 componentes.
 --
---  DDL PARA REVISIÓN. NO lo ejecuta la aplicación ni el arranque (no hay mecanismo de
---  migraciones aprobado: D17). Quien administre la base vectorial de cada ambiente lo aplica:
---    psql "<url con driver estándar postgresql://…>" -f db/vector/001_fragmentos_documento.sql
---  (VECTOR_DATABASE_URL usa el driver asyncpg; para psql use la URL sin «+asyncpg».)
+--  Migración automática: la aplica `app/migraciones` al arrancar, UNA sola vez, dentro de una transacción, y la
+--  registra en `igualab_migraciones`. NO se ejecuta a mano ni se repite en cada arranque.
 --
---  PRERREQUISITO (superusuario o rol con privilegio; no se ejecuta aquí a propósito):
---    CREATE EXTENSION IF NOT EXISTS vector;
+--  PRERREQUISITO: extensión pgvector. La aplicación la comprueba antes de migrar e intenta `CREATE EXTENSION vector`
+--  si el rol lo permite; si no puede, informa el requisito y la ingesta responde 503 (no se finge que se creó).
 --
 --  Sin `IF NOT EXISTS` en la tabla: si ya existe con otra definición, que falle en lugar de
 --  aceptarla en silencio.

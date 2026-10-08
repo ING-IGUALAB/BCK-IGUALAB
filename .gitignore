@@ -1,40 +1,63 @@
-venv/
-env/
-.venv/
- 
+# Variables de entorno reales; conservar la plantilla
 .env
-.env.development
-.env.qa
-.env.uat
+.env.*
+!.env.example
 
-# Credenciales OCI (nunca al repositorio)
+# Credenciales y llaves privadas
 .oci/
 *.pem
- 
-__pycache__/
-*.pyc
-*.pyo
- 
-.pytest_cache/
- 
-.vscode/
-.idea/
- 
-.DS_Store
-Thumbs.db
+*.key
+*.p12
+*.pfx
+igualab-credenciales*.zip
 
-coverage.xml
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Caché y archivos compilados de Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# Cobertura: incluye .coverage.Juan_Ferreyra...
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 
-/CLAUDE.md
-/AGENTS.md
-/LEEME.md
-/docs/ingesta/
-/docs/fuentes/
-/prompts/
+# Artefactos de herramientas
+.sonar/
+.scannerwork/
+build/
+dist/
+*.egg-info/
 
-/Contexto_ingesta_Igualab_actualizado.zip
-/Backend_igualab_revision*.zip
-/Correcciones_ingesta_Igualab.txt
-/documentos.sql
+# Ayuda local para IA y planificación
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+docs/ingesta/
+prompts/
+
+# ZIP de revisión del proyecto
+Backend_igualab_revision*.zip
+
+# Logs y temporales
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+Desktop.ini

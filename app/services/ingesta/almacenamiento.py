@@ -196,7 +196,6 @@ _VARIABLES_OBLIGATORIAS = (
     "MINIO_BUCKET",
     "MINIO_ACCESS_KEY",
     "MINIO_SECRET_KEY",
-    "MINIO_PREFIX",
 )
 
 
@@ -204,39 +203,33 @@ def _texto(valor: object) -> str | None:
     return valor.strip() if isinstance(valor, str) and valor.strip() else None
 
 
-def _plazo_desde_texto(nombre: str, valor: object) -> float:
-    try:
-        return _exigir_plazo(nombre, float(valor))
-    except (TypeError, ValueError):
-        # Solo se nombra la variable, no su valor.
-        raise ValueError(f"{nombre} debe ser un número de segundos mayor que 0.") from None
-
-
-def config_desde_settings(configuracion: object | None = None) -> ConfigAlmacenamiento:
+def config_desde_settings(configuracion: object | None = None, parametros: object | None = None) -> ConfigAlmacenamiento:
     """Construye la configuración desde `app.config.settings` (o un objeto equivalente).
 
-    Falla nombrando las variables que faltan, nunca sus valores. No hay valores por
-    defecto para endpoint, bucket, credenciales ni prefijo.
+    El AMBIENTE (prefijo de los originales) se deriva de `APP_ENV` y debe ser development, qa o uat: no se
+    configura aparte. Los plazos salen de `ParametrosIngesta` (código; sustituibles en pruebas con `parametros`).
+    Falla nombrando las variables que faltan o son inválidas, nunca sus valores. No hay valores por defecto para
+    endpoint, bucket ni credenciales.
     """
+    from app.services.ingesta.parametros import PARAMETROS_INGESTA, ambiente_desde_app_env
+
     if configuracion is None:
         from app.config import settings  # import diferido: no se carga .env al importar este módulo
 
         configuracion = settings
+    parametros = parametros if parametros is not None else PARAMETROS_INGESTA
     faltantes = [n for n in _VARIABLES_OBLIGATORIAS if _texto(getattr(configuracion, n, None)) is None]
     if faltantes:
         raise ValueError("Falta la configuración de almacenamiento: " + ", ".join(faltantes) + ".")
+    ambiente = ambiente_desde_app_env(getattr(configuracion, "APP_ENV", None))
     return ConfigAlmacenamiento(
         endpoint_url=_texto(configuracion.MINIO_ENDPOINT_URL),
         bucket=_texto(configuracion.MINIO_BUCKET),
-        ambiente=_texto(configuracion.MINIO_PREFIX),
+        ambiente=ambiente,
         access_key=_texto(configuracion.MINIO_ACCESS_KEY),
         secret_key=_texto(configuracion.MINIO_SECRET_KEY),
         region=_texto(getattr(configuracion, "MINIO_REGION", None)),
-        connect_timeout=_plazo_desde_texto(
-            "MINIO_CONNECT_TIMEOUT_SECONDS", configuracion.MINIO_CONNECT_TIMEOUT_SECONDS
-        ),
-        read_timeout=_plazo_desde_texto("MINIO_READ_TIMEOUT_SECONDS", configuracion.MINIO_READ_TIMEOUT_SECONDS),
-        operation_timeout=_plazo_desde_texto(
-            "MINIO_OPERATION_TIMEOUT_SECONDS", configuracion.MINIO_OPERATION_TIMEOUT_SECONDS
-        ),
+        connect_timeout=parametros.minio_connect_timeout_segundos,
+        read_timeout=parametros.minio_read_timeout_segundos,
+        operation_timeout=parametros.minio_operation_timeout_segundos,
     )

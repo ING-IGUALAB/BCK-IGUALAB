@@ -139,9 +139,10 @@ import uuid as _uuid
 
 import asyncpg
 
-_SQL_VECTORIAL = Path(__file__).resolve().parents[2] / "db" / "vector" / "001_fragmentos_documento.sql"
-# Todos los scripts de db/vector en orden numérico (001 fragmentos, 002 cierres, ...).
-_SQL_VECTORIAL_TODOS = sorted((Path(__file__).resolve().parents[2] / "db" / "vector").glob("[0-9][0-9][0-9]_*.sql"))
+_MIGRACIONES_VECTORIALES = Path(__file__).resolve().parents[2] / "app" / "migraciones" / "vectorial"
+_SQL_VECTORIAL = _MIGRACIONES_VECTORIALES / "0001_fragmentos_documento.sql"
+# Todas las migraciones vectoriales en orden numérico (0001 fragmentos, 0002 cierres, ...).
+_SQL_VECTORIAL_TODOS = sorted(_MIGRACIONES_VECTORIALES.glob("[0-9][0-9][0-9][0-9]_*.sql"))
 
 
 def _docker(argumentos: list[str], tiempo: int = 60) -> subprocess.CompletedProcess:
@@ -211,7 +212,7 @@ def url_pgvector_aislado():
 @pytest_asyncio.fixture
 async def fabrica_vectorial(url_pgvector_aislado):
     """`async_sessionmaker` sobre la instancia desechable, con el esquema REAL aplicado desde
-    `db/vector/*.sql` (la extensión se crea aquí: es un prerrequisito)."""
+    las migraciones de `app/migraciones/vectorial` (la extensión se crea aquí: es un prerrequisito)."""
     conexion = await asyncpg.connect(url_pgvector_aislado.replace("+asyncpg", "", 1))
     try:
         await conexion.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public; CREATE EXTENSION vector;")

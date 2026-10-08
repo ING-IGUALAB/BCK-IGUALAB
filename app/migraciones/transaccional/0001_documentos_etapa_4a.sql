@@ -1,6 +1,6 @@
--- Documentos de ingesta (Etapa 4A + coordinador). DDL de INSTALACIÓN NUEVA, PARA REVISIÓN:
--- no se ejecuta desde la aplicación. Una tabla ya creada con la Etapa 4A se actualiza con
--- db/transaccional/002_documentos_coordinador.sql (no use ambos sobre la misma base).
+-- Migración 0001 (transaccional): documentos de ingesta al nivel de la Etapa 4A. La aplica `app/migraciones` al arrancar,
+-- UNA sola vez y dentro de una transacción; no se ejecuta a mano. La 0002 la lleva al nivel del coordinador.
+
 -- Requiere las tablas `empresas` y `usuarios` y el tipo `sector_empresa` (ya existentes).
 
 CREATE TYPE tipo_documento AS ENUM ('MEMORIA_ANUAL', 'REPORTE_SOSTENIBILIDAD_GRI');
@@ -39,16 +39,6 @@ CREATE TABLE documentos (
 	ejecucion_token UUID NOT NULL, 
 	ejecucion_vigente_hasta TIMESTAMP WITH TIME ZONE NOT NULL, 
 	reserva_activa BOOLEAN DEFAULT true NOT NULL, 
-	analisis JSONB, 
-	etapa_actual VARCHAR(32) DEFAULT 'RESERVADO' NOT NULL, 
-	fragmentos_procesados INTEGER DEFAULT 0 NOT NULL, 
-	fragmentos_total INTEGER, 
-	progreso_actualizado_en TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
-	advertencias JSONB DEFAULT '[]' NOT NULL, 
-	vector_escritura_intentada_en TIMESTAMP WITH TIME ZONE, 
-	vector_publicado_en TIMESTAMP WITH TIME ZONE, 
-	vector_publicacion_intentos INTEGER DEFAULT 0 NOT NULL, 
-	vector_ultimo_error VARCHAR(64), 
 	PRIMARY KEY (id), 
 	CONSTRAINT ck_documentos_anio_minimo CHECK (anio >= 2000), 
 	CONSTRAINT ck_documentos_sha256_longitud CHECK (length(sha256) = 64), 
@@ -61,15 +51,6 @@ CREATE TABLE documentos (
 	CONSTRAINT ck_documentos_compensacion_solo_si_fallido CHECK (estado_compensacion = 'NINGUNA' OR estado_procesamiento = 'FALLIDO'), 
 	CONSTRAINT ck_documentos_reserva_solo_liberada_si_limpio CHECK (reserva_activa OR (estado_procesamiento = 'FALLIDO' AND estado_compensacion IN ('NINGUNA', 'COMPLETADA'))), 
 	CONSTRAINT ck_documentos_intentos_no_negativos CHECK (compensacion_intentos >= 0), 
-	CONSTRAINT ck_documentos_etapa_valida CHECK (etapa_actual IN ('RESERVADO', 'ALMACENANDO_ORIGINAL', 'INDEXANDO', 'ANALIZANDO', 'COMPLETANDO', 'PUBLICANDO', 'FINALIZADO')), 
-	CONSTRAINT ck_documentos_fragmentos_progreso CHECK (fragmentos_procesados >= 0 AND (fragmentos_total IS NULL OR (fragmentos_total >= 0 AND fragmentos_procesados <= fragmentos_total))), 
-	CONSTRAINT ck_documentos_publicacion_intentos CHECK (vector_publicacion_intentos >= 0), 
-	CONSTRAINT ck_documentos_vector_publicado_solo_completado CHECK (vector_publicado_en IS NULL OR estado_procesamiento = 'COMPLETADO'), 
-	CONSTRAINT ck_documentos_vector_publicado_con_intento CHECK (vector_publicado_en IS NULL OR vector_escritura_intentada_en IS NOT NULL), 
-	CONSTRAINT ck_documentos_sin_analisis_si_fallido CHECK (analisis IS NULL OR estado_procesamiento <> 'FALLIDO'), 
-	CONSTRAINT ck_documentos_analisis_consistente CHECK (resultado_analisis IS NULL OR analisis IS NULL OR analisis->>'resultado' = resultado_analisis::text), 
-	CONSTRAINT ck_documentos_analisis_estructura CHECK (analisis IS NULL OR (jsonb_typeof(analisis) = 'object' AND coalesce(analisis->>'resultado', '') IN ('CON_HALLAZGOS', 'OBSERVADO') AND length(coalesce(analisis->>'version_catalogo', '')) > 0 AND coalesce(jsonb_typeof(analisis->'motivos'), '') = 'array' AND coalesce(jsonb_typeof(analisis->'gri'), '') = 'array' AND coalesce(jsonb_typeof(analisis->'sanciones'), '') = 'array' AND coalesce(jsonb_typeof(analisis->'advertencias'), '') = 'array')), 
-	CONSTRAINT ck_documentos_advertencias_arreglo CHECK (jsonb_typeof(advertencias) = 'array'), 
 	FOREIGN KEY(empresa_id) REFERENCES empresas (id), 
 	FOREIGN KEY(usuario_id) REFERENCES usuarios (id), 
 	UNIQUE (clave_original)
@@ -82,3 +63,4 @@ CREATE INDEX ix_documentos_usuario_id ON documentos (usuario_id);
 CREATE UNIQUE INDEX uq_documentos_empresa_anio_tipo_activo ON documentos (ambiente, empresa_id, anio, tipo) WHERE reserva_activa;
 
 CREATE UNIQUE INDEX uq_documentos_sha256_activo ON documentos (ambiente, sha256) WHERE reserva_activa;
+

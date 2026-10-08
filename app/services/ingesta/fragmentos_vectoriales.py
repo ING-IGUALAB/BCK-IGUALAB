@@ -1,6 +1,6 @@
 """Persistencia de fragmentos y embeddings en PostgreSQL + pgvector (Etapa 4B).
 
-Esquema: `db/vector/001_fragmentos_documento.sql` (NO lo ejecuta la aplicación). Cada función
+Esquema: migración `app/migraciones/vectorial/0001_fragmentos_documento.sql` (la aplica `app.migraciones` al arrancar). Cada función
 recibe una `AsyncSession` de la base VECTORIAL (`app.database_vectorial`), la usa de forma
 secuencial y exige que llegue SIN transacción abierta: cada operación es una única transacción
 corta que termina con commit o rollback.
@@ -95,7 +95,7 @@ _PUBLICAR = text(
     "AND NOT EXISTS (SELECT 1 FROM cierres_documento c "
     "WHERE c.ambiente = fragmentos_documento.ambiente AND c.documento_id = fragmentos_documento.documento_id)"
 )
-# Cierre del documento (`db/vector/002_cierres_documento.sql`): el bloqueo asesor serializa la inserción
+# Cierre del documento (migración `app/migraciones/vectorial/0002_cierres_documento.sql`): el bloqueo asesor serializa la inserción
 # de fragmentos con la limpieza, de modo que ninguna escritura tardía aterriza después de la limpieza.
 _BLOQUEAR = text("SELECT pg_advisory_xact_lock(hashtextextended(:clave, 0))")
 _CERRADO = text("SELECT 1 FROM cierres_documento WHERE ambiente = :ambiente AND documento_id = :documento_id")
@@ -339,7 +339,7 @@ async def cerrar_y_eliminar_fragmentos(db: AsyncSession, *, ambiente: str, docum
 
     Tras el commit, ninguna inserción (`guardar_lote` → `FRAGMENTS_DOCUMENT_CLOSED`) ni publicación puede
     afectar a ese documento: una escritura tardía de un ejecutor anterior ya no puede reintroducir contenido.
-    Idempotente. Requiere `db/vector/002_cierres_documento.sql`."""
+    Idempotente. Requiere la migración vectorial 0002 (`cierres_documento`)."""
     ambiente = validar_ambiente(ambiente)
     _exigir_uuid("documento_id", documento_id)
     _exigir_sin_transaccion(db)

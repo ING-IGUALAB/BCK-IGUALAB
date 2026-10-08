@@ -1,12 +1,10 @@
 -- ============================================================================================
 --  Base TRANSACCIONAL (DATABASE_URL) · tabla documentos · ACTUALIZACIÓN para el coordinador de ingesta
---  PostgreSQL. Para una tabla `documentos` YA creada con el DDL de la Etapa 4A.
---  (En una instalación nueva use db/transaccional/001_documentos.sql: ya incluye todo esto; no
---  aplique ambos scripts sobre la misma base.)
+--  Migración 0002 (transaccional): lleva `documentos` del nivel de la Etapa 4A al del coordinador.
+--  En una instalación nueva se aplica a continuación de la 0001; en una existente, solo si el esquema real coincide con la 0001.
 --
---  DDL PARA REVISIÓN. NO lo ejecuta la aplicación ni el arranque, y importar los modelos tampoco crea
---  nada (el modelo Documento no está registrado en app.models: D17). Quien administre cada base lo aplica:
---    psql "<url con driver estándar postgresql://…>" -f db/transaccional/002_documentos_coordinador.sql
+--  Migración automática: la aplica `app/migraciones` al arrancar, UNA sola vez, dentro de una transacción, y la
+--  registra en `igualab_migraciones`. NO se ejecuta a mano ni se repite en cada arranque.
 --
 --  Sin IF NOT EXISTS: si una columna o restricción ya existe, el script falla y deshace todo (una sola
 --  transacción) en lugar de aceptarla en silencio. ADD COLUMN con DEFAULT constante no reescribe la tabla
@@ -21,7 +19,6 @@
 --  script en un PostgreSQL aislado y comprueba que el esquema resultante es idéntico al de instalación nueva.
 -- ============================================================================================
 
-BEGIN;
 
 ALTER TABLE documentos
     -- Resultado completo de analizar_documento (a_dict()); resultado_analisis es solo la clasificación.
@@ -49,4 +46,3 @@ ALTER TABLE documentos
     ADD CONSTRAINT ck_documentos_analisis_estructura CHECK (analisis IS NULL OR (jsonb_typeof(analisis) = 'object' AND coalesce(analisis->>'resultado', '') IN ('CON_HALLAZGOS', 'OBSERVADO') AND length(coalesce(analisis->>'version_catalogo', '')) > 0 AND coalesce(jsonb_typeof(analisis->'motivos'), '') = 'array' AND coalesce(jsonb_typeof(analisis->'gri'), '') = 'array' AND coalesce(jsonb_typeof(analisis->'sanciones'), '') = 'array' AND coalesce(jsonb_typeof(analisis->'advertencias'), '') = 'array')),
     ADD CONSTRAINT ck_documentos_advertencias_arreglo CHECK (jsonb_typeof(advertencias) = 'array');
 
-COMMIT;

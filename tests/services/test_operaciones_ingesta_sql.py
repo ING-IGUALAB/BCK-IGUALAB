@@ -20,9 +20,9 @@ from scripts.generar_ddl_documentos import generar_ddl, generar_ddl_operaciones
 from tests.services.test_documento_ddl_postgres import _crear_base_con_prerequisitos
 
 RAIZ = Path(__file__).resolve().parents[2]
-SQL_001 = RAIZ / "db" / "transaccional" / "001_documentos.sql"
-SQL_002 = RAIZ / "db" / "transaccional" / "002_documentos_coordinador.sql"
-SQL_003 = RAIZ / "db" / "transaccional" / "003_operaciones_ingesta.sql"
+MIGRACIONES = RAIZ / "app" / "migraciones" / "transaccional"
+SQL_002 = MIGRACIONES / "0002_documentos_coordinador.sql"
+SQL_003 = MIGRACIONES / "0003_operaciones_ingesta.sql"
 SQL_ETAPA_4A = Path(__file__).parent / "datos" / "documentos_etapa_4a.sql"
 
 
@@ -49,7 +49,7 @@ async def consultar(esquema, sql: str, *args):
 @pytest_asyncio.fixture
 async def esquema(url_pg_aislado):
     esquema = await _crear_base_con_prerequisitos(url_pg_aislado)
-    await ejecutar(esquema, leer(SQL_001))
+    await ejecutar(esquema, generar_ddl())  # referencia de instalación nueva generada desde el modelo
     await ejecutar(esquema, leer(SQL_003))
     return esquema
 
@@ -57,9 +57,10 @@ async def esquema(url_pg_aislado):
 def test_el_sql_versionado_coincide_con_el_generador_y_documenta_el_orden():
     texto = leer(SQL_003).replace("\r\n", "\n")
     assert texto == generar_ddl_operaciones()
-    assert "DESPUÉS de la tabla `documentos`" in texto and "no se ejecuta desde la aplicación" in texto
+    assert "Requiere las tablas `usuarios` y `documentos`" in texto and "no se ejecuta a mano" in texto
     assert "CREATE TYPE" not in texto  # sin enumerados nuevos
-    assert leer(SQL_001).replace("\r\n", "\n") == generar_ddl()  # el 001 no cambió
+    # El DDL de referencia del modelo sigue siendo generable (lo usan las pruebas de instalación nueva).
+    assert "CREATE TABLE documentos" in generar_ddl()
 
 
 async def test_sin_la_tabla_documentos_el_003_falla_y_no_deja_nada(url_pg_aislado):
@@ -72,7 +73,7 @@ async def test_sin_la_tabla_documentos_el_003_falla_y_no_deja_nada(url_pg_aislad
 async def test_instalacion_nueva_001_003_y_actualizacion_4a_002_003_dejan_el_mismo_esquema(esquema, url_pg_aislado):
     vieja = await _crear_base_con_prerequisitos(url_pg_aislado)
     await ejecutar(vieja, leer(SQL_ETAPA_4A))
-    await ejecutar(vieja, leer(SQL_002))
+    await ejecutar(vieja, "BEGIN;" + chr(10) + leer(SQL_002) + chr(10) + "COMMIT;")
     await ejecutar(vieja, leer(SQL_003))
 
     async def descripcion(e):

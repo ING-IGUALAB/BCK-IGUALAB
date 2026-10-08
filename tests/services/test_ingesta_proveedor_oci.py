@@ -32,7 +32,6 @@ def ajustes(**cambios):
         OCI_REGION="us-chicago-1", OCI_COMPARTMENT_ID="ocid1.compartment.oc1..ficticio",
         OCI_EMBED_MODEL="cohere.embed-v4.0", OCI_EMBED_DIMENSIONS=DIM,
         OCI_CONFIG_FILE="~/.oci/config-ficticio", OCI_CONFIG_PROFILE="perfil-ficticio",
-        OCI_CONNECT_TIMEOUT_SECONDS="10", OCI_READ_TIMEOUT_SECONDS="60",
     )
     base.update(cambios)
     return SimpleNamespace(**base)
@@ -95,17 +94,28 @@ def test_sin_compartimento_no_se_construye_ni_se_lee_la_configuracion(oci_falso,
 @pytest.mark.parametrize("cambios, mensaje", [
     (dict(OCI_EMBED_DIMENSIONS=1000), "OCI_EMBED_DIMENSIONS"),
     (dict(OCI_EMBED_DIMENSIONS=1024.0 + 1), "OCI_EMBED_DIMENSIONS"),
-    (dict(OCI_CONNECT_TIMEOUT_SECONDS="0"), "OCI_CONNECT_TIMEOUT_SECONDS"),
-    (dict(OCI_CONNECT_TIMEOUT_SECONDS="abc"), "OCI_CONNECT_TIMEOUT_SECONDS"),
-    (dict(OCI_READ_TIMEOUT_SECONDS="-5"), "OCI_READ_TIMEOUT_SECONDS"),
-    (dict(OCI_READ_TIMEOUT_SECONDS="inf"), "OCI_READ_TIMEOUT_SECONDS"),
-    (dict(OCI_READ_TIMEOUT_SECONDS=None), "OCI_READ_TIMEOUT_SECONDS"),
 ])
 def test_configuracion_invalida_se_rechaza_antes_de_construir_el_cliente(oci_falso, monkeypatch, cambios, mensaje):
     monkeypatch.setattr(proveedor_oci, "settings", ajustes(**cambios))
     with pytest.raises(ValueError, match=mensaje):
         proveedor_oci.ProveedorEmbeddingsOCI()
     assert oci_falso.argumentos is None
+
+
+def test_los_plazos_del_sdk_salen_de_los_parametros_de_codigo_y_se_pueden_sustituir(oci_falso):
+    from app.services.ingesta.parametros import ParametrosIngesta
+
+    proveedor_oci.ProveedorEmbeddingsOCI(ParametrosIngesta(oci_connect_timeout_segundos=3, oci_read_timeout_segundos=4.5))
+    assert oci_falso.argumentos["timeout"] == (3.0, 4.5)
+    proveedor_oci.ProveedorEmbeddingsOCI()
+    assert oci_falso.argumentos["timeout"] == (10.0, 60.0)
+
+
+def test_el_proveedor_ya_no_lee_plazos_del_entorno(oci_falso, monkeypatch):
+    # Aunque el entorno (o los ajustes) trajeran valores, los plazos del SDK son los de código.
+    monkeypatch.setattr(proveedor_oci, "settings", ajustes(OCI_CONNECT_TIMEOUT_SECONDS="99", OCI_READ_TIMEOUT_SECONDS="abc"))
+    proveedor_oci.ProveedorEmbeddingsOCI()
+    assert oci_falso.argumentos["timeout"] == (10.0, 60.0)
 
 
 def test_identidad_endpoint_plazos_y_sin_reintentos(oci_falso):

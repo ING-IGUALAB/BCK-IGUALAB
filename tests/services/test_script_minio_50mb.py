@@ -492,7 +492,7 @@ def test_los_plazos_se_describen_con_precision_y_no_se_presenta_un_plazo_total(p
     assert (config.connect_timeout, config.read_timeout) == (script.CONNECT_TIMEOUT_SEGUNDOS, script.READ_TIMEOUT_SEGUNDOS)
     descripcion = next(linea for linea in salida if linea.startswith("Plazos efectivos"))
     assert "NO hay plazo total" in descripcion and "sin reintentos" in descripcion
-    assert "MINIO_OPERATION_TIMEOUT_SECONDS" not in "\n".join(salida)
+    assert "minio_operation_timeout_segundos" not in "\n".join(salida)
     assert "NO existe un plazo total" in script.__doc__ and "NO se aplica aquí" in script.__doc__
 
 

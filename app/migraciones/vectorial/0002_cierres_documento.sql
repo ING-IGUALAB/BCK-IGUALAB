@@ -1,9 +1,9 @@
 -- ============================================================================================
 --  Base VECTORIAL (VECTOR_DATABASE_URL) · tabla cierres_documento · Coordinador de ingesta
---  Requiere haber aplicado antes db/vector/001_fragmentos_documento.sql.
+--  Migración 0002 (vectorial): requiere la 0001 (fragmentos_documento).
 --
---  DDL PARA REVISIÓN. NO lo ejecuta la aplicación ni el arranque (D17). Se aplica igual que 001:
---    psql "<url con driver estándar postgresql://…>" -f db/vector/002_cierres_documento.sql
+--  Migración automática: la aplica `app/migraciones` al arrancar, UNA sola vez, dentro de una transacción, y la
+--  registra en `igualab_migraciones`. NO se ejecuta a mano ni se repite en cada arranque.
 --  Es solo una tabla nueva: no modifica fragmentos_documento y se puede aplicar en caliente.
 --
 --  PARA QUÉ. Dos bases no comparten transacción. Un ejecutor lento, cancelado o ya recuperado puede

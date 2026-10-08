@@ -20,6 +20,7 @@ from app.models.documento_ingesta import EstadoCompensacion, EstadoProcesamiento
 from app.services.ingesta import coordinador
 from app.services.ingesta import gestor as modulo_gestor
 from app.services.ingesta.gestor import GestorIngesta
+from app.services.ingesta.parametros import PARAMETROS_INGESTA, ParametrosIngesta
 from tests.ayudantes_coordinador import TEXTO_CON_HALLAZGOS, TEXTO_OBSERVADO
 from tests.ayudantes_http_ingesta import (
     comprobar_error,
@@ -328,10 +329,12 @@ async def test_el_candado_es_por_ambiente(entorno):
 
 CONFIG_VALIDA = dict(
     MINIO_ENDPOINT_URL="https://minio.ejemplo.invalid", MINIO_BUCKET="bucket-prueba", MINIO_REGION=None,
-    MINIO_ACCESS_KEY="clave-de-acceso-ficticia", MINIO_SECRET_KEY="clave-secreta-ficticia", MINIO_PREFIX="development",
-    MINIO_CONNECT_TIMEOUT_SECONDS="10", MINIO_READ_TIMEOUT_SECONDS="60", MINIO_OPERATION_TIMEOUT_SECONDS="300",
-    INGESTA_TAMANO_LOTE="8", INGESTA_TIMEOUT_EMBEDDINGS_SEGUNDOS="30", INGESTA_VIGENCIA_MINUTOS="5",
-    INGESTA_RECUPERACION_HABILITADA="true", INGESTA_RECUPERACION_INTERVALO_SEGUNDOS="45", INGESTA_CIERRE_ESPERA_SEGUNDOS="7",
+    MINIO_ACCESS_KEY="clave-de-acceso-ficticia", MINIO_SECRET_KEY="clave-secreta-ficticia", APP_ENV="development",
+)
+# Parámetros de código SUSTITUIDOS directamente en la prueba: no se edita ningún .env.
+PARAMETROS_PROPIOS = ParametrosIngesta(
+    tamano_lote=8, timeout_embeddings_segundos=30, vigencia=timedelta(minutes=5), intervalo_recuperacion_segundos=45,
+    espera_cierre_segundos=7, minio_read_timeout_segundos=11,
 )
 
 
@@ -396,10 +399,13 @@ async def test_la_aplicacion_real_arranca_sin_configuracion_de_ingesta(monkeypat
 
 
 async def test_con_configuracion_valida_se_construyen_los_recursos_una_vez_y_se_cierran_en_orden(entorno, monkeypatch):
-    cierres = []
+    cierres, recibidos = [], []
 
     class OciFalso:
         identidad = entorno.proveedor.identidad
+
+        def __init__(self, parametros=None):
+            recibidos.append(parametros)
 
         def cerrar(self):
             cierres.append("oci")
@@ -410,13 +416,14 @@ async def test_con_configuracion_valida_se_construyen_los_recursos_una_vez_y_se_
     monkeypatch.setattr("app.services.ingesta.proveedor_oci.ProveedorEmbeddingsOCI", OciFalso)
     monkeypatch.setattr("app.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
     monkeypatch.setattr("app.database_vectorial.cerrar_motor_vectorial", cerrar_motor)
-    gestor = modulo_gestor.construir_gestor(SimpleNamespace(**CONFIG_VALIDA))
-    assert gestor.ambiente == "development"
+    gestor = modulo_gestor.construir_gestor(SimpleNamespace(**CONFIG_VALIDA), PARAMETROS_PROPIOS)
+    assert gestor.ambiente == "development" and recibidos == [PARAMETROS_PROPIOS]
     assert gestor.config.tamano_lote == 8 and gestor.config.timeout_embeddings_segundos == 30
     assert gestor.config.vigencia == timedelta(minutes=5)
     assert gestor.opciones.intervalo_recuperacion == 45 and gestor.opciones.espera_cierre == 7
     assert gestor.opciones.recuperacion_habilitada is True
     assert gestor.dependencias.sesiones_vectoriales is entorno.fabrica_vectorial
+    assert gestor.dependencias.almacen._config.read_timeout == 11  # los plazos de MinIO también salen de los parámetros
     assert "clave-secreta-ficticia" not in repr(gestor.dependencias.almacen)
 
     await gestor.iniciar()
@@ -424,14 +431,36 @@ async def test_con_configuracion_valida_se_construyen_los_recursos_una_vez_y_se_
     assert cierres == ["oci", "vectorial"] and gestor._bucle.done()
 
 
-@pytest.mark.parametrize(
-    "cambio",
-    [{"INGESTA_TAMANO_LOTE": "0"}, {"INGESTA_TAMANO_LOTE": "abc"}, {"INGESTA_VIGENCIA_MINUTOS": "-1"},
-     {"INGESTA_RECUPERACION_INTERVALO_SEGUNDOS": "0"}, {"INGESTA_TIMEOUT_EMBEDDINGS_SEGUNDOS": "x"}],
-)
-async def test_parametros_invalidos_dejan_la_ingesta_sin_servicio_con_error_controlado(entorno, monkeypatch, cambio):
-    monkeypatch.setattr("app.services.ingesta.proveedor_oci.ProveedorEmbeddingsOCI", lambda: SimpleNamespace(identidad=entorno.proveedor.identidad))
+async def test_sin_parametros_propios_rige_la_configuracion_de_codigo_y_el_entorno_no_la_cambia(entorno, monkeypatch):
+    monkeypatch.setattr("app.services.ingesta.proveedor_oci.ProveedorEmbeddingsOCI", lambda parametros=None: SimpleNamespace(identidad=entorno.proveedor.identidad))
+    monkeypatch.setattr("app.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
+    # Variables viejas en los ajustes (p. ej. un secreto de Jenkins no retirado): se ignoran por completo.
+    viejas = dict(INGESTA_TAMANO_LOTE="999", INGESTA_VIGENCIA_MINUTOS="1", MINIO_PREFIX="otro", MINIO_READ_TIMEOUT_SECONDS="1")
+    gestor = modulo_gestor.construir_gestor(SimpleNamespace(**CONFIG_VALIDA, **viejas))
+    assert gestor.config.tamano_lote == 16 and gestor.config.timeout_embeddings_segundos == 120
+    assert gestor.config.vigencia == timedelta(minutes=15)
+    assert (gestor.opciones.recuperacion_habilitada, gestor.opciones.intervalo_recuperacion, gestor.opciones.espera_cierre) == (True, 60, 30)
+    assert gestor.ambiente == "development"  # derivado de APP_ENV, no de MINIO_PREFIX
+    almacen = gestor.dependencias.almacen._config
+    assert (almacen.connect_timeout, almacen.read_timeout, almacen.operation_timeout) == (10, 60, 300)
+    assert PARAMETROS_INGESTA.vigencia == timedelta(minutes=15)
+
+
+@pytest.mark.parametrize("app_env", ["prod", "production", "QA", "", None])
+async def test_un_app_env_invalido_deja_la_ingesta_sin_servicio_y_no_se_repite(entorno, monkeypatch, app_env):
+    monkeypatch.setattr("app.services.ingesta.proveedor_oci.ProveedorEmbeddingsOCI", lambda parametros=None: SimpleNamespace(identidad=entorno.proveedor.identidad))
     monkeypatch.setattr("app.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
     with pytest.raises(ServiceUnavailableError) as error:
-        modulo_gestor.construir_gestor(SimpleNamespace(**{**CONFIG_VALIDA, **cambio}))
-    assert [c["componente"] for c in error.value.details["componentes"]] == ["parametros_de_ingesta"]
+        modulo_gestor.construir_gestor(SimpleNamespace(**{**CONFIG_VALIDA, "APP_ENV": app_env}))
+    assert error.value.details["componentes"] == [
+        {"componente": "almacenamiento", "motivo": "APP_ENV debe ser exactamente development, qa o uat."}
+    ]
+    assert "prod" not in json.dumps(error.value.details)
+
+
+@pytest.mark.parametrize("app_env", ["development", "qa", "uat"])
+async def test_el_ambiente_del_gestor_es_app_env(entorno, monkeypatch, app_env):
+    monkeypatch.setattr("app.services.ingesta.proveedor_oci.ProveedorEmbeddingsOCI", lambda parametros=None: SimpleNamespace(identidad=entorno.proveedor.identidad))
+    monkeypatch.setattr("app.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
+    gestor = modulo_gestor.construir_gestor(SimpleNamespace(**{**CONFIG_VALIDA, "APP_ENV": app_env}))
+    assert gestor.ambiente == app_env == gestor.dependencias.almacen.ambiente

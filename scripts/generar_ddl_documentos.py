@@ -1,17 +1,15 @@
-"""Imprime el DDL PostgreSQL de la tabla `documentos` para REVISIÓN (Etapa 4A + coordinador).
+"""Imprime el DDL PostgreSQL de las tablas de ingesta generado desde los MODELOS, para REVISIÓN y para las pruebas.
 
-Es el DDL de INSTALACIÓN NUEVA; el archivo versionado es `db/transaccional/001_documentos.sql`
-(una prueba comprueba que coincide con la salida de este script). Para una tabla `documentos` ya
-creada con la Etapa 4A use `db/transaccional/002_documentos_coordinador.sql`.
+Las tablas NO se crean con este script: las crean las migraciones versionadas de `app/migraciones` al arrancar la aplicación.
+Este DDL es la referencia contra la que las pruebas comprueban que las migraciones (0001 + 0002 de la base transaccional) dejan
+EXACTAMENTE el esquema de los modelos, y `generar_ddl_operaciones()` produce el texto de la migración 0003
+(`app/migraciones/transaccional/0003_operaciones_ingesta.sql`; una prueba comprueba que coincide).
 
-NO se conecta a ninguna base de datos ni ejecuta nada: solo escribe SQL en la salida
-estándar. No hay un mecanismo de migraciones aprobado (D17) y el arranque no crea
-esta tabla (el modelo no está registrado en `app.models`). Quien administre cada base
-debe revisar y aplicar el SQL con el procedimiento que se acuerde; ver
-`docs/ingesta/07-almacenamiento-minio.md`.
+NO se conecta a ninguna base de datos ni ejecuta nada: solo escribe SQL en la salida estándar.
 
 Uso (PowerShell, desde la raíz del repositorio):
-    .venv\\Scripts\\python.exe -m scripts.generar_ddl_documentos > documentos.sql
+    .venv/Scripts/python.exe -m scripts.generar_ddl_documentos > documentos.sql
+    .venv/Scripts/python.exe -m scripts.generar_ddl_documentos --operaciones > operaciones.sql
 """
 import os
 
@@ -34,9 +32,8 @@ def generar_ddl() -> str:
     sentencias = [
         "\n".join(
             [
-                "-- Documentos de ingesta (Etapa 4A + coordinador). DDL de INSTALACIÓN NUEVA, PARA REVISIÓN:",
-                "-- no se ejecuta desde la aplicación. Una tabla ya creada con la Etapa 4A se actualiza con",
-                "-- db/transaccional/002_documentos_coordinador.sql (no use ambos sobre la misma base).",
+                "-- Documentos de ingesta (Etapa 4A + coordinador): DDL de referencia generado desde el modelo.",
+                "-- Lo crean las migraciones 0001 y 0002 de app/migraciones/transaccional (no se ejecuta a mano).",
                 "-- Requiere las tablas `empresas` y `usuarios` y el tipo `sector_empresa` (ya existentes).",
             ]
         )
@@ -56,17 +53,16 @@ def generar_ddl() -> str:
 
 def generar_ddl_operaciones() -> str:
     """DDL de `operaciones_ingesta` (identificador de operación entregado antes de cargar el archivo).
-    Archivo versionado: `db/transaccional/003_operaciones_ingesta.sql`. Se aplica DESPUÉS de `documentos`
-    (001, o 001 + 002 si ya existía): la tabla referencia `usuarios` y `documentos`. Sin tipos enumerados nuevos."""
+    Texto de la migración `app/migraciones/transaccional/0003_operaciones_ingesta.sql`, que va DESPUÉS de `documentos`: la tabla
+    referencia `usuarios` y `documentos`. Sin tipos enumerados nuevos."""
     dialecto = postgresql.dialect()
     tabla = OperacionIngesta.__table__
     sentencias = [
         "\n".join(
             [
-                "-- Operaciones de ingesta (identificador entregado ANTES de cargar el archivo). DDL PARA REVISIÓN:",
-                "-- no se ejecuta desde la aplicación ni desde el arranque. Aplicar DESPUÉS de la tabla `documentos`",
-                "-- (001_documentos.sql, o 001 + 002 si ya existía). Requiere las tablas `usuarios` y `documentos`.",
-                "-- Sin tipos enumerados nuevos: el estado es VARCHAR con CHECK.",
+                "-- Migración 0003 (transaccional): operaciones de ingesta (identificador entregado ANTES de cargar el archivo).",
+                "-- La aplica `app/migraciones` al arrancar, una sola vez y en una transacción; no se ejecuta a mano.",
+                "-- Requiere las tablas `usuarios` y `documentos`. Sin tipos enumerados nuevos: el estado es VARCHAR con CHECK.",
             ]
         ),
         str(CreateTable(tabla).compile(dialect=dialecto)).strip() + ";",

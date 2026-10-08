@@ -13,7 +13,7 @@ logger = logging.getLogger("igualab.startup")
 
 # Tablas que el arranque NUNCA crea, aunque sus modelos estén cargados (D17): importar el coordinador de
 # ingesta registra `Documento` y `OperacionIngesta` en los metadatos, y un `create_all` generaría tablas y tipos enumerados en
-# ambientes compartidos sin una migración aprobada. Se crean con el SQL de `db/transaccional/`.
+# ambientes compartidos sin una migración aprobada. Las crean las migraciones versionadas de `app/migraciones` (que corren después, solo para ingesta).
 TABLAS_SIN_DDL_AUTOMATICO = frozenset({"documentos", "operaciones_ingesta"})
 
 
