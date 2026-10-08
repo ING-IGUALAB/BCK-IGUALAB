@@ -100,8 +100,13 @@ pipeline {
                             docker compose -p "$COMPOSE_PROJECT" down
                             docker compose -p "$COMPOSE_PROJECT" up -d --build
                             sleep 60
+                            
+                            echo '--- Ambiente dentro del contenedor ---'
+                            docker compose -p "$COMPOSE_PROJECT" exec -T backend python -c "import os; nombres=['ENV_FILE','APP_ENV','CORS_ORIGINS']; [print(n + '=' + os.environ.get(n, 'NO DEFINIDA')) for n in nombres]"
+
                             echo '--- Estado del backend ---'
                             docker compose -p "$COMPOSE_PROJECT" ps -a
+
                             echo '--- Logs de arranque ---'
                             docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=200 backend
                         '''
