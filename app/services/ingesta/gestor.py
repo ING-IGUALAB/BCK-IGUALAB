@@ -37,6 +37,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.exception_handlers import status_for_exception
+from app.logging_config import paso_de_arranque
 from app.exceptions import AppException, ConflictError, ExternalServiceError, ServiceUnavailableError
 from app.schemas import MetadatosIngestaRequest
 from app.schemas_ingesta import (
@@ -147,6 +148,13 @@ class GestorIngesta:
     async def iniciar(self) -> None:
         if self.opciones.recuperacion_habilitada and self._bucle is None:
             self._bucle = asyncio.create_task(self._bucle_recuperacion(), name="recuperacion-ingesta")
+            logger.info(
+                "Recuperación periódica programada (primer barrido en %.0f s, luego cada %.0f s); el arranque no la espera.",
+                min(self.opciones.retraso_primer_barrido, self.opciones.intervalo_recuperacion),
+                self.opciones.intervalo_recuperacion,
+            )
+        else:
+            logger.info("Recuperación periódica no programada (deshabilitada o ya iniciada).")
 
     async def cerrar(self) -> None:
         """Cierre ordenado y repetible: detiene la recuperación, espera las ingestas en curso (hasta
@@ -359,10 +367,17 @@ class GestorIngesta:
 
     async def _bucle_recuperacion(self) -> None:
         espera = min(self.opciones.retraso_primer_barrido, self.opciones.intervalo_recuperacion)
+        primero = True
         while True:
             await asyncio.sleep(espera)
             espera = self.opciones.intervalo_recuperacion
             try:
+                if primero:  # solo el primer barrido se registra siempre (en segundo plano: no bloquea el arranque)
+                    with paso_de_arranque(logger, "Primer barrido de recuperación (en segundo plano)"):
+                        resumen = await self.barrido()
+                    logger.info("Primer barrido de recuperación: %s", "omitido (otra instancia barre)" if resumen is None else resumen)
+                    primero = False
+                    continue
                 await self.barrido()
             except asyncio.CancelledError:
                 raise
@@ -477,9 +492,11 @@ async def iniciar_ingesta(app, parametros: ParametrosIngesta | None = None, prep
     app.state.ingesta_error = None
     gestor = None
     try:
-        gestor = construir_gestor(parametros=parametros)
-        await preparar()
-        await gestor.iniciar()
+        with paso_de_arranque(logger, "3/6 Construcción de recursos de ingesta"):
+            gestor = construir_gestor(parametros=parametros)
+        await preparar()  # pasos 4/6 (transaccional) y 5/6 (vectorial): se registran en app.migraciones.catalogo
+        with paso_de_arranque(logger, "6/6 Inicio del gestor y recuperación"):
+            await gestor.iniciar()
     except ServiceUnavailableError as exc:
         app.state.ingesta_error = (exc.code, exc.message, exc.details)
         logger.warning("Ingesta no disponible: %s", [c["componente"] for c in (exc.details or {}).get("componentes", [])])

@@ -11,6 +11,7 @@ fallback entre ellas.
 import logging
 
 from app.config import settings
+from app.logging_config import paso_de_arranque
 from app.migraciones.motor import (
     ErrorMigracion,
     EsquemaBase,
@@ -63,8 +64,10 @@ async def asegurar_esquema_ingesta() -> list[ResultadoMigracion]:
     """Prepara las dos bases, primero la transaccional y luego la vectorial. Se detiene en el primer fallo con `ErrorMigracion`
     (la aplicación mantiene los demás módulos y responde 503 en ingesta). Un arranque sin cambios no ejecuta ningún SQL."""
     resultados = []
+    pasos = {"transaccional": "4/6 Migraciones transaccionales", "vectorial": "5/6 Migraciones vectoriales"}
     for esquema, url in ((ESQUEMA_TRANSACCIONAL, lambda: settings.DATABASE_URL), (ESQUEMA_VECTORIAL, _url_vectorial)):
-        resultado = await migrar(url(), esquema)
+        with paso_de_arranque(logger, pasos[esquema.nombre]):
+            resultado = await migrar(url(), esquema)
         resultados.append(resultado)
         if resultado.sin_cambios:
             logger.info("Esquema %s al día (migraciones %s).", esquema.nombre, list(resultado.previas))

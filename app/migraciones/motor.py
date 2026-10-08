@@ -143,8 +143,13 @@ def _clave_candado(base: str) -> int:
 
 async def _tomar_candado(conn: asyncpg.Connection, base: str, espera: float) -> int:
     clave = _clave_candado(base)
-    limite = time.monotonic() + espera
+    inicio = time.monotonic()
+    limite = inicio + espera
+    proximo_aviso = inicio + 10
     while not await conn.fetchval("SELECT pg_try_advisory_lock($1)", clave):
+        if time.monotonic() >= proximo_aviso:
+            proximo_aviso += 10
+            logger.info("Base %s: esperando el bloqueo de migraciones (%.0f s de %.0f s)...", base, time.monotonic() - inicio, espera)
         if time.monotonic() >= limite:
             raise ErrorMigracion(
                 "MIGRATION_LOCK_TIMEOUT",
@@ -153,6 +158,7 @@ async def _tomar_candado(conn: asyncpg.Connection, base: str, espera: float) -> 
                 {"espera_segundos": espera},
             )
         await asyncio.sleep(0.2)
+    logger.info("Base %s: bloqueo de migraciones obtenido tras %.2f s.", base, time.monotonic() - inicio)
     return clave
 
 
@@ -377,13 +383,16 @@ async def migrar(
     if versiones != sorted(set(versiones)):
         raise ValueError("Las migraciones deben tener versiones únicas y ordenadas.")
     base = esquema.nombre
+    t0 = time.monotonic()
     conn = await _conectar(url, base, timeout_conexion)
+    logger.info("Base %s: conexión establecida en %.2f s.", base, time.monotonic() - t0)
     candado = None
     try:
         candado = await _tomar_candado(conn, base, espera_candado)
         if esquema.requiere_pgvector:
             await _asegurar_pgvector(conn, base)
         await _comprobar_prerrequisitos(conn, esquema)
+        logger.info("Base %s: requisitos comprobados; leyendo el registro de migraciones.", base)
         registro = await _leer_registro(conn, esquema)
         previas = tuple(sorted(v for v in registro if v in versiones))
         desconocidas = tuple(sorted(v for v in registro if v not in versiones))
