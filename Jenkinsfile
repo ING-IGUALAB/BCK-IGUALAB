@@ -86,6 +86,44 @@ pipeline {
             }
         }
 
+        stage('Diagnóstico red BD (temporal)') {
+            when { branch 'development' }
+            steps {
+                sh '''
+                    set +e
+                    echo '=== 1. Contenedores de Postgres en el servidor ==='
+                    docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -iE 'NAMES|postgres|pgvector|vector'
+
+                    echo '=== 2. Redes de esos contenedores ==='
+                    for c in $(docker ps -a --format '{{.Names}}' | grep -iE 'postgres|pgvector|vector'); do
+                        echo "$c -> $(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c")"
+                    done
+
+                    echo '=== 3. Prueba de conexión TCP desde cada tipo de red ==='
+                    for red in proxy_net bridge host; do
+                        echo "--- Red: $red ---"
+                        docker run --rm -i --network "$red" python:3.13-slim python - <<'EOF'
+import socket, time
+for host, port in [("213.199.42.57", 54323), ("213.199.42.57", 54322)]:
+    t = time.monotonic()
+    try:
+        socket.create_connection((host, port), timeout=15).close()
+        r = "OK"
+    except Exception as e:
+        r = "FALLA " + type(e).__name__
+    print(f"  {host}:{port} -> {r} ({time.monotonic() - t:.1f} s)")
+EOF
+                    done
+
+                    echo '=== 4. Prueba por nombre de contenedor (red interna) ==='
+                    for c in $(docker ps --format '{{.Names}}' | grep -iE 'postgres|pgvector|vector'); do
+                        docker run --rm --network proxy_net python:3.13-slim python -c "import socket; socket.create_connection(('$c',5432),timeout=5); print('  $c:5432 -> OK')" 2>/dev/null || echo "  $c:5432 -> no alcanzable desde proxy_net"
+                    done
+                    exit 0
+                '''
+            }
+        }
+
         stage('Deploy Dev (Docker Compose)') {
             when {
                 branch 'development'
