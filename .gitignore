@@ -49,6 +49,9 @@ prompts/
 # ZIP de revisión del proyecto
 Backend_igualab_revision*.zip
 
+LEEME.md
+docs/
+
 # Logs y temporales
 *.log
 *.tmp

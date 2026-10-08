@@ -99,6 +99,11 @@ pipeline {
                             cp "$SECRET_FILE" .env
                             docker compose -p "$COMPOSE_PROJECT" down
                             docker compose -p "$COMPOSE_PROJECT" up -d --build
+                            sleep 10
+                            echo '--- Estado del backend ---'
+                            docker compose -p "$COMPOSE_PROJECT" ps -a
+                            echo '--- Logs de arranque ---'
+                            docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=200 backend
                         '''
                     }
                 }
