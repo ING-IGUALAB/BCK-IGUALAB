@@ -12,6 +12,7 @@ Variable opcional `IGUALAB_TEST_PG_BIN`: directorio con `initdb` y `pg_ctl`.
 import asyncio
 import glob
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -164,6 +165,13 @@ async def _esperar_tcp(dsn: str) -> None:
                 await conexion.close()
 
 
+def _directorio_datos(imagen: str) -> str:
+    """Las imágenes de PostgreSQL 18+ esperan el volumen en `/var/lib/postgresql` (y no en `.../data`)."""
+    mayor = re.search(r"pg(\d+)|:(\d+)", imagen)
+    version = int(next(g for g in mayor.groups() if g)) if mayor else 0
+    return "/var/lib/postgresql" if version >= 18 else "/var/lib/postgresql/data"
+
+
 @pytest.fixture(scope="session")
 def url_pgvector_aislado():
     if os.environ.get("IGUALAB_SKIP_PGVECTOR_TESTS") == "1":
@@ -185,7 +193,7 @@ def url_pgvector_aislado():
         ejecucion = _docker([
             "run", "-d", "--rm", "--name", nombre, "-p", "127.0.0.1::5432",
             "-e", "POSTGRES_USER=pruebas", "-e", "POSTGRES_DB=vectorial", "-e", "POSTGRES_HOST_AUTH_METHOD=trust",
-            "--tmpfs", "/var/lib/postgresql/data", imagen,
+            "--tmpfs", _directorio_datos(imagen), imagen,
         ], 120)
         if ejecucion.returncode != 0:
             pytest.skip("No se pudo iniciar el contenedor de pgvector: pruebas NO ejecutadas.")

@@ -20,8 +20,10 @@ QUÉ HACE `migrar(url, esquema)` (una base cada vez; se conecta EXPLÍCITAMENTE 
 
 En un arranque sin cambios solo se leen el registro y la presencia de los objetos: no se ejecuta ningún SQL de migración.
 
-LÍMITES CONOCIDOS. La firma compara nombres, tipos (con longitud y dimensión), nulabilidad, nombres de restricciones y nombres/
-unicidad/parcialidad de índices; NO compara el texto de los CHECK ni los valores por defecto (varían entre versiones de PostgreSQL).
+LÍMITES CONOCIDOS. La firma compara nombres, tipos (con longitud y dimensión), nulabilidad (`attnotnull` de cada columna), nombres de
+restricciones y nombres/unicidad/parcialidad de índices. Las restricciones NOT NULL que PostgreSQL 18 guarda en `pg_constraint`
+(`<tabla>_<columna>_not_null`) se excluyen de la lista de restricciones: duplican la nulabilidad ya comparada y no existen en
+PostgreSQL ≤17, así que la firma es la misma en todas las versiones; NO compara el texto de los CHECK ni los valores por defecto (varían entre versiones de PostgreSQL).
 Un `ALTER` manual que cambie solo eso no se detecta. Las migraciones no transaccionales (`transaccional=False`, p. ej. índices
 CONCURRENTLY) se ejecutan fuera de transacción y deben ser idempotentes; hoy no hay ninguna.
 
@@ -171,7 +173,8 @@ WHERE n.nspname = 'public' AND c.relname = $1 AND c.relkind IN ('r', 'v') AND a.
 ORDER BY a.attname
 """
 _SQL_RESTRICCIONES = """
-SELECT con.conname AS nombre FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid
+SELECT con.conname AS nombre, con.contype::text AS tipo, con.convalidated AS validada
+FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = $1 ORDER BY con.conname
 """
 _SQL_INDICES = """
@@ -181,6 +184,17 @@ JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.r
 """
 
 
+def _restricciones_comparables(filas) -> list[str]:
+    """Nombres de las restricciones que forman parte de la firma.
+
+    PostgreSQL 18 registra cada columna NOT NULL como una fila de `pg_constraint` con `contype = 'n'` y nombre
+    `<tabla>_<columna>_not_null`; las versiones anteriores no tienen esas filas. Son la misma información que `attnotnull`, que la
+    firma YA compara por columna (la nulabilidad real se sigue comprobando), así que se excluyen para que la firma sea la misma en
+    todas las versiones. Se excluye SOLO ese tipo y solo si está validada: una NOT NULL pendiente de validar (`convalidated = false`)
+    y cualquier otra restricción (CHECK, UNIQUE, PRIMARY KEY, FOREIGN KEY, EXCLUDE) se conservan, por nombre, como antes."""
+    return [f["nombre"] for f in filas if not (f["tipo"] == "n" and f["validada"])]
+
+
 async def firma_de_objeto(conn: asyncpg.Connection, objeto: str) -> dict | None:
     """Firma estructural de una tabla/vista del esquema `public`, o `None` si no existe."""
     columnas = await conn.fetch(_SQL_COLUMNAS, objeto)
@@ -188,7 +202,7 @@ async def firma_de_objeto(conn: asyncpg.Connection, objeto: str) -> dict | None:
         return None
     return {
         "columnas": [[c["nombre"], c["tipo"], bool(c["no_nulo"])] for c in columnas],
-        "restricciones": [r["nombre"] for r in await conn.fetch(_SQL_RESTRICCIONES, objeto)],
+        "restricciones": _restricciones_comparables(await conn.fetch(_SQL_RESTRICCIONES, objeto)),
         "indices": [[i["nombre"], bool(i["unico"]), bool(i["parcial"])] for i in await conn.fetch(_SQL_INDICES, objeto)],
     }
 

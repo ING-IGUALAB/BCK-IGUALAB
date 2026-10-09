@@ -17,7 +17,7 @@ from app.migraciones.motor import ErrorMigracion, EsquemaBase, Migracion, difere
 def filas_de(firma: dict) -> tuple[list, list, list]:
     return (
         [{"nombre": n, "tipo": t, "no_nulo": nn} for n, t, nn in firma["columnas"]],
-        [{"nombre": n} for n in firma["restricciones"]],
+        [{"nombre": n, "tipo": "c", "validada": True} for n in firma["restricciones"]],  # como pg_constraint: nombre, contype, convalidated
         [{"nombre": n, "unico": u, "parcial": p} for n, u, p in firma["indices"]],
     )
 
