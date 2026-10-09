@@ -128,8 +128,8 @@ class AlmacenOriginales(Protocol):
         elimina SOLO esa versión; sin él, con versionado, crea una marca de borrado."""
         ...
 
-    async def estado_subida(self, clave: str) -> SubidaConocida:
-        """Desenlace de `guardar` conocido por este proceso. No usa la red ni bloquea."""
+    def estado_subida(self, clave: str) -> SubidaConocida:
+        """Desenlace de `guardar` conocido por este proceso. No usa la red ni bloquea: por eso es síncrono."""
         ...
 
     async def listar_versiones(self, clave: str) -> list[VersionObjeto]:

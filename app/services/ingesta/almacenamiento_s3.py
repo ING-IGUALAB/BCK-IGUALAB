@@ -330,7 +330,7 @@ class AlmacenOriginalesS3:
         for clave in [c for c, r in self._subidas.items() if r.estado is not EstadoSubida.EN_CURSO][:exceso]:
             del self._subidas[clave]
 
-    async def estado_subida(self, clave: str) -> SubidaConocida:
+    def estado_subida(self, clave: str) -> SubidaConocida:
         self._exigir_propia(ReferenciaOriginal(clave), "estado_subida")
         with self._candado:
             registro = self._subidas.get(clave)

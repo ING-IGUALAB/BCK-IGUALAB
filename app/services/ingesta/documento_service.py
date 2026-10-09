@@ -500,7 +500,7 @@ async def _reconciliar_y_eliminar(
          prueba que no se vaya a crear (petición lenta, otro proceso) y sigue PENDIENTE;
        - sin permiso para listar: PENDIENTE, sin presumir nada.
     """
-    subida = await almacen.estado_subida(clave)
+    subida = almacen.estado_subida(clave)
     if subida.estado is EstadoSubida.EN_CURSO:
         raise _sin_confirmar("STORAGE_UPLOAD_IN_FLIGHT", "La subida sigue en curso: el objeto aún puede crearse.")
 
