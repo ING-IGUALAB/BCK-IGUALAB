@@ -228,10 +228,9 @@ async def test_un_timeout_es_un_error_controlado_aunque_el_hilo_siga(oci_falso):
     oci_falso.cliente.compuerta = threading.Event()
     proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
     try:
+        fragmentos = iterar_fragmentos(f"# T\n\n{TEXTO_DOCUMENTAL}\n")
         with pytest.raises(ExternalServiceTimeoutError) as capturado:
-            async for _ in embeber_fragmentos(
-                iterar_fragmentos(f"# T\n\n{TEXTO_DOCUMENTAL}\n"), proveedor, tamano_lote=1, timeout_segundos=0.05
-            ):
+            async for _ in embeber_fragmentos(fragmentos, proveedor, tamano_lote=1, timeout_segundos=0.05):
                 pass
         assert capturado.value.code == "EMBEDDING_PROVIDER_TIMEOUT"
         assert TEXTO_DOCUMENTAL not in f"{capturado.value} {capturado.value.details}"
