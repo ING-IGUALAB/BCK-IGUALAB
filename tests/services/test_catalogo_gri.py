@@ -35,7 +35,8 @@ def test_el_catalogo_empaquetado_carga_y_su_cobertura_coincide_con_las_entradas(
     assert cobertura["por_vigencia"] == por_vigencia
     # Declara lo que NO cubre y no pretende ser «todos los GRI».
     assert cobertura["no_cubierto"]
-    assert "NO" in cobertura["declaracion"] and "todos los GRI" in cobertura["declaracion"]
+    assert "NO" in cobertura["declaracion"]
+    assert "todos los GRI" in cobertura["declaracion"]
 
 
 def test_version_del_catalogo_es_independiente_de_la_edicion_de_cada_estandar():
@@ -48,8 +49,13 @@ def test_version_del_catalogo_es_independiente_de_la_edicion_de_cada_estandar():
 
 def test_todas_las_entradas_tienen_los_campos_pedidos():
     for entrada in catalogo_predeterminado().entradas:
-        assert entrada.codigo and entrada.nombre and entrada.edicion and entrada.categoria
-        assert entrada.metodo_verificacion and entrada.fuente and entrada.verificado_en
+        assert entrada.codigo
+        assert entrada.nombre
+        assert entrada.edicion
+        assert entrada.categoria
+        assert entrada.metodo_verificacion
+        assert entrada.fuente
+        assert entrada.verificado_en
         if entrada.url_oficial is not None:
             assert entrada.url_oficial.startswith(("https://www.globalreporting.org/", "https://globalreporting.org/"))
         if entrada.url_comprobada:
@@ -73,8 +79,10 @@ def test_el_antiguo_gri_102_no_es_el_estandar_de_cambio_climatico():
     assert (nuevo.nombre, nuevo.tipo, nuevo.vigencia) == ("Climate Change", "tematico", "publicado_no_vigente")
     assert nuevo.efectiva_desde == "2027-01-01"
     # Lo mismo para 101 (Foundation / Biodiversity) y 103 (Management Approach / Energy).
-    assert catalogo.buscar("101", "2016").nombre == "Foundation" and catalogo.buscar("101", "2024").nombre == "Biodiversity"
-    assert catalogo.buscar("103", "2016").nombre == "Management Approach" and catalogo.buscar("103", "2025").nombre == "Energy"
+    assert catalogo.buscar("101", "2016").nombre == "Foundation"
+    assert catalogo.buscar("101", "2024").nombre == "Biodiversity"
+    assert catalogo.buscar("103", "2016").nombre == "Management Approach"
+    assert catalogo.buscar("103", "2025").nombre == "Energy"
     assert {e.edicion for e in catalogo.por_codigo("102")} == {"2016", "2025"}
 
 
@@ -115,21 +123,24 @@ def con(datos, **cambios):
 
 
 def test_esquema_no_soportado(datos):
+    valor_con = con(datos, esquema=2)
     with pytest.raises(CatalogoGriInvalido, match="Esquema"):
-        interpretar_catalogo(con(datos, esquema=2))
+        interpretar_catalogo(valor_con)
 
 
 def test_entrada_duplicada_se_rechaza(datos):
     entradas = copy.deepcopy(datos["entradas"])
     entradas.append(copy.deepcopy(entradas[0]))
     cobertura = {**datos["cobertura"], "total_entradas": len(entradas)}
+    valor_con_2 = con(datos, entradas=entradas, cobertura=cobertura)
     with pytest.raises(CatalogoGriInvalido, match="duplicadas"):
-        interpretar_catalogo(con(datos, entradas=entradas, cobertura=cobertura))
+        interpretar_catalogo(valor_con_2)
 
 
 def test_cobertura_inconsistente_se_rechaza(datos):
+    valor_con_3 = con(datos, cobertura={**datos["cobertura"], "total_entradas": 999})
     with pytest.raises(CatalogoGriInvalido, match="cobertura"):
-        interpretar_catalogo(con(datos, cobertura={**datos["cobertura"], "total_entradas": 999}))
+        interpretar_catalogo(valor_con_3)
 
 
 @pytest.mark.parametrize(
@@ -149,16 +160,18 @@ def test_cobertura_inconsistente_se_rechaza(datos):
 def test_entradas_mal_formadas_se_rechazan(datos, cambio, mensaje):
     entradas = copy.deepcopy(datos["entradas"])
     entradas[10].update(cambio)
+    valor_con_4 = con(datos, entradas=entradas)
     with pytest.raises(CatalogoGriInvalido, match=mensaje):
-        interpretar_catalogo(con(datos, entradas=entradas))
+        interpretar_catalogo(valor_con_4)
 
 
 def test_url_comprobada_exige_url(datos):
     entradas = copy.deepcopy(datos["entradas"])
     entradas[10]["url_oficial"] = None
     entradas[10]["verificacion"]["url_comprobada"] = True
+    valor_con_5 = con(datos, entradas=entradas)
     with pytest.raises(CatalogoGriInvalido, match="URL"):
-        interpretar_catalogo(con(datos, entradas=entradas))
+        interpretar_catalogo(valor_con_5)
 
 
 def test_archivo_ilegible_no_filtra_la_ruta(tmp_path):
@@ -178,8 +191,10 @@ def test_publicado_no_es_lo_mismo_que_vigente():
     corte = catalogo.recopilado_en
     for codigo in ("102", "103"):
         entrada = catalogo.buscar(codigo, "2025")
-        assert entrada.vigencia == "publicado_no_vigente" and entrada.efectiva_desde == "2027-01-01"
-        assert entrada.vigente_en(corte) is False and entrada.vigente_en("2027-01-01") is True
+        assert entrada.vigencia == "publicado_no_vigente"
+        assert entrada.efectiva_desde == "2027-01-01"
+        assert entrada.vigente_en(corte) is False
+        assert entrada.vigente_en("2027-01-01") is True
     # GRI 101 (2024) ya entró en vigor el 2026-01-01; GRI 14 (2024 V1.1) también.
     assert catalogo.buscar("101", "2024").vigente_en(corte) is True
     assert catalogo.buscar("14", "2024").efectiva_desde == "2026-01-01"
@@ -203,18 +218,23 @@ def test_fechas_efectivas_leidas_de_los_pdf_oficiales():
     # Los estándares con PDF comprobado tienen fecha efectiva; el método lo indica.
     for entrada in catalogo.entradas:
         if entrada.url_comprobada:
-            assert entrada.efectiva_desde is not None and entrada.metodo_verificacion == "pdf_oficial_texto"
+            assert entrada.efectiva_desde is not None
+            assert entrada.metodo_verificacion == "pdf_oficial_texto"
 
 
 def test_estandares_parcial_o_proximamente_reemplazados():
     catalogo = catalogo_predeterminado()
     energia = catalogo.buscar("302", "2016")
     assert (energia.vigencia, energia.efectiva_hasta, energia.reemplazado_por) == ("vigente", "2026-12-31", (("103", "2025"),))
-    assert energia.vigente_en("2026-12-31") is True and energia.vigente_en("2027-01-01") is False
+    assert energia.vigente_en("2026-12-31") is True
+    assert energia.vigente_en("2027-01-01") is False
     emisiones = catalogo.buscar("305", "2016")
-    assert emisiones.vigencia == "vigente" and emisiones.reemplazo_parcial and emisiones.reemplazo_efectivo_desde == "2027-01-01"
+    assert emisiones.vigencia == "vigente"
+    assert emisiones.reemplazo_parcial
+    assert emisiones.reemplazo_efectivo_desde == "2027-01-01"
     residuos = catalogo.buscar("306", "2016")
-    assert residuos.vigencia == "parcialmente_vigente" and residuos.reemplazo_parcial
+    assert residuos.vigencia == "parcialmente_vigente"
+    assert residuos.reemplazo_parcial
     assert residuos.vigente_en(catalogo.recopilado_en) is True  # 306-3 sigue en vigor
     assert catalogo.buscar("304", "2016").vigente_en("2026-01-01") is None  # sin fecha efectiva verificada
 
@@ -222,8 +242,9 @@ def test_estandares_parcial_o_proximamente_reemplazados():
 def test_vigente_en_exige_una_fecha_valida_y_los_retirados_nunca_estan_en_vigor():
     catalogo = catalogo_predeterminado()
     assert catalogo.buscar("307", "2016").vigente_en("2020-01-01") is False
+    valor_catalogo_buscar = catalogo.buscar("305", "2016")
     with pytest.raises(ValueError):
-        catalogo.buscar("305", "2016").vigente_en("2026/10/07")
+        valor_catalogo_buscar.vigente_en("2026/10/07")
 
 
 @pytest.mark.parametrize(
@@ -240,11 +261,13 @@ def test_una_vigencia_incoherente_con_las_fechas_se_rechaza(datos, codigo, edici
     for e in entradas:
         por_vigencia[e["vigencia"]] = por_vigencia.get(e["vigencia"], 0) + 1
     cobertura["por_vigencia"] = por_vigencia
+    valor_con_6 = con(datos, entradas=entradas, cobertura=cobertura)
     with pytest.raises(CatalogoGriInvalido, match="vigencia"):
-        interpretar_catalogo(con(datos, entradas=entradas, cobertura=cobertura))
+        interpretar_catalogo(valor_con_6)
 
 
 def test_la_cobertura_declarada_debe_distinguir_publicados_y_en_vigor(datos):
     cobertura = {**datos["cobertura"], "en_vigor_en_la_fecha_de_corte": 45}
+    valor_con_7 = con(datos, cobertura=cobertura)
     with pytest.raises(CatalogoGriInvalido, match="en_vigor"):
-        interpretar_catalogo(con(datos, cobertura=cobertura))
+        interpretar_catalogo(valor_con_7)

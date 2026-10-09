@@ -46,10 +46,6 @@ _CONTROL_NO_PERMITIDO = re.compile(r"[\x00-\x08\x0b\x0e-\x1f\x7f]")
 # especificación tolera hasta 1024, no se reconoce). Markdown no tiene firma
 # propia y nada de esto se exige: solo se rechaza lo inequívocamente ajeno.
 _CABECERA_PDF = re.compile(rb"%PDF-\d\.\d")
-# Acepta lo mismo que `\d+\s+\d+\s+obj\b` sin imponer límites propios a dígitos ni blancos: ese patrón
-# era cuadrático al buscar en 64 KiB de dígitos. El inicio solo en el comienzo de una racha de dígitos y
-# los cuantificadores posesivos (el siguiente símbolo nunca puede pertenecer a la racha) evitan el retroceso.
-_OBJETO_PDF = re.compile(rb"(?<!\d)\d++\s++\d++\s++obj\b")
 _FIN_PDF = b"%%EOF"
 _FIRMAS_SIN_CORROBORACION = (
     (b"%!PS-Adobe-", "PostScript"),
@@ -58,6 +54,44 @@ _FIRMAS_SIN_CORROBORACION = (
 # Ventanas donde se busca la estructura que corrobora un PDF.
 _VENTANA_OBJETOS_PDF = 64 * 1024
 _VENTANA_FIN_PDF = 1024
+
+
+_BLANCOS_ASCII = b" \t\n\r\x0b\x0c"
+_DIGITOS_ASCII = b"0123456789"
+_PALABRA_ASCII = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+
+
+def _retroceder(contenido: bytes, posicion: int, permitidos: bytes) -> int:
+    """Primera posición de la racha de bytes `permitidos` que termina justo antes de `posicion`."""
+    while posicion > 0 and contenido[posicion - 1] in permitidos:
+        posicion -= 1
+    return posicion
+
+
+def _precede_numero_de_objeto(contenido: bytes, posicion: int) -> bool:
+    """Justo antes de `posicion` hay «dígitos blancos dígitos blancos» (número de objeto y de generación)."""
+    inicio = posicion
+    for permitidos in (_BLANCOS_ASCII, _DIGITOS_ASCII, _BLANCOS_ASCII, _DIGITOS_ASCII):
+        anterior = _retroceder(contenido, inicio, permitidos)
+        if anterior == inicio:
+            return False
+        inicio = anterior
+    return True
+
+
+def contiene_objeto_pdf(contenido: bytes, limite: int) -> bool:
+    """Hay un encabezado de objeto indirecto («n g obj») en contenido[:limite]: dígitos, blancos, dígitos, blancos y `obj`
+    como palabra completa, sin límites propios a la longitud de cada parte. Se busca cada `obj` y se mira hacia atrás
+    (tiempo lineal); una expresión regular equivalente es cuadrática con 64 KiB de dígitos o blancos."""
+    limite = min(limite, len(contenido))
+    posicion = contenido.find(b"obj", 0, limite)
+    while posicion != -1:
+        fin = posicion + 3
+        es_palabra_completa = fin >= limite or contenido[fin] not in _PALABRA_ASCII
+        if es_palabra_completa and _precede_numero_de_objeto(contenido, posicion):
+            return True
+        posicion = contenido.find(b"obj", posicion + 1, limite)
+    return False
 
 
 @dataclass(frozen=True)
@@ -272,7 +306,7 @@ def detectar_formato_incompatible(contenido: bytes) -> str | None:
     if _CABECERA_PDF.match(contenido):
         longitud = len(contenido)
         if (
-            _OBJETO_PDF.search(contenido, 0, _VENTANA_OBJETOS_PDF)
+            contiene_objeto_pdf(contenido, _VENTANA_OBJETOS_PDF)
             or contenido.find(_FIN_PDF, max(0, longitud - _VENTANA_FIN_PDF)) != -1
         ):
             return "PDF"

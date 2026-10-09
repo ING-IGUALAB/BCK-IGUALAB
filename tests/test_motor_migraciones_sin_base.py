@@ -129,9 +129,11 @@ async def test_instalacion_nueva_aplica_en_orden_registra_y_libera_el_bloqueo(co
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL))
     resultado = await migrar("postgresql+asyncpg://u@h/db", ESQUEMA_TRANSACCIONAL)
     assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((1, 2, 3), (), ())
-    assert c.ejecutadas == [1, 2, 3] and [f["origen"] for f in c.registro] == ["aplicada"] * 3
+    assert c.ejecutadas == [1, 2, 3]
+    assert [f["origen"] for f in c.registro] == ["aplicada"] * 3
     assert [f["checksum"] for f in c.registro] == [m.checksum() for m in ESQUEMA_TRANSACCIONAL.migraciones]
-    assert c.candado is False and c.cerrada
+    assert c.candado is False
+    assert c.cerrada
 
 
 async def test_segundo_arranque_no_ejecuta_nada(conectar):
@@ -139,20 +141,25 @@ async def test_segundo_arranque_no_ejecuta_nada(conectar):
     await migrar("x", ESQUEMA_TRANSACCIONAL)
     c.ejecutadas.clear()
     resultado = await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert resultado.sin_cambios and resultado.previas == (1, 2, 3) and c.ejecutadas == []
+    assert resultado.sin_cambios
+    assert resultado.previas == (1, 2, 3)
+    assert c.ejecutadas == []
 
 
 async def test_adopta_un_esquema_existente_solo_si_coincide_con_la_firma(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL, {"documentos": firma("documentos", 2), "operaciones_ingesta": firma("operaciones_ingesta", 3)}))
     resultado = await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert resultado.adoptadas == (1, 2, 3) and resultado.aplicadas == () and c.ejecutadas == []
+    assert resultado.adoptadas == (1, 2, 3)
+    assert resultado.aplicadas == ()
+    assert c.ejecutadas == []
     assert [f["origen"] for f in c.registro] == ["adoptada"] * 3
 
 
 async def test_actualiza_desde_la_etapa_4a_adoptando_la_primera_y_aplicando_el_resto(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL, {"documentos": firma("documentos", 1)}))
     resultado = await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3)) and c.ejecutadas == [2, 3]
+    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3))
+    assert c.ejecutadas == [2, 3]
     assert c.objetos["documentos"] == firma("documentos", 2)
 
 
@@ -174,8 +181,12 @@ async def test_un_esquema_distinto_no_se_adopta_ni_se_modifica(conectar, cambio)
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL, {"documentos": actual}))
     with pytest.raises(ErrorMigracion) as error:
         await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH" and error.value.detalles["objeto"] == "documentos"
-    assert error.value.detalles["diferencias"] and c.registro == [] and c.ejecutadas == [] and c.objetos["documentos"] == actual
+    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH"
+    assert error.value.detalles["objeto"] == "documentos"
+    assert error.value.detalles["diferencias"]
+    assert c.registro == []
+    assert c.ejecutadas == []
+    assert c.objetos["documentos"] == actual
 
 
 async def test_una_migracion_a_medias_o_sin_objetos_conocidos(conectar):
@@ -184,7 +195,8 @@ async def test_una_migracion_a_medias_o_sin_objetos_conocidos(conectar):
     conectar(ConexionSimulada(esquema, {"a": firma("documentos", 2)}))  # a en su estado, b ausente
     with pytest.raises(ErrorMigracion) as error:
         await migrar("x", esquema)
-    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH" and "a medias" in error.value.mensaje
+    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH"
+    assert "a medias" in error.value.mensaje
     assert error.value.detalles["objetos"] == {"a": "adoptar", "b": "aplicar"}
 
 
@@ -199,7 +211,8 @@ async def test_un_objeto_con_firma_desconocida_sin_firmas_versionadas_es_conflic
 async def test_una_migracion_sin_objetos_siempre_se_aplica(conectar):
     esquema = EsquemaBase("t", (Migracion(1, "sin_objetos", "0001_documentos_etapa_4a.sql", (), carpeta="transaccional"),))
     c = conectar(ConexionSimulada(esquema))
-    assert (await migrar("x", esquema)).aplicadas == (1,) and c.ejecutadas == [1]
+    assert (await migrar("x", esquema)).aplicadas == (1,)
+    assert c.ejecutadas == [1]
 
 
 async def test_checksum_editado_y_objeto_registrado_ausente(conectar):
@@ -208,12 +221,14 @@ async def test_checksum_editado_y_objeto_registrado_ausente(conectar):
     c.registro[1]["checksum"] = "0" * 64
     with pytest.raises(ErrorMigracion) as error:
         await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert error.value.codigo == "MIGRATION_CHECKSUM_MISMATCH" and error.value.detalles == {"version": 2}
+    assert error.value.codigo == "MIGRATION_CHECKSUM_MISMATCH"
+    assert error.value.detalles == {"version": 2}
     c.registro[1]["checksum"] = ESQUEMA_TRANSACCIONAL.migraciones[1].checksum()
     del c.objetos["operaciones_ingesta"]
     with pytest.raises(ErrorMigracion) as error:
         await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH" and error.value.detalles["objeto"] == "operaciones_ingesta"
+    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH"
+    assert error.value.detalles["objeto"] == "operaciones_ingesta"
 
 
 async def test_versiones_de_una_aplicacion_mas_nueva_se_respetan(conectar):
@@ -221,7 +236,8 @@ async def test_versiones_de_una_aplicacion_mas_nueva_se_respetan(conectar):
     await migrar("x", ESQUEMA_TRANSACCIONAL)
     c.registro.append({"version": 9, "nombre": "futura", "checksum": "a" * 64, "origen": "aplicada"})
     resultado = await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert resultado.desconocidas == (9,) and resultado.sin_cambios
+    assert resultado.desconocidas == (9,)
+    assert resultado.sin_cambios
 
 
 async def test_prerrequisitos_ausentes_no_crean_nada(conectar):
@@ -230,20 +246,34 @@ async def test_prerrequisitos_ausentes_no_crean_nada(conectar):
         await migrar("x", ESQUEMA_TRANSACCIONAL)
     assert error.value.codigo == "MIGRATION_PREREQUISITE_MISSING"
     assert set(error.value.detalles["faltan"]) == {"tabla:usuarios", "tabla:empresas", "tipo:sector_empresa"}
-    assert c.registro == [] and c.ejecutadas == [] and c.candado is False and c.cerrada
+    assert c.registro == []
+    assert c.ejecutadas == []
+    assert c.candado is False
+    assert c.cerrada
 
 
 # ============================================ Fallos, rollback y bloqueo ============================================
 
-async def test_un_fallo_deshace_la_migracion_y_conserva_las_anteriores(conectar):
+async def test_un_fallo_deshace_la_migracion_y_conserva_las_anteriores(conectar, caplog):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL))
     c.fallar_en = {2}
-    with pytest.raises(ErrorMigracion) as error:
-        await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert error.value.codigo == "MIGRATION_FAILED" and error.value.detalles["version"] == 2
-    assert error.value.detalles["sqlstate"] == "42P01" and "se deshizo por completo" in error.value.mensaje
-    assert [f["version"] for f in c.registro] == [1] and c.ejecutadas == [1]  # la 2 no dejó rastro; la 3 no corrió
-    assert c.candado is False and c.cerrada
+    with caplog.at_level("ERROR", logger="igualab.migraciones"):
+        with pytest.raises(ErrorMigracion) as error:
+            await migrar("x", ESQUEMA_TRANSACCIONAL)
+    # El log diagnostica con paso, clase y SQLSTATE, sin el mensaje original del servidor.
+    (registro,) = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert "0002" in registro
+    assert "UndefinedTableError" in registro
+    assert "SQLSTATE 42P01" in registro
+    assert "falla simulada" not in registro
+    assert error.value.codigo == "MIGRATION_FAILED"
+    assert error.value.detalles["version"] == 2
+    assert error.value.detalles["sqlstate"] == "42P01"
+    assert "se deshizo por completo" in error.value.mensaje
+    assert [f["version"] for f in c.registro] == [1]
+    assert c.ejecutadas == [1]  # la 2 no dejó rastro; la 3 no corrió
+    assert c.candado is False
+    assert c.cerrada
 
 
 async def test_si_falla_el_registro_la_migracion_tambien_se_deshace(conectar):
@@ -251,14 +281,16 @@ async def test_si_falla_el_registro_la_migracion_tambien_se_deshace(conectar):
     c.fallo_en_registro = True
     with pytest.raises(ErrorMigracion):
         await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert c.ejecutadas == [] and "documentos" not in c.objetos  # el DDL tampoco quedó
+    assert c.ejecutadas == []
+    assert "documentos" not in c.objetos  # el DDL tampoco quedó
 
 
 async def test_migracion_no_transaccional_se_aplica_sin_envoltura(conectar):
     esquema = EsquemaBase("t", (Migracion(1, "x", "0001_documentos_etapa_4a.sql", ("documentos",), transaccional=False, carpeta="transaccional"),),
                           firmas={"documentos": {1: firma("documentos", 1)}})
     c = conectar(ConexionSimulada(esquema))
-    assert (await migrar("x", esquema)).aplicadas == (1,) and c.ejecutadas == [1]
+    assert (await migrar("x", esquema)).aplicadas == (1,)
+    assert c.ejecutadas == [1]
     c2 = conectar(ConexionSimulada(esquema))
     c2.fallar_en = {1}
     with pytest.raises(ErrorMigracion) as error:
@@ -266,35 +298,47 @@ async def test_migracion_no_transaccional_se_aplica_sin_envoltura(conectar):
     assert "no es transaccional" in error.value.mensaje
 
 
-async def test_un_error_de_postgresql_fuera_de_una_migracion_se_convierte_en_error_controlado(conectar):
+async def test_un_error_de_postgresql_fuera_de_una_migracion_se_convierte_en_error_controlado(conectar, caplog):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL))
 
     async def explota(*args, **kwargs):
         raise asyncpg.PostgresError("detalle con datos")
 
     c.fetch = explota
-    with pytest.raises(ErrorMigracion) as error:
-        await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert error.value.codigo == "MIGRATION_FAILED" and "detalle con datos" not in f"{error.value.mensaje} {error.value.detalles}"
-    assert c.candado is False and c.cerrada
+    with caplog.at_level("ERROR", logger="igualab.migraciones"):
+        with pytest.raises(ErrorMigracion) as error:
+            await migrar("x", ESQUEMA_TRANSACCIONAL)
+    (registro,) = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert "PostgresError" in registro
+    assert "SQLSTATE" in registro
+    assert "detalle con datos" not in registro
+    assert error.value.codigo == "MIGRATION_FAILED"
+    assert "detalle con datos" not in f"{error.value.mensaje} {error.value.detalles}"
+    assert c.candado is False
+    assert c.cerrada
 
 
 async def test_el_bloqueo_ocupado_se_espera_y_luego_procede(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL, candado_ocupado=2))
-    assert (await migrar("x", ESQUEMA_TRANSACCIONAL, espera_candado=5)).aplicadas == (1, 2, 3) and c.candado is False
+    assert (await migrar("x", ESQUEMA_TRANSACCIONAL, espera_candado=5)).aplicadas == (1, 2, 3)
+    assert c.candado is False
 
 
 async def test_si_el_bloqueo_no_se_consigue_a_tiempo_no_se_toca_nada(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL, candado_ocupado=10**6))
     with pytest.raises(ErrorMigracion) as error:
         await migrar("x", ESQUEMA_TRANSACCIONAL, espera_candado=0.3)
-    assert error.value.codigo == "MIGRATION_LOCK_TIMEOUT" and c.registro == [] and c.ejecutadas == [] and c.cerrada
+    assert error.value.codigo == "MIGRATION_LOCK_TIMEOUT"
+    assert c.registro == []
+    assert c.ejecutadas == []
+    assert c.cerrada
 
 
 async def test_un_fallo_al_liberar_el_bloqueo_no_oculta_el_resultado(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL))
     c.fallo_al_liberar = True
-    assert (await migrar("x", ESQUEMA_TRANSACCIONAL)).aplicadas == (1, 2, 3) and c.cerrada  # cerrar libera el bloqueo igualmente
+    assert (await migrar("x", ESQUEMA_TRANSACCIONAL)).aplicadas == (1, 2, 3)
+    assert c.cerrada  # cerrar libera el bloqueo igualmente
 
 
 async def test_versiones_duplicadas_se_rechazan_antes_de_conectar(monkeypatch):
@@ -303,28 +347,35 @@ async def test_versiones_duplicadas_se_rechazan_antes_de_conectar(monkeypatch):
 
     monkeypatch.setattr(motor, "_conectar", no_conectar)
     m = ESQUEMA_TRANSACCIONAL.migraciones[0]
+    valor_esquemabase = EsquemaBase("t", (m, m))
     with pytest.raises(ValueError):
-        await migrar("x", EsquemaBase("t", (m, m)))
+        await migrar("x", valor_esquemabase)
 
 
 # ============================================ pgvector ============================================
 
 async def test_pgvector_presente_no_intenta_crearlo(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_VECTORIAL, extension=True, puede_crear_extension=False))
-    assert (await migrar("x", ESQUEMA_VECTORIAL)).aplicadas == (1, 2) and c.ejecutadas == [1, 2]
+    assert (await migrar("x", ESQUEMA_VECTORIAL)).aplicadas == (1, 2)
+    assert c.ejecutadas == [1, 2]
 
 
 async def test_pgvector_ausente_se_crea_si_el_rol_puede_y_se_verifica(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_VECTORIAL, extension=False))
-    assert (await migrar("x", ESQUEMA_VECTORIAL)).aplicadas == (1, 2) and c.extension is True
+    assert (await migrar("x", ESQUEMA_VECTORIAL)).aplicadas == (1, 2)
+    assert c.extension is True
 
 
 async def test_pgvector_ausente_sin_permiso_informa_el_requisito_y_no_crea_nada(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_VECTORIAL, extension=False, puede_crear_extension=False))
     with pytest.raises(ErrorMigracion) as error:
         await migrar("x", ESQUEMA_VECTORIAL)
-    assert error.value.codigo == "PGVECTOR_REQUIRED" and error.value.detalles == {"sqlstate": "42501"}
-    assert "CREATE EXTENSION vector" in error.value.mensaje and c.registro == [] and c.ejecutadas == [] and c.extension is False
+    assert error.value.codigo == "PGVECTOR_REQUIRED"
+    assert error.value.detalles == {"sqlstate": "42501"}
+    assert "CREATE EXTENSION vector" in error.value.mensaje
+    assert c.registro == []
+    assert c.ejecutadas == []
+    assert c.extension is False
 
 
 async def test_si_el_create_extension_no_falla_pero_la_extension_no_aparece_no_se_finge(conectar):
@@ -336,12 +387,14 @@ async def test_si_el_create_extension_no_falla_pero_la_extension_no_aparece_no_s
     c.execute = silencioso  # «tuvo éxito» pero no creó nada
     with pytest.raises(ErrorMigracion) as error:
         await migrar("x", ESQUEMA_VECTORIAL)
-    assert error.value.codigo == "PGVECTOR_REQUIRED" and error.value.detalles == {"sqlstate": None}
+    assert error.value.codigo == "PGVECTOR_REQUIRED"
+    assert error.value.detalles == {"sqlstate": None}
 
 
 async def test_la_base_transaccional_no_comprueba_pgvector(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL, extension=False, puede_crear_extension=False))
-    assert (await migrar("x", ESQUEMA_TRANSACCIONAL)).aplicadas == (1, 2, 3) and c.extension is False
+    assert (await migrar("x", ESQUEMA_TRANSACCIONAL)).aplicadas == (1, 2, 3)
+    assert c.extension is False
 
 
 # ============================================ Conexión ============================================
@@ -355,8 +408,11 @@ async def test_los_fallos_de_conexion_solo_informan_la_clase(monkeypatch, fallo)
     with pytest.raises(ErrorMigracion) as error:
         await migrar("postgresql+asyncpg://usuario:CLAVE-SECRETA@servidor-secreto:5432/base", ESQUEMA_TRANSACCIONAL)
     texto = f"{error.value.mensaje} {error.value.detalles}"
-    assert error.value.codigo == "MIGRATION_DB_UNAVAILABLE" and error.value.detalles == {"causa": type(fallo).__name__}
-    assert "SECRETA" not in texto and "servidor-secreto" not in texto and "clave incorrecta" not in texto
+    assert error.value.codigo == "MIGRATION_DB_UNAVAILABLE"
+    assert error.value.detalles == {"causa": type(fallo).__name__}
+    assert "SECRETA" not in texto
+    assert "servidor-secreto" not in texto
+    assert "clave incorrecta" not in texto
 
 
 async def test_una_conexion_que_excede_el_plazo_se_informa_sin_secretos(monkeypatch):
@@ -370,7 +426,8 @@ async def test_una_conexion_que_excede_el_plazo_se_informa_sin_secretos(monkeypa
             "postgresql+asyncpg://usuario:CLAVE-SECRETA@servidor-secreto:5432/base", ESQUEMA_TRANSACCIONAL,
             timeout_conexion=0.05,
         )
-    assert error.value.codigo == "MIGRATION_DB_UNAVAILABLE" and error.value.detalles == {"causa": "TimeoutError"}
+    assert error.value.codigo == "MIGRATION_DB_UNAVAILABLE"
+    assert error.value.detalles == {"causa": "TimeoutError"}
     assert "SECRETA" not in f"{error.value.mensaje} {error.value.detalles}"
 
 
@@ -392,7 +449,8 @@ def test_el_checksum_ignora_el_tipo_de_salto_de_linea_y_cambia_con_el_contenido(
     (tmp_path / "b.sql").write_bytes(b"SELECT 1;\nSELECT 2;\n")
     (tmp_path / "c.sql").write_bytes(b"SELECT 1;\nSELECT 3;\n")
     a, b, c = (Migracion(1, "m", f"{n}.sql", (), carpeta=str(tmp_path)) for n in "abc")
-    assert a.checksum() == b.checksum() != c.checksum() and a.sql() == b.sql()
+    assert a.checksum() == b.checksum() != c.checksum()
+    assert a.sql() == b.sql()
 
 
 def test_diferencias_describe_cada_tipo_de_discrepancia_solo_con_nombres():
@@ -458,7 +516,8 @@ async def test_sin_url_vectorial_valida_no_se_cae_a_la_transaccional(monkeypatch
     monkeypatch.setattr(catalogo.settings, "VECTOR_DATABASE_URL", valor)
     with pytest.raises(ErrorMigracion) as error:
         await catalogo.asegurar_esquema_ingesta()
-    assert error.value.base == "vectorial" and error.value.codigo == "MIGRATION_DB_NOT_CONFIGURED"
+    assert error.value.base == "vectorial"
+    assert error.value.codigo == "MIGRATION_DB_NOT_CONFIGURED"
     assert llamadas == ["transaccional"]  # la vectorial jamás se migró contra la URL transaccional
 
 

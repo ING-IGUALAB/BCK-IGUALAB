@@ -137,8 +137,9 @@ async def test_sin_los_prerrequisitos_el_sql_falla_y_con_ellos_se_aplica(url_pg_
         await admin.close()
     vacia = await asyncpg.connect(_dsn(url_pg_aislado, base))
     try:
+        ddl = generar_ddl()
         with pytest.raises(asyncpg.PostgresError):  # no existen empresas, usuarios ni sector_empresa
-            await vacia.execute(generar_ddl())
+            await vacia.execute(ddl)
     finally:
         await vacia.close()
 
@@ -157,8 +158,10 @@ async def test_el_sql_crea_los_cuatro_enumerados_nuevos_y_no_toca_sector_empresa
 
 def test_el_sql_no_crea_otra_vez_los_tipos_ni_tablas_de_los_prerrequisitos():
     ddl = generar_ddl()
-    assert "CREATE TYPE sector_empresa" not in ddl and "CREATE TABLE empresas" not in ddl
-    assert ddl.count("CREATE TABLE documentos") == 1 and "CREATE UNIQUE INDEX uq_documentos_sha256_activo" in ddl
+    assert "CREATE TYPE sector_empresa" not in ddl
+    assert "CREATE TABLE empresas" not in ddl
+    assert ddl.count("CREATE TABLE documentos") == 1
+    assert "CREATE UNIQUE INDEX uq_documentos_sha256_activo" in ddl
 
 
 async def test_claves_foraneas_hacia_empresas_y_usuarios(esquema):
@@ -178,7 +181,8 @@ async def test_las_restricciones_check_del_modelo_existen_con_sus_nombres(esquem
         esquema, "SELECT conname FROM pg_constraint WHERE conrelid = 'documentos'::regclass AND contype = 'c'"
     )
     del_modelo = {c.name for c in Documento.__table__.constraints if c.__class__.__name__ == "CheckConstraint"}
-    assert del_modelo and {f["conname"] for f in filas} == del_modelo
+    assert del_modelo
+    assert {f["conname"] for f in filas} == del_modelo
 
 
 async def test_indices_unicos_parciales_de_reserva_y_clave_unica(esquema):
@@ -187,8 +191,10 @@ async def test_indices_unicos_parciales_de_reserva_y_clave_unica(esquema):
     sha = definiciones["uq_documentos_sha256_activo"]
     empresa = definiciones["uq_documentos_empresa_anio_tipo_activo"]
     for definicion in (sha, empresa):
-        assert definicion.startswith("CREATE UNIQUE INDEX") and "WHERE reserva_activa" in definicion
-    assert "(ambiente, sha256)" in sha and "(ambiente, empresa_id, anio, tipo)" in empresa
+        assert definicion.startswith("CREATE UNIQUE INDEX")
+        assert "WHERE reserva_activa" in definicion
+    assert "(ambiente, sha256)" in sha
+    assert "(ambiente, empresa_id, anio, tipo)" in empresa
     assert any("clave_original" in d and "UNIQUE" in d.upper() for d in definiciones.values())
 
 

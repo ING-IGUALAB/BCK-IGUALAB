@@ -40,7 +40,8 @@ async def test_la_copia_acotada_conserva_los_bytes_y_suelta_la_memoria_al_termin
     fuente = await copiar_archivo_acotado(lector_de(datos, bloque_maximo=50))
     assert fuente.tamano == len(datos)
     assert await drenar(fuente) == datos
-    assert fuente.tamano == 0 and await fuente.leer(10) == b""  # tras leer hasta el final, soltó el archivo
+    assert fuente.tamano == 0
+    assert await fuente.leer(10) == b""  # tras leer hasta el final, soltó el archivo
 
 
 async def test_la_copia_acotada_no_lee_un_archivo_ilimitado_pero_deja_pasar_el_exceso_al_validador():
@@ -61,7 +62,8 @@ async def test_un_archivo_exactamente_en_el_limite_se_copia_completo():
 
 async def test_un_archivo_vacio_se_copia_como_vacio():
     fuente = await copiar_archivo_acotado(lector_de(b""))
-    assert fuente.tamano == 0 and await fuente.leer(5) == b""
+    assert fuente.tamano == 0
+    assert await fuente.leer(5) == b""
 
 
 @pytest.mark.parametrize(
@@ -77,7 +79,8 @@ def test_opciones_invalidas_se_rechazan(cambios):
 
 def test_opciones_validas_incluyen_cero_para_esperar_y_retrasar():
     opciones = OpcionesGestor(espera_cierre=0, retraso_primer_barrido=0)
-    assert opciones.espera_cierre == 0 and opciones.recuperacion_habilitada is True
+    assert opciones.espera_cierre == 0
+    assert opciones.recuperacion_habilitada is True
 
 
 @pytest.mark.parametrize(
@@ -95,7 +98,9 @@ def test_el_motivo_de_configuracion_nunca_repite_valores(exc, esperado):
     motivo = modulo._motivo_seguro(exc)
     if esperado is not None:
         assert motivo == esperado
-    assert "SECRETO" not in motivo and "clave@" not in motivo and "://" not in motivo
+    assert "SECRETO" not in motivo
+    assert "clave@" not in motivo
+    assert "://" not in motivo
 
 
 def test_el_openapi_publica_el_contrato_de_ingesta():
@@ -107,7 +112,8 @@ def test_el_openapi_publica_el_contrato_de_ingesta():
     assert set(rutas["/documentos/operaciones/{operacion_id}"]) == {"get"}
     assert set(rutas["/documentos/operaciones/{operacion_id}/ingesta"]) == {"post"}
     assert set(rutas["/documentos/operaciones/{operacion_id}/reintentar-publicacion"]) == {"post"}
-    assert set(rutas["/documentos"]) == {"get"} and set(rutas["/documentos/{documento_id}"]) == {"get"}
+    assert set(rutas["/documentos"]) == {"get"}
+    assert set(rutas["/documentos/{documento_id}"]) == {"get"}
 
     cuerpo = rutas["/documentos/operaciones/{operacion_id}/ingesta"]["post"]["requestBody"]["content"]["multipart/form-data"]
     campos = esquema["components"]["schemas"][cuerpo["schema"]["$ref"].rsplit("/", 1)[1]]
@@ -117,4 +123,5 @@ def test_el_openapi_publica_el_contrato_de_ingesta():
         rutas["/documentos/operaciones/{operacion_id}/ingesta"]["post"]["responses"]
     )
     estados = esquema["components"]["schemas"]["EstadoOperacionPublico"]["enum"]
-    assert "PUBLICACION_PENDIENTE" in estados and "COMPLETADO" in estados
+    assert "PUBLICACION_PENDIENTE" in estados
+    assert "COMPLETADO" in estados

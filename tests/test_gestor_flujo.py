@@ -122,19 +122,27 @@ def f(monkeypatch):
 async def test_ingesta_exitosa_toma_la_carga_ejecuta_y_devuelve_la_vista_confirmada(f):
     respuesta = await f.ingerir()
     (operacion, kwargs) = f.llamadas["tomar"][0]
-    assert operacion == OPERACION and kwargs["usuario_id"] == USUARIO and kwargs["ambiente"] == "development"
+    assert operacion == OPERACION
+    assert kwargs["usuario_id"] == USUARIO
+    assert kwargs["ambiente"] == "development"
     assert kwargs["vigencia"] == f.gestor.config.vigencia
     (llamada,) = f.llamadas["ingerir"]
-    assert llamada["operacion_id"] == OPERACION and llamada["usuario_id"] == USUARIO and llamada["nombre_archivo"] == "a.md"
-    assert respuesta.exitosa and respuesta.motivos == ["m1", "m2"] and respuesta.fragmentos == 3
-    assert f.llamadas["rechazar"] == [] and f.gestor.tareas_en_curso == 0
+    assert llamada["operacion_id"] == OPERACION
+    assert llamada["usuario_id"] == USUARIO
+    assert llamada["nombre_archivo"] == "a.md"
+    assert respuesta.exitosa
+    assert respuesta.motivos == ["m1", "m2"]
+    assert respuesta.fragmentos == 3
+    assert f.llamadas["rechazar"] == []
+    assert f.gestor.tareas_en_curso == 0
 
 
 async def test_si_la_base_no_confirma_el_exito_no_se_anuncia(f):
     f.vista = vista(EstadoOperacionPublico.EN_PROCESO, exitosa=False, terminal=False)
     with pytest.raises(ExternalServiceError) as error:
         await f.ingerir()
-    assert error.value.code == "INGESTION_OUTCOME_NOT_CONFIRMED" and error.value.details["estado"] == "EN_PROCESO"
+    assert error.value.code == "INGESTION_OUTCOME_NOT_CONFIRMED"
+    assert error.value.details["estado"] == "EN_PROCESO"
 
 
 @pytest.mark.parametrize(
@@ -180,7 +188,8 @@ async def test_la_publicacion_pendiente_lleva_la_operacion_y_no_marca_rechazo(f)
     f.ingestion = pendiente
     with pytest.raises(PublicacionVectorialPendiente) as error:
         await f.ingerir()
-    assert error.value.details["operacion_id"] == str(OPERACION) and error.value.details["documento_id"] == str(DOCUMENTO)
+    assert error.value.details["operacion_id"] == str(OPERACION)
+    assert error.value.details["documento_id"] == str(DOCUMENTO)
     assert error.value.details["reintentar_url"].endswith("/reintentar-publicacion")
     assert f.llamadas["rechazar"] == []  # el documento existe: manda el documento
 
@@ -198,7 +207,8 @@ async def test_una_segunda_carga_sobre_la_misma_operacion_falla_antes_de_leer_el
 
     with pytest.raises(ConflictError):
         await f.gestor.ingerir(operacion_id=OPERACION, usuario_id=USUARIO, nombre_archivo="a.md", leer=leer, metadatos=METADATOS)
-    assert leido == [] and f.llamadas["ingerir"] == []
+    assert leido == []
+    assert f.llamadas["ingerir"] == []
 
 
 async def test_un_fallo_al_copiar_el_archivo_marca_el_rechazo_y_una_cancelacion_no(f):
@@ -207,7 +217,8 @@ async def test_un_fallo_al_copiar_el_archivo_marca_el_rechazo_y_una_cancelacion_
 
     with pytest.raises(OSError):
         await f.ingerir(leer=lectura_rota)
-    assert f.llamadas["rechazar"][0][2]["codigo"] == "INTERNAL_ERROR" and f.llamadas["ingerir"] == []
+    assert f.llamadas["rechazar"][0][2]["codigo"] == "INTERNAL_ERROR"
+    assert f.llamadas["ingerir"] == []
 
     async def lectura_cancelada(n):
         raise asyncio.CancelledError
@@ -241,7 +252,8 @@ async def test_cancelar_la_peticion_no_cancela_la_ingesta_y_su_resultado_no_se_p
     async with asyncio.timeout(5):
         while f.gestor.tareas_en_curso:
             await asyncio.sleep(0.01)
-    assert f.llamadas["rechazar"] == [] and manejador == []
+    assert f.llamadas["rechazar"] == []
+    assert manejador == []
 
 
 async def test_el_error_de_una_ingesta_sin_cliente_se_registra_y_no_queda_sin_leer(f, caplog):
@@ -264,7 +276,8 @@ async def test_el_error_de_una_ingesta_sin_cliente_se_registra_y_no_queda_sin_le
         async with asyncio.timeout(5):
             while f.gestor.tareas_en_curso:
                 await asyncio.sleep(0.01)
-    assert manejador == [] and any("codigo=EMBEDDING_PROVIDER_ERROR" in r.message for r in caplog.records)
+    assert manejador == []
+    assert any("codigo=EMBEDDING_PROVIDER_ERROR" in r.message for r in caplog.records)
 
 
 async def test_el_cierre_cancela_lo_que_no_termina_y_libera_recursos(monkeypatch):
@@ -280,8 +293,10 @@ async def test_el_cierre_cancela_lo_que_no_termina_y_libera_recursos(monkeypatch
     await entro.wait()
     await f.gestor.cerrar()
     resultados = await asyncio.gather(peticion, return_exceptions=True)
-    assert isinstance(resultados[0], asyncio.CancelledError) and f.gestor.tareas_en_curso == 0
-    assert f.liberados == 1 and f.llamadas["rechazar"] == []  # cancelada: no se toca el estado
+    assert isinstance(resultados[0], asyncio.CancelledError)
+    assert f.gestor.tareas_en_curso == 0
+    assert f.liberados == 1
+    assert f.llamadas["rechazar"] == []  # cancelada: no se toca el estado
     await f.gestor.cerrar()
     assert f.liberados == 1  # idempotente
 
@@ -299,7 +314,8 @@ async def test_el_cierre_espera_a_las_que_terminan_a_tiempo(monkeypatch):
     peticion = asyncio.create_task(f.ingerir())
     await entro.wait()
     await f.gestor.cerrar()
-    assert (await peticion).exitosa is True and f.liberados == 1
+    assert (await peticion).exitosa is True
+    assert f.liberados == 1
 
 
 async def test_un_gestor_cerrado_rechaza_trabajo_nuevo(f):
@@ -308,12 +324,14 @@ async def test_un_gestor_cerrado_rechaza_trabajo_nuevo(f):
         with pytest.raises(ServiceUnavailableError) as error:
             await corrutina
         assert error.value.code == "INGESTION_SHUTTING_DOWN"
-    assert f.llamadas["tomar"] == [] and f.llamadas["ingerir"] == []
+    assert f.llamadas["tomar"] == []
+    assert f.llamadas["ingerir"] == []
 
 
 async def test_crear_operacion_delega_con_el_ambiente_del_gestor(f):
     creada = await f.gestor.crear_operacion(SimpleNamespace(), usuario_id=USUARIO)
-    assert creada.usuario_id == USUARIO and creada.ambiente == "development"
+    assert creada.usuario_id == USUARIO
+    assert creada.ambiente == "development"
 
 
 # ============================================ Reintento de publicación ============================================
@@ -322,12 +340,14 @@ async def test_reintentar_exige_documento_y_publicacion_pendiente(f):
     f.vista = vista(EstadoOperacionPublico.CREADA, documento=False)
     with pytest.raises(ConflictError) as sin_documento:
         await f.gestor.reintentar_publicacion(OPERACION)
-    assert sin_documento.value.code == "OPERATION_WITHOUT_DOCUMENT" and sin_documento.value.details == {"estado": "CREADA"}
+    assert sin_documento.value.code == "OPERATION_WITHOUT_DOCUMENT"
+    assert sin_documento.value.details == {"estado": "CREADA"}
 
     f.vista = vista()
     with pytest.raises(ConflictError) as no_pendiente:
         await f.gestor.reintentar_publicacion(OPERACION)
-    assert no_pendiente.value.code == "VECTOR_PUBLICATION_NOT_PENDING" and f.llamadas["reintentar"] == []
+    assert no_pendiente.value.code == "VECTOR_PUBLICATION_NOT_PENDING"
+    assert f.llamadas["reintentar"] == []
 
 
 async def test_reintentar_publica_y_devuelve_la_operacion_actualizada(f, monkeypatch):
@@ -340,7 +360,9 @@ async def test_reintentar_publica_y_devuelve_la_operacion_actualizada(f, monkeyp
 
     monkeypatch.setattr(operacion_service, "obtener_vista", obtener_vista)
     resultado = await f.gestor.reintentar_publicacion(OPERACION)
-    assert f.llamadas["reintentar"] == [DOCUMENTO] and resultado.exitosa and len(consultas) == 2
+    assert f.llamadas["reintentar"] == [DOCUMENTO]
+    assert resultado.exitosa
+    assert len(consultas) == 2
 
 
 async def test_si_el_reintento_falla_de_nuevo_lleva_la_operacion(f, monkeypatch):
@@ -381,7 +403,8 @@ async def test_el_bucle_barre_periodicamente_sobrevive_a_los_errores_y_se_detien
             while len(intentos) < 3:
                 await asyncio.sleep(0.01)
         await f.gestor.cerrar()
-    assert f.gestor._bucle.done() and any("barrido de recuperación" in r.message for r in caplog.records)
+    assert f.gestor._bucle.done()
+    assert any("barrido de recuperación" in r.message for r in caplog.records)
     cantidad = len(intentos)
     await asyncio.sleep(0.1)
     assert len(intentos) == cantidad
@@ -394,7 +417,8 @@ async def test_un_barrido_sin_candado_se_omite(f):
 
     f.gestor._candado_de_barrido = ocupado
     assert await f.gestor.barrido() is None
-    assert f.gestor.barridos_omitidos == 1 and f.llamadas["recuperar"] == []
+    assert f.gestor.barridos_omitidos == 1
+    assert f.llamadas["recuperar"] == []
 
 
 async def test_el_barrido_pasa_los_argumentos_al_coordinador(f):
@@ -404,7 +428,8 @@ async def test_el_barrido_pasa_los_argumentos_al_coordinador(f):
 
     f.gestor._candado_de_barrido = libre
     assert await f.gestor.barrido(limite=7) == "resumen"
-    assert f.llamadas["recuperar"] == [{"limite": 7}] and f.gestor.barridos == 1
+    assert f.llamadas["recuperar"] == [{"limite": 7}]
+    assert f.gestor.barridos == 1
 
 
 # ============================================ Fuente en memoria ============================================
@@ -413,7 +438,8 @@ async def test_la_fuente_en_memoria_entrega_los_bytes_en_orden_y_se_vacia():
     fuente = FuenteEnMemoria(bytearray(b"abcdefghij"))
     assert fuente.tamano == 10
     assert [await fuente.leer(4), await fuente.leer(4), await fuente.leer(4), await fuente.leer(4)] == [b"abcd", b"efgh", b"ij", b""]
-    assert fuente.tamano == 0 and await fuente.leer(4) == b""
+    assert fuente.tamano == 0
+    assert await fuente.leer(4) == b""
 
 
 # ============================================ Preparación del esquema en el arranque ============================================
@@ -449,11 +475,14 @@ async def test_el_esquema_se_prepara_despues_de_construir_y_antes_de_habilitar_l
 
     async def preparar():
         orden.append("esquema")
-        assert gestor._bucle is None and _app.state.ingesta is None  # todavía no habilitada
+        assert gestor._bucle is None
+        assert _app.state.ingesta is None  # todavía no habilitada
 
     _app = _AppDoble()
     await iniciar_ingesta(_app, preparar_esquema=preparar)
-    assert orden == ["construido", "esquema"] and _app.state.ingesta is gestor and _app.state.ingesta_error is None
+    assert orden == ["construido", "esquema"]
+    assert _app.state.ingesta is gestor
+    assert _app.state.ingesta_error is None
 
 
 async def test_si_falla_la_preparacion_del_esquema_la_ingesta_queda_en_503_y_se_liberan_los_recursos(monkeypatch, caplog):
@@ -469,9 +498,12 @@ async def test_si_falla_la_preparacion_del_esquema_la_ingesta_queda_en_503_y_se_
     app = _AppDoble()
     with caplog.at_level(logging.ERROR, logger="igualab.ingesta.http"):
         await iniciar_ingesta(app, preparar_esquema=preparar)  # NO lanza: el arranque de la aplicación continúa
-    assert app.state.ingesta is None and orden == ["construido", "liberado"] and gestor._cerrado
+    assert app.state.ingesta is None
+    assert orden == ["construido", "liberado"]
+    assert gestor._cerrado
     codigo, mensaje, detalles = app.state.ingesta_error
-    assert codigo == "INGESTION_SCHEMA_NOT_READY" and "Requisito: instalarla" in mensaje
+    assert codigo == "INGESTION_SCHEMA_NOT_READY"
+    assert "Requisito: instalarla" in mensaje
     assert detalles == {"base": "vectorial", "motivo": "PGVECTOR_REQUIRED", "sqlstate": "42501"}
     assert any("PGVECTOR_REQUIRED" in r.message for r in caplog.records)
 
@@ -487,8 +519,10 @@ async def test_un_error_inesperado_al_preparar_el_esquema_tampoco_impide_el_arra
 
     app = _AppDoble()
     await iniciar_ingesta(app, preparar_esquema=preparar)
-    assert app.state.ingesta is None and orden == ["construido", "liberado"]
-    assert app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED" and "credenciales" not in str(app.state.ingesta_error)
+    assert app.state.ingesta is None
+    assert orden == ["construido", "liberado"]
+    assert app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED"
+    assert "credenciales" not in str(app.state.ingesta_error)
 
 
 async def test_con_configuracion_incompleta_no_se_intenta_migrar(monkeypatch):
@@ -505,7 +539,8 @@ async def test_con_configuracion_incompleta_no_se_intenta_migrar(monkeypatch):
     monkeypatch.setattr(modulo, "construir_gestor", sin_config)
     app = _AppDoble()
     await modulo.iniciar_ingesta(app, preparar_esquema=preparar)
-    assert llamadas == [] and app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED"
+    assert llamadas == []
+    assert app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED"
 
 
 async def test_con_el_esquema_sin_preparar_solo_la_ingesta_responde_503_y_el_resto_sigue(monkeypatch):

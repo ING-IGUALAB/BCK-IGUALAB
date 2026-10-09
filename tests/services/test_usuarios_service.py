@@ -190,11 +190,12 @@ async def test_transferencia_rechaza_destino_inexistente():
     db = MagicMock()
     db.get = AsyncMock(return_value=None)
 
+    valor_uuid_uuid4 = uuid.uuid4()
     with pytest.raises(NotFoundError) as captured:
         await usuario_service.transferir_superadmin(
             db,
             origen,
-            uuid.uuid4(),
+            valor_uuid_uuid4,
         )
 
     assert (

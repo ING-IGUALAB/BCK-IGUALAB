@@ -54,13 +54,16 @@ async def firma_simulada(catalogo: CatalogoSimulado) -> dict:
 
 async def test_pg_17_o_anterior_sin_restricciones_not_null_coincide_con_la_version_1():
     firma = await firma_simulada(CatalogoSimulado(FIRMAS_DOCUMENTOS[1]))
-    assert firma == FIRMAS_DOCUMENTOS[1] and _version_del_objeto(firma, FIRMAS_DOCUMENTOS) == 1
+    assert firma == FIRMAS_DOCUMENTOS[1]
+    assert _version_del_objeto(firma, FIRMAS_DOCUMENTOS) == 1
 
 
 async def test_pg_18_con_restricciones_documentos_columna_not_null_coincide_con_la_version_1():
     extra = [restriccion_no_nula(c) for c in no_nulas(FIRMAS_DOCUMENTOS[1])]
     firma = await firma_simulada(CatalogoSimulado(FIRMAS_DOCUMENTOS[1], extra))
-    assert len(extra) > 10 and firma == FIRMAS_DOCUMENTOS[1] and _version_del_objeto(firma, FIRMAS_DOCUMENTOS) == 1
+    assert len(extra) > 10
+    assert firma == FIRMAS_DOCUMENTOS[1]
+    assert _version_del_objeto(firma, FIRMAS_DOCUMENTOS) == 1
 
 
 async def test_pg_18_con_restricciones_not_null_con_otros_nombres_tambien_coincide():
@@ -73,7 +76,8 @@ async def test_pg_18_con_restricciones_not_null_con_otros_nombres_tambien_coinci
 async def test_la_version_2_tambien_se_reconoce_con_y_sin_restricciones_not_null():
     sin = await firma_simulada(CatalogoSimulado(FIRMAS_DOCUMENTOS[2]))
     con = await firma_simulada(CatalogoSimulado(FIRMAS_DOCUMENTOS[2], [restriccion_no_nula(c) for c in no_nulas(FIRMAS_DOCUMENTOS[2])]))
-    assert sin == con == FIRMAS_DOCUMENTOS[2] and _version_del_objeto(con, FIRMAS_DOCUMENTOS) == 2
+    assert sin == con == FIRMAS_DOCUMENTOS[2]
+    assert _version_del_objeto(con, FIRMAS_DOCUMENTOS) == 2
 
 
 async def test_una_restriccion_not_null_no_validada_no_se_ignora():
@@ -186,7 +190,8 @@ async def test_actualiza_la_etapa_4a_conservando_las_filas_y_el_segundo_arranque
     monkeypatch.setattr(motor, "_aplicar", no_debe_ejecutarse)
     monkeypatch.setattr(motor, "_registrar", no_debe_ejecutarse)
     segundo = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert segundo.sin_cambios and segundo.previas == (1, 2, 3)
+    assert segundo.sin_cambios
+    assert segundo.previas == (1, 2, 3)
     assert await consultar(url, "SELECT version, aplicada_en, xmin::text AS xmin FROM igualab_migraciones ORDER BY version") == antes
 
 
@@ -212,7 +217,8 @@ async def test_las_diferencias_reales_de_nulabilidad_y_restricciones_siguen_rech
     with pytest.raises(ErrorMigracion) as error:
         await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH" and error.value.detalles["objeto"] == "documentos"
+    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH"
+    assert error.value.detalles["objeto"] == "documentos"
     # La única diferencia respecto a la última versión incluye la real; las NOT NULL propias de PostgreSQL 18 no aparecen como sobrantes.
     assert not any("_not_null" in n for n in error.value.detalles["diferencias"].get("restricciones_sobrantes", []))
     ultima = diferencias(antes, FIRMAS_DOCUMENTOS[2])
@@ -238,4 +244,5 @@ async def test_una_instalacion_manual_completa_se_adopta_en_cualquier_version(ur
 
     monkeypatch.setattr(motor, "_aplicar", no_debe_ejecutarse)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.adoptadas == (1, 2, 3) and resultado.aplicadas == ()
+    assert resultado.adoptadas == (1, 2, 3)
+    assert resultado.aplicadas == ()

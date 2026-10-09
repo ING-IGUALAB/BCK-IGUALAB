@@ -26,8 +26,9 @@ async def test_error_en_commit_revierte_transaccion(duplicado):
     db.rollback = AsyncMock()
     db.refresh = AsyncMock()
     esperado = ConflictError if duplicado else IntegrityError
+    valor_crearempresarequest = CrearEmpresaRequest(nombre="Empresa", sector="MINERIA")
     with pytest.raises(esperado) as exc:
-        await empresa_service.crear_empresa(db, CrearEmpresaRequest(nombre="Empresa", sector="MINERIA"))
+        await empresa_service.crear_empresa(db, valor_crearempresarequest)
     if duplicado:
         assert exc.value.code == "COMPANY_ALREADY_EXISTS"
     db.rollback.assert_awaited_once()
@@ -43,8 +44,9 @@ async def test_duplicado_con_nombre_de_restriccion_asyncpg():
     db = MagicMock()
     db.commit = AsyncMock(side_effect=IntegrityError("INSERT", {}, original))
     db.rollback = AsyncMock()
+    valor_empresa = Empresa()
     with pytest.raises(ConflictError):
-        await empresa_service._guardar(db, Empresa())
+        await empresa_service._guardar(db, valor_empresa)
     db.rollback.assert_awaited_once()
 
 

@@ -155,7 +155,9 @@ def test_ambientes_distintos_producen_claves_distintas_y_no_se_reconocen_entre_s
 
 def test_el_nombre_recibido_nunca_forma_parte_de_la_clave():
     clave = clave_nueva()
-    assert "Memoria" not in clave and ".." not in clave and clave.endswith("/original.md")
+    assert "Memoria" not in clave
+    assert ".." not in clave
+    assert clave.endswith("/original.md")
     with pytest.raises(TypeError):
         generar_clave_original("development", "../../Memoria anual.md")  # no es un UUID
 
@@ -189,7 +191,8 @@ def test_claves_que_no_tienen_la_forma_exacta_no_son_propias(clave):
 
 def test_la_configuracion_no_muestra_credenciales_ni_en_repr_ni_en_str():
     visible = f"{config()!r} {config()}"
-    assert ACCESO not in visible and SECRETO not in visible
+    assert ACCESO not in visible
+    assert SECRETO not in visible
 
 
 @pytest.mark.parametrize(
@@ -201,7 +204,8 @@ def test_la_configuracion_no_muestra_credenciales_ni_en_repr_ni_en_str():
 def test_solo_se_admite_https_sin_credenciales_y_el_error_no_repite_el_valor(endpoint):
     with pytest.raises(ValueError) as capturado:
         config(endpoint_url=endpoint)
-    assert "clave-secreta" not in str(capturado.value) and "almacen" not in str(capturado.value)
+    assert "clave-secreta" not in str(capturado.value)
+    assert "almacen" not in str(capturado.value)
 
 
 @pytest.mark.parametrize("cambio", [
@@ -239,12 +243,16 @@ def test_config_desde_settings_completa():
 
 
 def test_config_desde_settings_nombra_lo_que_falta_sin_valores():
+    valor_ajustes = ajustes(MINIO_BUCKET=None, MINIO_SECRET_KEY="  ")
     with pytest.raises(ValueError) as capturado:
-        config_desde_settings(ajustes(MINIO_BUCKET=None, MINIO_SECRET_KEY="  "))
+        config_desde_settings(valor_ajustes)
     mensaje = str(capturado.value)
-    assert "MINIO_BUCKET" in mensaje and "MINIO_SECRET_KEY" in mensaje
-    assert "MINIO_ACCESS_KEY" not in mensaje and "MINIO_PREFIX" not in mensaje
-    assert ACCESO not in mensaje and ENDPOINT not in mensaje
+    assert "MINIO_BUCKET" in mensaje
+    assert "MINIO_SECRET_KEY" in mensaje
+    assert "MINIO_ACCESS_KEY" not in mensaje
+    assert "MINIO_PREFIX" not in mensaje
+    assert ACCESO not in mensaje
+    assert ENDPOINT not in mensaje
 
 
 @pytest.mark.parametrize("ambiente", ["development", "qa", "uat", " qa "])
@@ -254,8 +262,9 @@ def test_el_ambiente_se_deriva_de_app_env(ambiente):
 
 @pytest.mark.parametrize("valor", ["prod", "production", "QA", "Development", "staging", "", "  ", None, 3])
 def test_app_env_invalido_se_rechaza_sin_repetir_el_valor(valor):
+    valor_ajustes_2 = ajustes(APP_ENV=valor)
     with pytest.raises(ValueError, match="APP_ENV") as capturado:
-        config_desde_settings(ajustes(APP_ENV=valor))
+        config_desde_settings(valor_ajustes_2)
     assert str(capturado.value) == "APP_ENV debe ser exactamente development, qa o uat."
 
 
@@ -295,7 +304,8 @@ def test_el_cliente_se_crea_con_tls_verificado_plazos_y_sin_reintentos():
         crear_cliente_s3(config(region="us-east-1"))
     argumentos = fabrica.call_args.kwargs
     assert fabrica.call_args.args == ("s3",)
-    assert argumentos["endpoint_url"] == ENDPOINT and argumentos["endpoint_url"].startswith("https://")
+    assert argumentos["endpoint_url"] == ENDPOINT
+    assert argumentos["endpoint_url"].startswith("https://")
     assert argumentos["verify"] is True
     assert argumentos["region_name"] == "us-east-1"
     assert (argumentos["aws_access_key_id"], argumentos["aws_secret_access_key"]) == (ACCESO, SECRETO)
@@ -319,8 +329,9 @@ def test_el_adaptador_no_expone_nada_en_su_repr():
     asignado, _ = almacen()
     sin_secretos(repr(asignado))
     assert "development" in repr(asignado)
+    valor_clientes3falso = ClienteS3Falso()
     with pytest.raises(TypeError):
-        AlmacenOriginalesS3("no es una configuración", ClienteS3Falso())
+        AlmacenOriginalesS3("no es una configuración", valor_clientes3falso)
 
 
 # --- guardar -----------------------------------------------------------------------------------------------------
@@ -333,7 +344,8 @@ async def test_guardar_conserva_exactamente_los_bytes_incluido_el_bom_y_envia_md
     referencia = await asignado.guardar(clave, contenido, sha(contenido))
 
     assert referencia == ReferenciaOriginal(clave, None)
-    assert cliente.objetos[(clave, None)] == contenido and cliente.objetos[(clave, None)].startswith(BOM)
+    assert cliente.objetos[(clave, None)] == contenido
+    assert cliente.objetos[(clave, None)].startswith(BOM)
     [(metodo, kw)] = cliente.llamadas
     assert metodo == "put_object"
     assert (kw["Bucket"], kw["Key"], kw["ContentLength"]) == (BUCKET, clave, len(contenido))
@@ -347,23 +359,32 @@ async def test_guardar_devuelve_la_version_si_el_bucket_tiene_versionado():
     asignado, cliente = almacen(ClienteS3Falso(versionado=True))
     clave = clave_nueva()
     referencia = await asignado.guardar(clave, b"# a\n", sha(b"# a\n"))
-    assert referencia.version_id == "v1" and (clave, "v1") in cliente.objetos
+    assert referencia.version_id == "v1"
+    assert (clave, "v1") in cliente.objetos
 
 
 async def test_guardar_rechaza_antes_de_llamar_a_la_red():
     asignado, cliente = almacen()
     datos = b"# a\n"
+    valor_sha = sha(datos)
     with pytest.raises(ExternalServiceError) as ajena:
-        await asignado.guardar("development/pruebas/x/original.md", datos, sha(datos))
+        await asignado.guardar("development/pruebas/x/original.md", datos, valor_sha)
     assert ajena.value.code == "STORAGE_INVALID_KEY"
+    clave_de_qa = clave_nueva("qa")
+    huella = sha(datos)
     with pytest.raises(ExternalServiceError):
-        await asignado.guardar(clave_nueva("qa"), datos, sha(datos))  # clave de otro ambiente
+        await asignado.guardar(clave_de_qa, datos, huella)  # clave de otro ambiente
+    valor_clave_nueva = clave_nueva()
+    valor_sha_2 = sha(b"otro contenido")
     with pytest.raises(ValueError):
-        await asignado.guardar(clave_nueva(), datos, sha(b"otro contenido"))
+        await asignado.guardar(valor_clave_nueva, datos, valor_sha_2)
+    valor_clave_nueva_2 = clave_nueva()
     with pytest.raises(ValueError):
-        await asignado.guardar(clave_nueva(), datos, "ABC")
+        await asignado.guardar(valor_clave_nueva_2, datos, "ABC")
+    valor_clave_nueva_3 = clave_nueva()
+    valor_sha_3 = sha(datos)
     with pytest.raises(TypeError):
-        await asignado.guardar(clave_nueva(), "texto", sha(datos))
+        await asignado.guardar(valor_clave_nueva_3, "texto", valor_sha_3)
     assert cliente.llamadas == []
 
 
@@ -374,7 +395,8 @@ async def test_leer_devuelve_los_bytes_exactos_y_cierra_el_cuerpo():
     contenido = BOM + "ñ".encode() + b"\r\n"
     referencia = await asignado.guardar(clave_nueva(), contenido, sha(contenido))
     assert await asignado.leer(referencia) == contenido
-    assert cliente.cuerpos and all(c.cerrado for c in cliente.cuerpos)
+    assert cliente.cuerpos
+    assert all(c.cerrado for c in cliente.cuerpos)
 
 
 async def test_leer_y_existir_respetan_la_version():
@@ -389,8 +411,9 @@ async def test_leer_y_existir_respetan_la_version():
 
 async def test_leer_un_objeto_inexistente_es_un_error_controlado():
     asignado, _ = almacen()
+    valor_referenciaoriginal = ReferenciaOriginal(clave_nueva())
     with pytest.raises(ExternalServiceError) as capturado:
-        await asignado.leer(ReferenciaOriginal(clave_nueva()))
+        await asignado.leer(valor_referenciaoriginal)
     assert capturado.value.code == "STORAGE_OBJECT_NOT_FOUND"
     sin_secretos(str(capturado.value), repr(capturado.value.details))
 
@@ -424,8 +447,9 @@ async def test_eliminar_ignora_el_error_de_objeto_inexistente_pero_no_otros():
     cliente.errores["delete_object"] = error_cliente("NoSuchKey", 404)
     await asignado.eliminar(ReferenciaOriginal(clave_nueva()))
     cliente.errores["delete_object"] = error_cliente("AccessDenied", 403)
+    valor_referenciaoriginal_2 = ReferenciaOriginal(clave_nueva())
     with pytest.raises(ExternalServiceError):
-        await asignado.eliminar(ReferenciaOriginal(clave_nueva()))
+        await asignado.eliminar(valor_referenciaoriginal_2)
 
 
 @pytest.mark.parametrize("operacion", ["leer", "existe", "eliminar"])
@@ -434,8 +458,9 @@ async def test_nunca_actua_sobre_objetos_ajenos_ni_claves_manipuladas(operacion)
     ajena = "development/documentos/../../otro-sistema/datos.md"
     for referencia in (ReferenciaOriginal(ajena), ReferenciaOriginal(clave_nueva("qa")),
                        ReferenciaOriginal(clave_nueva(), "v\n1"), ReferenciaOriginal(clave_nueva(), "x" * 300)):
+        valor_getattr = getattr(asignado, operacion)
         with pytest.raises(ExternalServiceError) as capturado:
-            await getattr(asignado, operacion)(referencia)
+            await valor_getattr(referencia)
         assert capturado.value.code == "STORAGE_INVALID_KEY"
     assert cliente.llamadas == []
 
@@ -448,27 +473,34 @@ async def test_un_error_del_servidor_no_revela_credenciales_endpoint_bucket_ni_r
         "AccessDenied", 403, f"clave {SECRETO} bucket {BUCKET} en {ENDPOINT} firmada https://x?X-Amz-Signature=abc"
     )
     datos = b"# secreto documental\n"
+    valor_clave_nueva_4 = clave_nueva()
+    valor_sha_4 = sha(datos)
     with pytest.raises(ExternalServiceError) as capturado:
-        await asignado.guardar(clave_nueva(), datos, sha(datos))
+        await asignado.guardar(valor_clave_nueva_4, datos, valor_sha_4)
     error = capturado.value
-    assert error.code == "STORAGE_ERROR" and error.message == "El almacenamiento devolvió un error."
+    assert error.code == "STORAGE_ERROR"
+    assert error.message == "El almacenamiento devolvió un error."
     assert error.details == {"operacion": "guardar", "codigo_s3": "AccessDenied", "estado_http": 403}
     visible = f"{error} {error.message} {error.details!r}"
     sin_secretos(visible)
-    assert "X-Amz-Signature" not in visible and "secreto documental" not in visible
-    assert error.__cause__ is None and (error.__context__ is None or error.__suppress_context__)
+    assert "X-Amz-Signature" not in visible
+    assert "secreto documental" not in visible
+    assert error.__cause__ is None
+    assert error.__context__ is None or error.__suppress_context__
 
 
 async def test_un_codigo_s3_extrano_se_descarta_y_una_excepcion_cualquiera_solo_deja_su_clase():
     asignado, cliente = almacen()
     cliente.errores["head_object"] = error_cliente("https://secreto.invalid/?k=v con espacios", 500)
+    valor_referenciaoriginal_3 = ReferenciaOriginal(clave_nueva())
     with pytest.raises(ExternalServiceError) as extrano:
-        await asignado.existe(ReferenciaOriginal(clave_nueva()))
+        await asignado.existe(valor_referenciaoriginal_3)
     assert extrano.value.details == {"operacion": "existe", "codigo_s3": None, "estado_http": 500}
 
     cliente.errores["head_object"] = RuntimeError(f"fallo con {SECRETO} en {ENDPOINT}")
+    valor_referenciaoriginal_4 = ReferenciaOriginal(clave_nueva())
     with pytest.raises(ExternalServiceError) as generico:
-        await asignado.existe(ReferenciaOriginal(clave_nueva()))
+        await asignado.existe(valor_referenciaoriginal_4)
     assert generico.value.details == {"operacion": "existe", "tipo_error": "RuntimeError"}
     sin_secretos(f"{generico.value} {generico.value.details!r}")
 
@@ -503,8 +535,10 @@ async def test_el_plazo_de_la_operacion_se_aplica_aunque_el_sdk_siga_bloqueado()
     cliente.retardos["put_object"] = 0.4
     datos = b"# a\n"
     inicio = time.monotonic()
+    valor_clave_nueva_5 = clave_nueva()
+    valor_sha_5 = sha(datos)
     with pytest.raises(ExternalServiceTimeoutError) as capturado:
-        await asignado.guardar(clave_nueva(), datos, sha(datos))
+        await asignado.guardar(valor_clave_nueva_5, datos, valor_sha_5)
     assert time.monotonic() - inicio < 0.3  # no esperó a que terminara el hilo
     assert capturado.value.details["resultado_incierto"] is True
     await asyncio.sleep(0.5)  # deja terminar el hilo huérfano antes de la siguiente prueba
@@ -547,8 +581,9 @@ async def test_el_adaptador_expone_su_ambiente_y_leer_distingue_ausente_de_error
     asignado, cliente = almacen(ambiente="qa")
     assert asignado.ambiente == "qa"
     cliente.errores["get_object"] = error_cliente("AccessDenied", 403, f"detalle con {SECRETO}")
+    valor_referenciaoriginal_5 = ReferenciaOriginal(clave_nueva("qa"))
     with pytest.raises(ExternalServiceError) as capturado:
-        await asignado.leer(ReferenciaOriginal(clave_nueva("qa")))
+        await asignado.leer(valor_referenciaoriginal_5)
     assert capturado.value.code == "STORAGE_ERROR"  # distinto de STORAGE_OBJECT_NOT_FOUND
     assert capturado.value.details == {"operacion": "leer", "codigo_s3": "AccessDenied", "estado_http": 403}
     sin_secretos(f"{capturado.value} {capturado.value.details!r}")

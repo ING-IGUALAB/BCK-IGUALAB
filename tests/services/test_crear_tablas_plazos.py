@@ -168,8 +168,10 @@ async def test_el_error_de_base_de_datos_se_describe_sin_el_mensaje_original(mon
         with pytest.raises(modulo.ErrorInicializacionTablas) as error:
             await modulo.crear_tablas()
 
-    assert "lock_timeout agotado" in error.value.motivo and "SQLSTATE 55P03" in error.value.motivo
-    assert error.value.__cause__ is None and error.value.__suppress_context__
+    assert "lock_timeout agotado" in error.value.motivo
+    assert "SQLSTATE 55P03" in error.value.motivo
+    assert error.value.__cause__ is None
+    assert error.value.__suppress_context__
     for secreto in SECRETOS:
         assert secreto not in str(error.value)
     sin_secretos(caplog)
@@ -183,7 +185,8 @@ async def test_un_error_de_conexion_conocido_no_filtra_host_ni_clave(monkeypatch
     with caplog.at_level(logging.INFO, logger="igualab.startup"):
         with pytest.raises(modulo.ErrorInicializacionTablas) as error:
             await modulo.crear_tablas()
-    assert error.value.paso == "1/6 › conexión a PostgreSQL" and "ConnectionRefusedError" in error.value.motivo
+    assert error.value.paso == "1/6 › conexión a PostgreSQL"
+    assert "ConnectionRefusedError" in error.value.motivo
     sin_secretos(caplog)
 
 
@@ -256,9 +259,12 @@ async def test_postgres_real_crea_las_tablas_del_modelo_y_el_segundo_arranque_la
             segunda = await modulo.crear_tablas()
     finally:
         await motor.dispose()
-    assert primera == segunda and "documentos" not in primera and "operaciones_ingesta" not in primera
+    assert primera == segunda
+    assert "documentos" not in primera
+    assert "operaciones_ingesta" not in primera
     log = mensajes(caplog)
-    assert not any("CREADA" in m for m in log) and not any(m.startswith("Tablas creadas") for m in log)
+    assert not any("CREADA" in m for m in log)
+    assert not any(m.startswith("Tablas creadas") for m in log)
     assert sum(m.endswith("| ya existía") for m in log) == len(segunda)
 
 

@@ -87,10 +87,12 @@ async def test_el_administrador_recibe_403_antes_que_cualquier_otra_cosa(metodo,
 async def test_crear_y_reintentar_usan_al_actor_de_la_sesion():
     app = construir()
     respuesta = await pedir(app, "post", "/documentos/operaciones")
-    assert respuesta.status_code == 201 and app.state.ingesta.llamadas[0] == ("crear", ACTOR.id)
+    assert respuesta.status_code == 201
+    assert app.state.ingesta.llamadas[0] == ("crear", ACTOR.id)
     operacion = uuid.uuid4()
     respuesta = await pedir(app, "post", f"/documentos/operaciones/{operacion}/reintentar-publicacion")
-    assert respuesta.status_code == 200 and respuesta.json()["exitosa"] is True
+    assert respuesta.status_code == 200
+    assert respuesta.json()["exitosa"] is True
     assert app.state.ingesta.llamadas[1] == ("reintentar", operacion)
 
 
@@ -106,7 +108,8 @@ async def test_metadatos_invalidos_dan_422_sin_llegar_al_gestor(campos):
         files={"archivo": ("a.md", b"# Hola\n", "text/markdown")},
     )
     error = comprobar_error(respuesta, 422, "REQUEST_VALIDATION_ERROR")
-    assert "input" not in str(error["details"]) and app.state.ingesta.llamadas == []
+    assert "input" not in str(error["details"])
+    assert app.state.ingesta.llamadas == []
 
 
 async def test_las_consultas_pasan_los_filtros_y_el_ambiente_del_gestor(monkeypatch):
@@ -129,8 +132,11 @@ async def test_las_consultas_pasan_los_filtros_y_el_ambiente_del_gestor(monkeypa
         "empresa_id": str(empresa), "anio": 2024, "tipo": "MEMORIA_ANUAL", "estado": "FALLIDO", "pagina": 2, "tamano": 5})
     assert respuesta.status_code == 200
     argumentos = capturado["listar"]
-    assert argumentos["ambiente"] == "qa" and argumentos["empresa_id"] == empresa and argumentos["anio"] == 2024
-    assert argumentos["tipo"].value == "MEMORIA_ANUAL" and argumentos["estado"].value == "FALLIDO"
+    assert argumentos["ambiente"] == "qa"
+    assert argumentos["empresa_id"] == empresa
+    assert argumentos["anio"] == 2024
+    assert argumentos["tipo"].value == "MEMORIA_ANUAL"
+    assert argumentos["estado"].value == "FALLIDO"
     assert (argumentos["pagina"], argumentos["tamano"]) == (2, 5)
     assert (await pedir(app, "get", f"/documentos/operaciones/{operacion}")).status_code == 200
     assert capturado["vista"] == (operacion, "qa")  # el ambiente sale del gestor, no de la petición

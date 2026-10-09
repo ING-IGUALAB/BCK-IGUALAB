@@ -86,8 +86,9 @@ def test_anio_valido_como_entero_o_texto(reloj, valor):
     ],
 )
 def test_anio_invalido_se_rechaza_sin_truncar_ni_redondear(reloj, valor):
+    valor_metadatos = metadatos(anio=valor)
     with pytest.raises(ValidationError) as capturado:
-        MetadatosIngestaRequest(**metadatos(anio=valor))
+        MetadatosIngestaRequest(**valor_metadatos)
     assert [error["loc"] for error in capturado.value.errors()] == [("anio",)]
 
 
@@ -111,13 +112,15 @@ def test_tipos_permitidos(reloj, tipo):
 
 @pytest.mark.parametrize("tipo", ["memoria_anual", "INFORME", "", None])
 def test_tipo_no_permitido(reloj, tipo):
+    valor_metadatos_2 = metadatos(tipo=tipo)
     with pytest.raises(ValidationError):
-        MetadatosIngestaRequest(**metadatos(tipo=tipo))
+        MetadatosIngestaRequest(**valor_metadatos_2)
 
 
 def test_campos_obligatorios_y_extra_prohibidos(reloj):
+    valor_str = str(uuid.uuid4())
     with pytest.raises(ValidationError) as capturado:
-        MetadatosIngestaRequest(usuario_id=str(uuid.uuid4()))
+        MetadatosIngestaRequest(usuario_id=valor_str)
     ubicaciones = {error["loc"] for error in capturado.value.errors()}
     assert ubicaciones == {("empresa_id",), ("anio",), ("tipo",), ("usuario_id",)}
 

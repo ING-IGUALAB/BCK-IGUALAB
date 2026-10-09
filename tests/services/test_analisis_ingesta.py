@@ -35,16 +35,20 @@ def test_solo_gri_es_con_hallazgos():
     r = analizar_texto(SOLO_GRI)
     assert r.resultado is ResultadoAnalisis.CON_HALLAZGOS
     assert r.motivos == ("referencias_gri_catalogadas",)
-    assert r.hay_referencias_gri_catalogadas and not r.hay_sanciones
-    assert [g.codigo for g in r.gri.grupos] == ["305"] and r.sanciones.total == 0
+    assert r.hay_referencias_gri_catalogadas
+    assert not r.hay_sanciones
+    assert [g.codigo for g in r.gri.grupos] == ["305"]
+    assert r.sanciones.total == 0
 
 
 def test_solo_sanciones_es_con_hallazgos():
     r = analizar_texto(SOLO_SANCION)
     assert r.resultado is ResultadoAnalisis.CON_HALLAZGOS
     assert r.motivos == ("sanciones_economicas",)
-    assert r.hay_sanciones and not r.hay_referencias_gri_catalogadas
-    assert r.gri.grupos == () and r.sanciones.total == 1
+    assert r.hay_sanciones
+    assert not r.hay_referencias_gri_catalogadas
+    assert r.gri.grupos == ()
+    assert r.sanciones.total == 1
 
 
 def test_gri_y_sanciones_es_con_hallazgos_con_ambos_motivos():
@@ -57,8 +61,11 @@ def test_ninguno_es_observado_con_su_motivo():
     r = analizar_texto(NINGUNO)
     assert r.resultado is ResultadoAnalisis.OBSERVADO
     assert r.motivos == ("sin_referencias_gri_catalogadas_ni_sanciones_economicas",)
-    assert r.gri.grupos == () and r.sanciones.total == 0 and r.advertencias == ()
-    assert not r.hay_referencias_gri_catalogadas and not r.hay_sanciones
+    assert r.gri.grupos == ()
+    assert r.sanciones.total == 0
+    assert r.advertencias == ()
+    assert not r.hay_referencias_gri_catalogadas
+    assert not r.hay_sanciones
 
 
 def test_el_resultado_conserva_la_version_del_catalogo():
@@ -115,7 +122,8 @@ def test_referencia_desconocida_junto_a_una_conocida_no_cambia_el_motivo():
 
 def test_referencia_desconocida_con_sancion_es_con_hallazgos_por_la_sancion():
     r = analizar_texto("Ver GRI 999-1. Se impuso una multa de S/ 900.\n")
-    assert r.resultado is ResultadoAnalisis.CON_HALLAZGOS and r.motivos == ("sanciones_economicas",)
+    assert r.resultado is ResultadoAnalisis.CON_HALLAZGOS
+    assert r.motivos == ("sanciones_economicas",)
 
 
 def test_formato_a_revisar_se_advierte_sin_corregirse():
@@ -147,7 +155,8 @@ def test_si_falla_el_detector_gri_no_hay_observado_ni_exito_parcial():
     assert isinstance(error, AppException)
     assert error.code == "INGESTION_ANALYSIS_FAILED"
     assert error.details == {"detector": "gri", "tipo_error": "RuntimeError"}
-    assert "secreto" not in error.message and "secreto" not in str(error.details)
+    assert "secreto" not in error.message
+    assert "secreto" not in str(error.details)
 
 
 def test_si_falla_el_detector_de_sanciones_no_hay_observado_ni_exito_parcial():
@@ -164,8 +173,10 @@ def test_el_error_no_filtra_el_texto_del_documento_aunque_la_causa_lo_incluya():
     with pytest.raises(AnalisisIngestaError) as capturado:
         analizar_texto("contenido sensible del cliente", detector_gri=roto)
     error = capturado.value
-    assert "sensible" not in error.message and "sensible" not in str(error.details)
-    assert error.__cause__ is None and error.__suppress_context__
+    assert "sensible" not in error.message
+    assert "sensible" not in str(error.details)
+    assert error.__cause__ is None
+    assert error.__suppress_context__
 
 
 def test_los_dos_detectores_fallan_se_informa_el_primero_y_no_se_ejecuta_el_otro():
@@ -181,7 +192,8 @@ def test_los_dos_detectores_fallan_se_informa_el_primero_y_no_se_ejecuta_el_otro
 
     with pytest.raises(AnalisisIngestaError) as capturado:
         analizar_texto(NINGUNO, detector_gri=gri, detector_sanciones=sanciones)
-    assert capturado.value.details["detector"] == "gri" and llamadas == ["gri"]
+    assert capturado.value.details["detector"] == "gri"
+    assert llamadas == ["gri"]
 
 
 def test_los_dos_detectores_reciben_el_mismo_texto():
@@ -196,7 +208,8 @@ def test_los_dos_detectores_reciben_el_mismo_texto():
         return analisis_ingesta.detectar_sanciones(texto)
 
     analizar_texto(AMBOS, detector_gri=gri, detector_sanciones=sanciones)
-    assert vistos == [AMBOS, AMBOS] and vistos[0] is vistos[1]
+    assert vistos == [AMBOS, AMBOS]
+    assert vistos[0] is vistos[1]
 
 
 def test_texto_no_str_se_rechaza():
@@ -240,12 +253,14 @@ async def test_el_mismo_texto_con_y_sin_tabla_deteriorada_se_clasifica_igual():
     con = analizar_documento(await _validar(AMBOS + "\n" + TABLA_DETERIORADA))
     assert (sin.resultado, sin.motivos) == (con.resultado, con.motivos)
     calidad = lambda r: [a.codigo for a in r.advertencias if a.categoria == "calidad_documento"]  # noqa: E731
-    assert calidad(sin) == [] and calidad(con) == ["MARKDOWN_TABLE_INCONSISTENT"]
+    assert calidad(sin) == []
+    assert calidad(con) == ["MARKDOWN_TABLE_INCONSISTENT"]
 
 
 async def test_tabla_bien_formada_sin_hallazgos_es_observado_sin_advertencias():
     r = analizar_documento(await _validar(NINGUNO + "\n| A | B |\n|---|---|\n| 1 | 2 |\n"))
-    assert r.resultado is ResultadoAnalisis.OBSERVADO and r.advertencias == ()
+    assert r.resultado is ResultadoAnalisis.OBSERVADO
+    assert r.advertencias == ()
 
 
 async def test_las_citas_y_offsets_usan_la_base_del_texto_sin_bom():
@@ -276,7 +291,8 @@ def test_a_dict_es_serializable_en_json_y_conserva_todo():
     assert [m["referencia_original"] for m in g305["menciones"]] == ["GRI 305-1", "GRI 305-2"]
     assert {"cita", "inicio", "fin", "seccion", "rol"} <= set(g305["menciones"][0])
     (sancion,) = recuperado["sanciones"]
-    assert sancion["monto"]["texto"] == "S/ 12,500" and sancion["entidad"]["texto"] == "SUNAT"
+    assert sancion["monto"]["texto"] == "S/ 12,500"
+    assert sancion["entidad"]["texto"] == "SUNAT"
     assert sancion["periodo"]["texto"] == "2023"
     assert {a["codigo"] for a in recuperado["advertencias"]} >= {"GRI_REFERENCIA_DESCONOCIDA", "GRI_EDICION_AMBIGUA", "SANCION_A_REVISAR"}
 
@@ -284,8 +300,11 @@ def test_a_dict_es_serializable_en_json_y_conserva_todo():
 def test_los_datos_ausentes_de_una_sancion_son_nulos_en_la_forma_serializada():
     datos = analizar_texto("Recibimos una multa.\n").a_dict()
     (sancion,) = datos["sanciones"]
-    assert sancion["entidad"] is None and sancion["monto"] is None and sancion["periodo"] is None
-    assert sancion["calificadores"] == [] and sancion["fechas_en_contexto"] == []
+    assert sancion["entidad"] is None
+    assert sancion["monto"] is None
+    assert sancion["periodo"] is None
+    assert sancion["calificadores"] == []
+    assert sancion["fechas_en_contexto"] == []
 
 
 def test_las_advertencias_tienen_detalles_acotados():
@@ -319,10 +338,12 @@ def _citas_exactas(texto, r):
 def test_negar_el_pago_o_el_recurso_conserva_la_multa_y_da_con_hallazgos(texto):
     r = analizar_texto(texto)
     assert r.resultado is ResultadoAnalisis.CON_HALLAZGOS
-    assert r.motivos == ("sanciones_economicas",) and r.hay_sanciones
+    assert r.motivos == ("sanciones_economicas",)
+    assert r.hay_sanciones
     _citas_exactas(texto, r)
     (s,) = r.sanciones.sanciones
-    assert s.entidad.texto == "OEFA" and s.monto.texto == "S/ 1000"
+    assert s.entidad.texto == "OEFA"
+    assert s.monto.texto == "S/ 1000"
     assert not {"pagada", "impugnada"} & {c.codigo for c in s.calificadores}
     assert r.a_dict()["sanciones"][0]["monto"]["texto"] == "S/ 1000"
 
@@ -339,7 +360,8 @@ def test_negar_el_pago_o_el_recurso_conserva_la_multa_y_da_con_hallazgos(texto):
 def test_las_negaciones_de_existencia_y_las_hipotesis_siguen_siendo_observado(texto):
     r = analizar_texto(texto)
     assert r.resultado is ResultadoAnalisis.OBSERVADO
-    assert r.sanciones.total == 0 and r.sanciones.descartes
+    assert r.sanciones.total == 0
+    assert r.sanciones.descartes
 
 
 @pytest.mark.parametrize(
@@ -363,7 +385,8 @@ def test_evidencia_no_vinculada_junto_a_una_multa_real_solo_cuenta_la_real():
     r = analizar_texto(texto)
     assert r.resultado is ResultadoAnalisis.CON_HALLAZGOS
     (s,) = r.sanciones.sanciones
-    assert s.monto.texto == "S/ 700" and s.entidad.texto == "OEFA"
+    assert s.monto.texto == "S/ 700"
+    assert s.entidad.texto == "OEFA"
     _citas_exactas(texto, r)
 
 
@@ -375,13 +398,17 @@ def test_tabla_con_saldo_cero_conserva_la_multa_y_advierte():
         "| Multa impuesta por OEFA | 1000 | 0 |\n"
     )
     r = analizar_texto(texto)
-    assert r.resultado is ResultadoAnalisis.CON_HALLAZGOS and r.motivos == ("sanciones_economicas",)
+    assert r.resultado is ResultadoAnalisis.CON_HALLAZGOS
+    assert r.motivos == ("sanciones_economicas",)
     (s,) = r.sanciones.sanciones
-    assert s.monto is None and s.entidad.texto == "OEFA" and s.seccion == "Cumplimiento"
+    assert s.monto is None
+    assert s.entidad.texto == "OEFA"
+    assert s.seccion == "Cumplimiento"
     _citas_exactas(texto, r)
     (adv,) = r.advertencias
     assert (adv.codigo, adv.categoria) == ("SANCION_A_REVISAR", "sanciones")
-    assert adv.detalles["motivo"] == "monto_no_asociado_con_seguridad" and adv.detalles["total"] == 1
+    assert adv.detalles["motivo"] == "monto_no_asociado_con_seguridad"
+    assert adv.detalles["total"] == 1
     assert r.a_dict()["sanciones"][0]["monto"] is None
 
 
@@ -403,7 +430,8 @@ async def test_tabla_deteriorada_con_cero_con_y_sin_hallazgos():
     assert "MARKDOWN_TABLE_INCONSISTENT" in codigos(r_con)
     _citas_exactas(con, r_con)
     (s,) = r_con.sanciones.sanciones
-    assert s.cita == "Multa impuesta por OEFA" and s.monto is None
+    assert s.cita == "Multa impuesta por OEFA"
+    assert s.monto is None
 
 
 # --- Muestra local del cliente (opcional; no se versiona ni se envía a servicios) -----------------------------------------------------
@@ -416,7 +444,9 @@ def test_muestra_local_se_clasifica_con_hallazgos_y_conserva_el_contexto_de_oefa
     texto = Path(os.environ["IGUALAB_MUESTRA_REPORTE_MD"]).read_text(encoding="utf-8").lstrip("﻿")
     r = analizar_texto(texto)
     assert r.resultado is ResultadoAnalisis.CON_HALLAZGOS
-    assert r.hay_referencias_gri_catalogadas and r.hay_sanciones
+    assert r.hay_referencias_gri_catalogadas
+    assert r.hay_sanciones
     oefa = [s for s in r.sanciones.sanciones if s.monto and s.monto.texto == "59.078 UIT"]
-    assert len(oefa) == 1 and {"pagada", "impugnada"} <= {c.codigo for c in oefa[0].calificadores}
+    assert len(oefa) == 1
+    assert {"pagada", "impugnada"} <= {c.codigo for c in oefa[0].calificadores}
     json.dumps(r.a_dict(), ensure_ascii=False)

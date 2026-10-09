@@ -88,7 +88,8 @@ def test_sin_compartimento_no_se_construye_ni_se_lee_la_configuracion(oci_falso,
     monkeypatch.setattr(proveedor_oci, "settings", ajustes(OCI_COMPARTMENT_ID=None))
     with pytest.raises(ValueError, match="OCI_COMPARTMENT_ID"):
         proveedor_oci.ProveedorEmbeddingsOCI()
-    assert oci_falso.config_leida is None and oci_falso.argumentos is None
+    assert oci_falso.config_leida is None
+    assert oci_falso.argumentos is None
 
 
 @pytest.mark.parametrize("cambios, mensaje", [
@@ -122,7 +123,9 @@ def test_identidad_endpoint_plazos_y_sin_reintentos(oci_falso):
     proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
     assert proveedor.identidad == IdentidadEmbeddings("oci-cohere", "cohere.embed-v4.0", DIM)
     archivo, perfil = oci_falso.config_leida
-    assert archivo.endswith("config-ficticio") and "~" not in archivo and perfil == "perfil-ficticio"
+    assert archivo.endswith("config-ficticio")
+    assert "~" not in archivo
+    assert perfil == "perfil-ficticio"
     argumentos = oci_falso.argumentos
     assert argumentos["service_endpoint"] == "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com"
     assert argumentos["timeout"] == (10.0, 60.0)  # conexión y lectura explícitas
@@ -137,7 +140,8 @@ async def test_la_peticion_envia_modelo_v4_dimension_tipo_y_truncate_none(oci_fa
     [detalles] = oci_falso.cliente.peticiones
     assert detalles.serving_mode.model_id == "cohere.embed-v4.0"
     assert detalles.output_dimensions == 1536  # ENVIADA en la petición, no solo declarada
-    assert detalles.truncate == "NONE" and detalles.input_type == "SEARCH_DOCUMENT"
+    assert detalles.truncate == "NONE"
+    assert detalles.input_type == "SEARCH_DOCUMENT"
     assert detalles.inputs == ["uno", "dos", "tres"]
     assert detalles.compartment_id == "ocid1.compartment.oc1..ficticio"
     assert [v[0] for v in vectores] == [0.0, 1.0, 2.0]  # orden y cantidad
@@ -147,8 +151,10 @@ async def test_la_consulta_usa_search_query_con_la_misma_dimension_y_truncate(oc
     proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
     consulta = await embeber_consulta("¿Cuánta agua se consumió?", proveedor, timeout_segundos=5)
     [detalles] = oci_falso.cliente.peticiones
-    assert detalles.input_type == "SEARCH_QUERY" and detalles.output_dimensions == 1536
-    assert detalles.truncate == "NONE" and len(consulta) == DIM
+    assert detalles.input_type == "SEARCH_QUERY"
+    assert detalles.output_dimensions == 1536
+    assert detalles.truncate == "NONE"
+    assert len(consulta) == DIM
 
 
 async def test_la_dimension_configurada_distinta_se_envia_y_se_exige(oci_falso, monkeypatch):
@@ -162,7 +168,8 @@ async def test_la_dimension_configurada_distinta_se_envia_y_se_exige(oci_falso, 
 
 async def test_la_llamada_sincrona_del_sdk_no_corre_en_el_hilo_del_bucle(oci_falso):
     await proveedor_oci.ProveedorEmbeddingsOCI().generar_embeddings(["x"])
-    assert oci_falso.cliente.hilos and oci_falso.cliente.hilos[0] != threading.get_ident()
+    assert oci_falso.cliente.hilos
+    assert oci_falso.cliente.hilos[0] != threading.get_ident()
 
 
 # --- Contrato: aceptación y rechazo de respuestas --------------------------------------------------------------
@@ -174,7 +181,8 @@ async def test_acepta_vectores_numericos_finitos_de_1536_a_traves_del_contrato(o
     lotes = [lote async for lote in embeber_fragmentos(
         iterar_fragmentos(texto, parametros), proveedor, tamano_lote=2, timeout_segundos=5)]
     elementos = [e for lote in lotes for e in lote.elementos]
-    assert len(lotes) >= 2 and elementos
+    assert len(lotes) >= 2
+    assert elementos
     assert all(len(e.vector) == DIM and all(math.isfinite(c) for c in e.vector) for e in elementos)
     assert [e.fragmento.indice for e in elementos] == sorted(e.fragmento.indice for e in elementos)
     enviados = [t for p in oci_falso.cliente.peticiones for t in p.inputs]
@@ -211,7 +219,9 @@ async def test_un_error_del_sdk_no_filtra_secretos_ni_texto(oci_falso):
         await consumir(proveedor, texto=f"# T\n\n{TEXTO_DOCUMENTAL}\n")
     assert capturado.value.code == "EMBEDDING_PROVIDER_ERROR"
     visible = f"{capturado.value} {capturado.value.details} {capturado.value.message}"
-    assert SECRETO not in visible and TEXTO_DOCUMENTAL not in visible and capturado.value.__cause__ is None
+    assert SECRETO not in visible
+    assert TEXTO_DOCUMENTAL not in visible
+    assert capturado.value.__cause__ is None
 
 
 async def test_un_timeout_es_un_error_controlado_aunque_el_hilo_siga(oci_falso):
@@ -275,9 +285,11 @@ def test_sin_archivo_la_identidad_se_arma_en_memoria_con_las_variables_y_el_arch
     proveedor_oci.ProveedorEmbeddingsOCI()
     assert oci_falso.config_leida is None  # no se consultó ningún archivo
     config = oci_falso.argumentos["config"]
-    assert config["key_content"] == pem and config["region"] == "us-chicago-1"
+    assert config["key_content"] == pem
+    assert config["region"] == "us-chicago-1"
     assert (config["user"], config["tenancy"]) == ("ocid1.user.oc1..ficticio", "ocid1.tenancy.oc1..ficticio")
-    assert config["fingerprint"] == ":".join(["aa"] * 16) and "key_file" not in config
+    assert config["fingerprint"] == ":".join(["aa"] * 16)
+    assert "key_file" not in config
 
 
 def test_con_variables_la_llave_no_se_escribe_en_disco_ni_en_el_repr(oci_falso, monkeypatch, tmp_path):
@@ -285,7 +297,8 @@ def test_con_variables_la_llave_no_se_escribe_en_disco_ni_en_el_repr(oci_falso, 
     monkeypatch.setattr(proveedor_oci, "settings", identidad_por_variables())
     proveedor = proveedor_oci.ProveedorEmbeddingsOCI()
     assert list(tmp_path.iterdir()) == []
-    assert "PRIVATE KEY" not in repr(proveedor) and "PRIVATE KEY" not in repr(proveedor.identidad)
+    assert "PRIVATE KEY" not in repr(proveedor)
+    assert "PRIVATE KEY" not in repr(proveedor.identidad)
 
 
 def test_si_el_archivo_existe_manda_el_archivo(oci_falso, monkeypatch, tmp_path):
@@ -301,7 +314,8 @@ def test_si_el_archivo_existe_manda_el_archivo(oci_falso, monkeypatch, tmp_path)
 def test_con_variables_incompletas_se_intenta_el_archivo_como_antes(oci_falso, monkeypatch, faltante):
     monkeypatch.setattr(proveedor_oci, "settings", identidad_por_variables(**{faltante: None}))
     proveedor_oci.ProveedorEmbeddingsOCI()
-    assert oci_falso.config_leida is not None and oci_falso.argumentos["config"] == {"region": "ficticia"}
+    assert oci_falso.config_leida is not None
+    assert oci_falso.argumentos["config"] == {"region": "ficticia"}
 
 
 @pytest.mark.parametrize("llave", ["esto no es base64!!", "####", "bm8tZXMtdW4tcGVtñ"])
@@ -309,7 +323,8 @@ def test_una_llave_invalida_falla_sin_repetir_su_valor(oci_falso, monkeypatch, l
     monkeypatch.setattr(proveedor_oci, "settings", identidad_por_variables(OCI_KEY_PEM_B64=llave))
     with pytest.raises(ValueError, match="OCI_KEY_PEM_B64") as error:
         proveedor_oci.ProveedorEmbeddingsOCI()
-    assert llave not in str(error.value) and oci_falso.argumentos is None
+    assert llave not in str(error.value)
+    assert oci_falso.argumentos is None
 
 
 def test_una_huella_o_un_ocid_con_formato_invalido_lo_rechaza_el_sdk(oci_falso, monkeypatch):

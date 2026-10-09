@@ -61,7 +61,8 @@ async def esperar_fin_de_subida(almacen, clave: str) -> EstadoSubida:
 def test_la_configuracion_efectiva_del_cliente_es_una_sola_peticion():
     cliente = crear_cliente_s3(configuracion())
     reintentos = cliente.meta.config.retries
-    assert reintentos["total_max_attempts"] == 1 and "max_attempts" not in reintentos
+    assert reintentos["total_max_attempts"] == 1
+    assert "max_attempts" not in reintentos
     assert reintentos["mode"] == "standard"
 
 
@@ -176,7 +177,8 @@ async def test_el_adaptador_rechaza_una_segunda_subida_de_la_misma_clave_sin_lla
     with pytest.raises(ConflictError) as capturado:
         await almacen.guardar(clave, DATOS, SHA)
     assert capturado.value.code == "STORAGE_UPLOAD_ALREADY_ATTEMPTED"
-    assert cliente.metodos().count("put_object") == 1 and len(cliente.versiones_de(clave)) == 1
+    assert cliente.metodos().count("put_object") == 1
+    assert len(cliente.versiones_de(clave)) == 1
 
 
 async def test_dos_subidas_simultaneas_de_la_misma_clave_solo_envian_una_peticion():
@@ -228,14 +230,17 @@ async def test_listar_versiones_recorre_todas_las_paginas():
     for n in range(5):
         cliente.poner(clave, b"x" * (n + 1))
     versiones = await almacen.listar_versiones(clave)
-    assert len(versiones) == 5 and cliente.metodos().count("list_object_versions") == 3
+    assert len(versiones) == 5
+    assert cliente.metodos().count("list_object_versions") == 3
 
 
 async def test_un_listado_sin_permiso_es_un_error_y_nunca_una_lista_vacia():
     almacen, cliente = preparar(ClienteS3Versionado(permitir_listado=False))
+    valor_clave_nueva = clave_nueva()
     with pytest.raises(ExternalServiceError) as capturado:
-        await almacen.listar_versiones(clave_nueva())
-    assert capturado.value.code == "STORAGE_ERROR" and capturado.value.details["codigo_s3"] == "AccessDenied"
+        await almacen.listar_versiones(valor_clave_nueva)
+    assert capturado.value.code == "STORAGE_ERROR"
+    assert capturado.value.details["codigo_s3"] == "AccessDenied"
     assert "bucket-prueba" not in str(capturado.value.details)
 
 
@@ -244,8 +249,9 @@ def test_un_listado_truncado_sin_marcador_no_se_toma_por_completo():
         def list_object_versions(self, **kw):
             return {"IsTruncated": True, "Versions": []}
 
+    valor_truncado = Truncado()
     with pytest.raises(RuntimeError):
-        listar_versiones_exactas(Truncado(), BUCKET, "k")
+        listar_versiones_exactas(valor_truncado, BUCKET, "k")
 
 
 def test_un_listado_que_nunca_termina_se_corta_en_lugar_de_dar_por_vacio():
@@ -253,8 +259,9 @@ def test_un_listado_que_nunca_termina_se_corta_en_lugar_de_dar_por_vacio():
         def list_object_versions(self, **kw):
             return {"IsTruncated": True, "NextKeyMarker": "k", "NextVersionIdMarker": "v", "Versions": []}
 
+    valor_infinito = Infinito()
     with pytest.raises(RuntimeError):
-        listar_versiones_exactas(Infinito(), BUCKET, "k")
+        listar_versiones_exactas(valor_infinito, BUCKET, "k")
 
 
 # --- 5. Eliminación por versión ------------------------------------------------------------------------------------------

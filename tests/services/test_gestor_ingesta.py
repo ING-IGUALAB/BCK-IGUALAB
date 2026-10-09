@@ -79,14 +79,19 @@ async def test_si_el_cliente_se_desconecta_la_ingesta_continua_y_su_desenlace_se
         # La ingesta NO se canceló: sigue en curso y ninguna reserva se liberó ni se anunció éxito alguno.
         assert gestor.tareas_en_curso == 1
         parcial = await vista(cliente, operacion_id)
-        assert parcial["estado"] == "EN_PROCESO" and parcial["exitosa"] is False and parcial["resultado_analisis"] is None
+        assert parcial["estado"] == "EN_PROCESO"
+        assert parcial["exitosa"] is False
+        assert parcial["resultado_analisis"] is None
         (documento,) = await entorno.documentos()
-        assert documento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO and documento.reserva_activa
+        assert documento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
+        assert documento.reserva_activa
 
         liberar.set()
         await esperar(lambda: gestor.tareas_en_curso == 0)
         final = await vista(cliente, operacion_id)
-        assert final["estado"] == "COMPLETADO" and final["exitosa"] is True and final["resultado_analisis"] == "CON_HALLAZGOS"
+        assert final["estado"] == "COMPLETADO"
+        assert final["exitosa"] is True
+        assert final["resultado_analisis"] == "CON_HALLAZGOS"
     documento = (await entorno.documentos())[0]
     assert documento.vector_publicado_en is not None
     conteo = await entorno.conteo_vectorial(documento.id)
@@ -108,11 +113,13 @@ async def test_si_el_cliente_se_desconecta_y_la_ingesta_falla_queda_limpia_y_con
         liberar.set()
         await esperar(lambda: gestor.tareas_en_curso == 0)
         final = await vista(cliente, operacion_id)
-        assert final["estado"] == "FALLIDO" and final["error"]["code"] == "EMBEDDING_PROVIDER_ERROR"
+        assert final["estado"] == "FALLIDO"
+        assert final["error"]["code"] == "EMBEDDING_PROVIDER_ERROR"
     assert entorno.almacen.objetos == {}  # compensado: nada incorporado al corpus
     assert await entorno.sql_vectorial("SELECT 1 FROM fragmentos_documento") == []
     (documento,) = await entorno.documentos()
-    assert documento.estado_compensacion is EstadoCompensacion.COMPLETADA and documento.reserva_activa is False
+    assert documento.estado_compensacion is EstadoCompensacion.COMPLETADA
+    assert documento.reserva_activa is False
 
 
 async def test_si_el_apagado_cancela_la_ingesta_nada_se_libera_y_la_recuperacion_decide(entorno):
@@ -129,10 +136,12 @@ async def test_si_el_apagado_cancela_la_ingesta_nada_se_libera_y_la_recuperacion
 
         # Estado incierto → se conserva todo: EN_PROCESO, reserva activa, vectores y original sin tocar.
         (documento,) = await entorno.documentos()
-        assert documento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO and documento.reserva_activa
+        assert documento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
+        assert documento.reserva_activa
         assert documento.estado_compensacion is EstadoCompensacion.NINGUNA
         parcial = await vista(cliente, operacion_id)
-        assert parcial["estado"] == "EN_PROCESO" and parcial["exitosa"] is False
+        assert parcial["estado"] == "EN_PROCESO"
+        assert parcial["exitosa"] is False
         assert (documento.clave_original, None) in entorno.almacen.objetos
 
         # Mientras tanto el mismo archivo sigue bloqueado: la reserva no se liberó.
@@ -145,7 +154,9 @@ async def test_si_el_apagado_cancela_la_ingesta_nada_se_libera_y_la_recuperacion
             resumen = await coordinador.ejecutar_recuperacion(entorno.deps, ahora=futuro())
             assert (resumen.abandonados, resumen.compensados, resumen.pendientes) == (1, 1, 0)
             final = await vista(otro, operacion_id)
-            assert final["estado"] == "FALLIDO" and final["error"]["code"] == "RESERVA_ABANDONADA" and final["terminal"]
+            assert final["estado"] == "FALLIDO"
+            assert final["error"]["code"] == "RESERVA_ABANDONADA"
+            assert final["terminal"]
             assert entorno.almacen.objetos == {}
             # Con la limpieza confirmada se puede volver a ingerir.
             _, otra = await ingerir_por_http(otro, entorno, TEXTO_CON_HALLAZGOS)
@@ -161,16 +172,21 @@ async def test_cancelar_antes_de_reservar_deja_la_operacion_en_carga_y_se_muestr
                 "carga_vigente_hasta = now() + interval '10 minutes' WHERE id = :i"), {"i": uuid.UUID(operacion_id)})
             await db.commit()
         v = await vista(cliente, operacion_id)
-        assert v["estado"] == "VALIDANDO" and v["terminal"] is False and v["error"] is None
+        assert v["estado"] == "VALIDANDO"
+        assert v["terminal"] is False
+        assert v["error"] is None
         async with entorno.fabrica_pg() as db:
             await db.execute(text("UPDATE operaciones_ingesta SET carga_vigente_hasta = now() - interval '1 minute' WHERE id = :i"),
                              {"i": uuid.UUID(operacion_id)})
             await db.commit()
         v = await vista(cliente, operacion_id)
-        assert v["estado"] == "INTERRUMPIDA" and v["exitosa"] is False and v["documento_id"] is None
+        assert v["estado"] == "INTERRUMPIDA"
+        assert v["exitosa"] is False
+        assert v["documento_id"] is None
         assert v["error"]["code"] == "UPLOAD_INTERRUPTED"
         # No se inventó ningún documento ni se tocó el almacén.
-        assert await entorno.documentos() == [] and entorno.almacen.objetos == {}
+        assert await entorno.documentos() == []
+        assert entorno.almacen.objetos == {}
 
 
 # ============================================ Cierre ordenado ============================================
@@ -189,7 +205,8 @@ async def test_el_cierre_espera_las_ingestas_en_curso_libera_recursos_y_rechaza_
         await esperar(lambda: en_indexacion(cliente, operacion_id))
 
         await gestor.cerrar()
-        assert gestor.tareas_en_curso == 0 and liberados == [1]
+        assert gestor.tareas_en_curso == 0
+        assert liberados == [1]
         respuesta = await carga
         assert respuesta.status_code == 201  # terminó antes de cerrar: el cierre no cortó la ingesta
         assert (await vista(cliente, operacion_id))["estado"] == "COMPLETADO"
@@ -251,7 +268,8 @@ async def test_el_bucle_periodico_publica_pendientes_y_abandona_vencidas_y_se_de
                                                    if d.estado_procesamiento is EstadoProcesamiento.COMPLETADO}
 
         await gestor.cerrar()
-        assert gestor._bucle.done() and gestor.tareas_en_curso == 0
+        assert gestor._bucle.done()
+        assert gestor.tareas_en_curso == 0
         barridos = gestor.barridos
         await asyncio.sleep(0.2)
         assert gestor.barridos == barridos  # cerrado: no sigue barriendo
@@ -281,9 +299,12 @@ async def test_con_dos_instancias_solo_una_barre_a_la_vez_y_el_candado_se_suelta
     b = GestorIngesta(entorno.deps, entorno.config, opciones_de_prueba())
     async with a._candado_de_barrido() as obtenido_a:
         assert obtenido_a is True
-        assert await b.barrido() is None and b.barridos_omitidos == 1 and b.barridos == 0
+        assert await b.barrido() is None
+        assert b.barridos_omitidos == 1
+        assert b.barridos == 0
     resumen = await b.barrido()
-    assert resumen is not None and b.barridos == 1  # soltado: ahora sí
+    assert resumen is not None
+    assert b.barridos == 1  # soltado: ahora sí
 
     with pytest.raises(RuntimeError):
         async with a._candado_de_barrido() as obtenido:
@@ -307,7 +328,8 @@ async def test_dos_barridos_simultaneos_nunca_se_solapan(entorno, monkeypatch):
     monkeypatch.setattr(coordinador, "ejecutar_recuperacion", lento)
     gestores = [GestorIngesta(entorno.deps, entorno.config, opciones_de_prueba()) for _ in range(3)]
     resultados = await asyncio.gather(*(g.barrido() for g in gestores))
-    assert maximo == 1 and ejecutados == 1
+    assert maximo == 1
+    assert ejecutados == 1
     assert sorted(r is None for r in resultados) == [False, True, True]
 
 
@@ -322,7 +344,8 @@ async def test_el_candado_es_por_ambiente(entorno):
     dev = GestorIngesta(entorno.deps, entorno.config, opciones_de_prueba())
     async with dev._candado_de_barrido() as en_dev:
         async with qa._candado_de_barrido() as en_qa:
-            assert en_dev is True and en_qa is True
+            assert en_dev is True
+            assert en_qa is True
 
 
 # ============================================ Configuración y arranque ============================================
@@ -350,11 +373,13 @@ async def test_sin_configuracion_el_arranque_no_falla_y_la_ingesta_informa_un_50
     assert error.value.code == "INGESTION_NOT_CONFIGURED"
     componentes = {c["componente"] for c in error.value.details["componentes"]}
     assert {"almacenamiento", "embeddings", "base_vectorial"} <= componentes
-    assert "SECRETO" not in json.dumps(error.value.details) and "SECRETO" not in error.value.message
+    assert "SECRETO" not in json.dumps(error.value.details)
+    assert "SECRETO" not in error.value.message
 
     app = FastAPI()
     await modulo_gestor.iniciar_ingesta(app)  # NO lanza: la aplicación arranca igual
-    assert app.state.ingesta is None and app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED"
+    assert app.state.ingesta is None
+    assert app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED"
     await modulo_gestor.detener_ingesta(app)  # sin gestor: no hace nada
 
     app = construir_app(entorno, con_gestor=False)
@@ -417,10 +442,13 @@ async def test_con_configuracion_valida_se_construyen_los_recursos_una_vez_y_se_
     monkeypatch.setattr("app.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
     monkeypatch.setattr("app.database_vectorial.cerrar_motor_vectorial", cerrar_motor)
     gestor = modulo_gestor.construir_gestor(SimpleNamespace(**CONFIG_VALIDA), PARAMETROS_PROPIOS)
-    assert gestor.ambiente == "development" and recibidos == [PARAMETROS_PROPIOS]
-    assert gestor.config.tamano_lote == 8 and gestor.config.timeout_embeddings_segundos == 30
+    assert gestor.ambiente == "development"
+    assert recibidos == [PARAMETROS_PROPIOS]
+    assert gestor.config.tamano_lote == 8
+    assert gestor.config.timeout_embeddings_segundos == 30
     assert gestor.config.vigencia == timedelta(minutes=5)
-    assert gestor.opciones.intervalo_recuperacion == 45 and gestor.opciones.espera_cierre == 7
+    assert gestor.opciones.intervalo_recuperacion == 45
+    assert gestor.opciones.espera_cierre == 7
     assert gestor.opciones.recuperacion_habilitada is True
     assert gestor.dependencias.sesiones_vectoriales is entorno.fabrica_vectorial
     assert gestor.dependencias.almacen._config.read_timeout == 11  # los plazos de MinIO también salen de los parámetros
@@ -428,7 +456,8 @@ async def test_con_configuracion_valida_se_construyen_los_recursos_una_vez_y_se_
 
     await gestor.iniciar()
     await gestor.cerrar()
-    assert cierres == ["oci", "vectorial"] and gestor._bucle.done()
+    assert cierres == ["oci", "vectorial"]
+    assert gestor._bucle.done()
 
 
 async def test_sin_parametros_propios_rige_la_configuracion_de_codigo_y_el_entorno_no_la_cambia(entorno, monkeypatch):
@@ -437,7 +466,8 @@ async def test_sin_parametros_propios_rige_la_configuracion_de_codigo_y_el_entor
     # Variables viejas en los ajustes (p. ej. un secreto de Jenkins no retirado): se ignoran por completo.
     viejas = dict(INGESTA_TAMANO_LOTE="999", INGESTA_VIGENCIA_MINUTOS="1", MINIO_PREFIX="otro", MINIO_READ_TIMEOUT_SECONDS="1")
     gestor = modulo_gestor.construir_gestor(SimpleNamespace(**CONFIG_VALIDA, **viejas))
-    assert gestor.config.tamano_lote == 16 and gestor.config.timeout_embeddings_segundos == 120
+    assert gestor.config.tamano_lote == 16
+    assert gestor.config.timeout_embeddings_segundos == 120
     assert gestor.config.vigencia == timedelta(minutes=15)
     assert (gestor.opciones.recuperacion_habilitada, gestor.opciones.intervalo_recuperacion, gestor.opciones.espera_cierre) == (True, 60, 30)
     assert gestor.ambiente == "development"  # derivado de APP_ENV, no de MINIO_PREFIX
@@ -450,8 +480,9 @@ async def test_sin_parametros_propios_rige_la_configuracion_de_codigo_y_el_entor
 async def test_un_app_env_invalido_deja_la_ingesta_sin_servicio_y_no_se_repite(entorno, monkeypatch, app_env):
     monkeypatch.setattr("app.services.ingesta.proveedor_oci.ProveedorEmbeddingsOCI", lambda parametros=None: SimpleNamespace(identidad=entorno.proveedor.identidad))
     monkeypatch.setattr("app.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
+    valor_simplenamespace = SimpleNamespace(**{**CONFIG_VALIDA, "APP_ENV": app_env})
     with pytest.raises(ServiceUnavailableError) as error:
-        modulo_gestor.construir_gestor(SimpleNamespace(**{**CONFIG_VALIDA, "APP_ENV": app_env}))
+        modulo_gestor.construir_gestor(valor_simplenamespace)
     assert error.value.details["componentes"] == [
         {"componente": "almacenamiento", "motivo": "APP_ENV debe ser exactamente development, qa o uat."}
     ]

@@ -101,7 +101,8 @@ async def esquema_4a(url_pg_aislado):
 def test_la_migracion_0002_no_abre_transacciones_y_documenta_su_naturaleza():
     texto = SQL_ACTUALIZACION.read_text(encoding="utf-8")
     cabecera = texto.split("ALTER TABLE")[0]
-    assert "Migración automática" in cabecera and "Sin IF NOT EXISTS" in cabecera
+    assert "Migración automática" in cabecera
+    assert "Sin IF NOT EXISTS" in cabecera
     assert not any(linea.strip() in ("BEGIN;", "COMMIT;") for linea in texto.splitlines())
 
 
@@ -127,24 +128,31 @@ async def test_la_actualizacion_conserva_las_filas_existentes_con_valores_por_de
         await conexion.close()
     await ejecutar(esquema_4a, leer(SQL_ACTUALIZACION))
     (fila,) = await consultar(esquema_4a, "SELECT * FROM documentos WHERE id = $1", documento_id)
-    assert fila["etapa_actual"] == "RESERVADO" and fila["fragmentos_procesados"] == 0
-    assert fila["fragmentos_total"] is None and fila["analisis"] is None
-    assert json.loads(fila["advertencias"]) == [] and fila["vector_publicacion_intentos"] == 0
-    assert fila["vector_escritura_intentada_en"] is None and fila["vector_publicado_en"] is None
-    assert fila["estado_procesamiento"] == "EN_PROCESO" and fila["reserva_activa"] is True  # lo anterior intacto
+    assert fila["etapa_actual"] == "RESERVADO"
+    assert fila["fragmentos_procesados"] == 0
+    assert fila["fragmentos_total"] is None
+    assert fila["analisis"] is None
+    assert json.loads(fila["advertencias"]) == []
+    assert fila["vector_publicacion_intentos"] == 0
+    assert fila["vector_escritura_intentada_en"] is None
+    assert fila["vector_publicado_en"] is None
+    assert fila["estado_procesamiento"] == "EN_PROCESO"
+    assert fila["reserva_activa"] is True  # lo anterior intacto
 
 
 async def test_la_actualizacion_es_atomica_y_no_se_puede_aplicar_dos_veces(esquema_4a):
     await ejecutar(esquema_4a, leer(SQL_ACTUALIZACION))
+    valor_leer = leer(SQL_ACTUALIZACION)
     with pytest.raises(asyncpg.DuplicateColumnError):
-        await ejecutar(esquema_4a, leer(SQL_ACTUALIZACION))
+        await ejecutar(esquema_4a, valor_leer)
 
 
 async def test_si_la_actualizacion_falla_a_mitad_no_deja_columnas_a_medias(esquema_4a):
     # Una restricción homónima previa hace fallar el segundo ALTER, DESPUÉS de añadir las columnas.
     await ejecutar(esquema_4a, "ALTER TABLE documentos ADD CONSTRAINT ck_documentos_etapa_valida CHECK (true)")
+    valor_leer_2 = leer(SQL_ACTUALIZACION)
     with pytest.raises(asyncpg.DuplicateObjectError):
-        await ejecutar(esquema_4a, leer(SQL_ACTUALIZACION))
+        await ejecutar(esquema_4a, valor_leer_2)
     columnas = {c["column_name"] for c in await consultar(
         esquema_4a, "SELECT column_name FROM information_schema.columns WHERE table_name = 'documentos'")}
     assert COLUMNAS_NUEVAS.isdisjoint(columnas)  # la transacción deshizo todo
@@ -274,7 +282,8 @@ async def test_el_arranque_no_crea_documentos_ni_sus_tipos_aunque_el_modelo_este
         tipos = {r["typname"] for r in await conexion.fetch("SELECT typname FROM pg_type WHERE typtype = 'e'")}
     finally:
         await conexion.close()
-    assert {"usuarios", "empresas", "auditoria"} <= tablas and "documentos" not in tablas
+    assert {"usuarios", "empresas", "auditoria"} <= tablas
+    assert "documentos" not in tablas
     assert {"estado_procesamiento", "resultado_analisis", "estado_compensacion", "tipo_documento"}.isdisjoint(tipos)
 
 
@@ -295,7 +304,8 @@ async def test_el_arranque_no_crea_documentos_ni_sus_tipos_aunque_el_modelo_este
 def test_validar_analisis_rechaza_estructuras_invalidas_sin_repetir_su_contenido(analisis):
     with pytest.raises(BusinessValidationError) as capturado:
         servicio.validar_analisis(analisis)
-    assert capturado.value.code == "INVALID_ANALYSIS" and "texto" not in capturado.value.message
+    assert capturado.value.code == "INVALID_ANALYSIS"
+    assert "texto" not in capturado.value.message
 
 
 def test_validar_analisis_acepta_la_forma_de_a_dict():
@@ -362,7 +372,8 @@ async def test_finalizar_con_una_clasificacion_distinta_del_analisis_persistido_
             )
         assert capturado.value.details["faltantes"] == ["analisis_consistente"]
         cargado = await servicio._cargar(db, documento.id)
-        assert cargado.resultado_analisis is None and cargado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
+        assert cargado.resultado_analisis is None
+        assert cargado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
     finally:
         db.cerrar()
 
@@ -376,10 +387,13 @@ async def test_finalizar_consistente_audita_el_exito_en_la_misma_transaccion():
             resultado_analisis=ResultadoAnalisis.CON_HALLAZGOS, exigir_analisis_persistido=True,
         )
         assert completado_.analisis["resultado"] == completado_.resultado_analisis.value
-        assert completado_.vector_publicado_en is None and completado_.publicacion_vectorial_pendiente
+        assert completado_.vector_publicado_en is None
+        assert completado_.publicacion_vectorial_pendiente
         assert completado_.etapa_actual == "PUBLICANDO"
         filas = db.sync.execute(__import__("sqlalchemy").text("SELECT detalle, usuario_id FROM auditoria")).all()
-        assert len(filas) == 1 and "Ingesta completada" in filas[0][0] and "publicacion_vectorial=pendiente" in filas[0][0]
+        assert len(filas) == 1
+        assert "Ingesta completada" in filas[0][0]
+        assert "publicacion_vectorial=pendiente" in filas[0][0]
     finally:
         db.cerrar()
 
@@ -388,8 +402,9 @@ async def test_persistir_analisis_exige_ser_el_ejecutor_y_haber_indexado():
     db = SesionSQLite()
     try:
         documento, _ = await preparar(db, con_analisis=False)
+        token_ajeno = uuid.uuid4()
         with pytest.raises(ConflictError):
-            await servicio.persistir_analisis(db, documento.id, token=uuid.uuid4(), analisis=ESTRUCTURA)  # no es el dueño
+            await servicio.persistir_analisis(db, documento.id, token=token_ajeno, analisis=ESTRUCTURA)  # no es el dueño
         with pytest.raises(BusinessValidationError):
             await servicio.persistir_analisis(db, documento.id, token=documento.ejecucion_token, analisis={"resultado": "x"})
         assert (await servicio._cargar(db, documento.id)).analisis is None
@@ -403,8 +418,9 @@ async def test_el_progreso_solo_lo_escribe_el_ejecutor_y_es_coherente():
         documento, _ = await preparar(db, con_analisis=False)
         token = documento.ejecucion_token
         await servicio.registrar_progreso(db, documento.id, token=token, fragmentos_total=4, fragmentos_procesados=2)
+        valor_uuid_uuid4 = uuid.uuid4()
         with pytest.raises(ConflictError):
-            await servicio.registrar_progreso(db, documento.id, token=uuid.uuid4(), fragmentos_procesados=3)
+            await servicio.registrar_progreso(db, documento.id, token=valor_uuid_uuid4, fragmentos_procesados=3)
         with pytest.raises(ValueError):
             await servicio.registrar_progreso(db, documento.id, token=token, fragmentos_procesados=9)  # > total
         with pytest.raises(ValueError):

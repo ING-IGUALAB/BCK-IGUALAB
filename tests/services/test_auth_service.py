@@ -45,9 +45,10 @@ async def test_login_no_filtra_existencia_de_cuenta(monkeypatch):
         registrar_intento,
     )
 
+    valor_sin_usuario = _fake_db_sin_usuario()
     with pytest.raises(AuthenticationError) as error_sin_usuario:
         await auth_service.autenticar(
-            _fake_db_sin_usuario(),
+            valor_sin_usuario,
             "no-existe@igualab.org",
             "clave-incorrecta",
         )
@@ -56,9 +57,10 @@ async def test_login_no_filtra_existencia_de_cuenta(monkeypatch):
 
     verificar_password.reset_mock()
 
+    valor_con_usuario = _fake_db_con_usuario()
     with pytest.raises(AuthenticationError) as error_con_usuario:
         await auth_service.autenticar(
-            _fake_db_con_usuario(),
+            valor_con_usuario,
             "existe@igualab.org",
             "clave-incorrecta",
         )

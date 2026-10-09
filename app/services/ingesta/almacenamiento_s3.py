@@ -138,27 +138,54 @@ def listar_versiones_exactas(cliente: Any, bucket: str, clave: str) -> list[Vers
     script manual). Lanza `ClientError` si faltan permisos: nunca devuelve una lista vacía
     por no poder consultar."""
     resultado: list[VersionObjeto] = []
-    marcador: dict[str, str] = {}
+    marcador: dict[str, str] | None = {}
     for _ in range(_MAXIMO_PAGINAS_VERSIONES):
         pagina = cliente.list_object_versions(Bucket=bucket, Prefix=clave, **marcador)
-        for entrada in pagina.get("Versions") or []:
-            if entrada.get("Key") == clave and entrada.get("VersionId"):
-                tamano = entrada.get("Size")
-                resultado.append(
-                    VersionObjeto(str(entrada["VersionId"]), False, tamano if isinstance(tamano, int) else None)
-                )
-        for entrada in pagina.get("DeleteMarkers") or []:
-            if entrada.get("Key") == clave and entrada.get("VersionId"):
-                resultado.append(VersionObjeto(str(entrada["VersionId"]), True, None))
+        resultado.extend(_versiones_de_pagina(pagina, clave))
         if not pagina.get("IsTruncated"):
             return resultado
-        siguiente_clave, siguiente_version = pagina.get("NextKeyMarker"), pagina.get("NextVersionIdMarker")
-        if not siguiente_clave:
+        marcador = _marcador_siguiente(pagina)
+        if marcador is None:
             break
-        marcador = {"KeyMarker": siguiente_clave}
-        if siguiente_version:
-            marcador["VersionIdMarker"] = siguiente_version
     raise RuntimeError("listado de versiones incompleto")  # un listado cortado no se declara vacío
+
+
+def _versiones_de_pagina(pagina: dict, clave: str) -> list[VersionObjeto]:
+    """Versiones y luego marcas de borrado de la clave EXACTA en una página del listado."""
+    encontradas: list[VersionObjeto] = []
+    for entrada in pagina.get("Versions") or []:
+        if entrada.get("Key") == clave and entrada.get("VersionId"):
+            tamano = entrada.get("Size")
+            encontradas.append(
+                VersionObjeto(str(entrada["VersionId"]), False, tamano if isinstance(tamano, int) else None)
+            )
+    for entrada in pagina.get("DeleteMarkers") or []:
+        if entrada.get("Key") == clave and entrada.get("VersionId"):
+            encontradas.append(VersionObjeto(str(entrada["VersionId"]), True, None))
+    return encontradas
+
+
+def _marcador_siguiente(pagina: dict) -> dict[str, str] | None:
+    """Marcador de la página siguiente, o None si una página truncada no lo informa."""
+    siguiente_clave, siguiente_version = pagina.get("NextKeyMarker"), pagina.get("NextVersionIdMarker")
+    if not siguiente_clave:
+        return None
+    marcador = {"KeyMarker": siguiente_clave}
+    if siguiente_version:
+        marcador["VersionIdMarker"] = siguiente_version
+    return marcador
+
+
+def _validar_contenido(contenido: object, sha256: object) -> bytes:
+    """Contenido como `bytes` si es bytes y coincide con el SHA-256 indicado; si no, TypeError/ValueError."""
+    if not isinstance(contenido, (bytes, bytearray)):
+        raise TypeError("El contenido debe ser bytes.")
+    if not isinstance(sha256, str) or _SHA256_REGEX.fullmatch(sha256) is None:
+        raise ValueError("sha256 debe ser un resumen hexadecimal en minúsculas de 64 caracteres.")
+    datos = bytes(contenido)
+    if hashlib.sha256(datos).hexdigest() != sha256:
+        raise ValueError("El contenido no corresponde al SHA-256 indicado.")
+    return datos
 
 
 class _Subida:
@@ -239,15 +266,17 @@ class AlmacenOriginalesS3:
     async def guardar(self, clave: str, contenido: bytes, sha256: str) -> ReferenciaOriginal:
         referencia = ReferenciaOriginal(clave)
         self._exigir_propia(referencia, "guardar")
-        if not isinstance(contenido, (bytes, bytearray)):
-            raise TypeError("El contenido debe ser bytes.")
-        if not isinstance(sha256, str) or _SHA256_REGEX.fullmatch(sha256) is None:
-            raise ValueError("sha256 debe ser un resumen hexadecimal en minúsculas de 64 caracteres.")
-        datos = bytes(contenido)
-        if hashlib.sha256(datos).hexdigest() != sha256:
-            raise ValueError("El contenido no corresponde al SHA-256 indicado.")
+        datos = _validar_contenido(contenido, sha256)
         md5 = base64.b64encode(hashlib.md5(datos, usedforsecurity=False).digest()).decode("ascii")
+        registro = self._registrar_intento(clave)
+        respuesta = await self._ejecutar(
+            "guardar", lambda: self._subir(registro, clave, datos, md5), incierto=True
+        )
+        version = respuesta.get("VersionId") if isinstance(respuesta, dict) else None
+        return ReferenciaOriginal(clave, version if isinstance(version, str) and version else None)
 
+    def _registrar_intento(self, clave: str) -> _Subida:
+        """Reserva el intento de esta clave: una clave se intenta una sola vez por proceso."""
         registro = _Subida()
         with self._candado:
             if clave in self._subidas:
@@ -257,39 +286,36 @@ class AlmacenOriginalesS3:
                 )
             self._podar_registro()
             self._subidas[clave] = registro
+        return registro
 
-        def subir() -> Any:
-            # Corre en un hilo que puede sobrevivir a la corrutina: aquí se anota el
-            # desenlace REAL, aunque nadie esté esperando ya.
-            try:
-                respuesta = self._cliente.put_object(
-                    Bucket=self._config.bucket,
-                    Key=clave,
-                    Body=datos,
-                    ContentLength=len(datos),
-                    ContentMD5=md5,
-                    ContentType=CONTENT_TYPE_MARKDOWN,
-                )
-            except ClientError as exc:
-                self._cerrar_registro(
-                    registro, EstadoSubida.NO_CREADA if _es_rechazo_definitivo(exc) else EstadoSubida.INCIERTA
-                )
-                raise
-            except _SIN_ENVIO:
-                self._cerrar_registro(registro, EstadoSubida.NO_CREADA)
-                raise
-            except BaseException:
-                self._cerrar_registro(registro, EstadoSubida.INCIERTA)
-                raise
-            version = respuesta.get("VersionId") if isinstance(respuesta, dict) else None
-            self._cerrar_registro(
-                registro, EstadoSubida.CREADA, version if isinstance(version, str) and version else None
+    def _subir(self, registro: _Subida, clave: str, datos: bytes, md5: str) -> Any:
+        # Corre en un hilo que puede sobrevivir a la corrutina: aquí se anota el
+        # desenlace REAL, aunque nadie esté esperando ya.
+        try:
+            respuesta = self._cliente.put_object(
+                Bucket=self._config.bucket,
+                Key=clave,
+                Body=datos,
+                ContentLength=len(datos),
+                ContentMD5=md5,
+                ContentType=CONTENT_TYPE_MARKDOWN,
             )
-            return respuesta
-
-        respuesta = await self._ejecutar("guardar", subir, incierto=True)
+        except ClientError as exc:
+            self._cerrar_registro(
+                registro, EstadoSubida.NO_CREADA if _es_rechazo_definitivo(exc) else EstadoSubida.INCIERTA
+            )
+            raise
+        except _SIN_ENVIO:
+            self._cerrar_registro(registro, EstadoSubida.NO_CREADA)
+            raise
+        except BaseException:
+            self._cerrar_registro(registro, EstadoSubida.INCIERTA)
+            raise
         version = respuesta.get("VersionId") if isinstance(respuesta, dict) else None
-        return ReferenciaOriginal(clave, version if isinstance(version, str) and version else None)
+        self._cerrar_registro(
+            registro, EstadoSubida.CREADA, version if isinstance(version, str) and version else None
+        )
+        return respuesta
 
     def _cerrar_registro(self, registro: _Subida, estado: EstadoSubida, version: str | None = None) -> None:
         with self._candado:

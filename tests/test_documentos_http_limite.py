@@ -93,7 +93,8 @@ async def test_un_archivo_de_exactamente_50_000_000_bytes_se_acepta_aunque_el_mu
     comprobar_error(respuesta, 409, "PRUEBA_ARCHIVO_ACEPTADO")
     assert int(respuesta.request.headers["content-length"]) > 50_000_000  # el multipart completo supera el límite
     (aceptado,) = [r for r in recibidos if "tamano" in r]
-    assert aceptado["tamano"] == 50_000_000 and aceptado["nombre"] == "informe.md"
+    assert aceptado["tamano"] == 50_000_000
+    assert aceptado["nombre"] == "informe.md"
 
 
 async def test_un_archivo_de_50_000_001_bytes_es_413_con_el_contrato_uniforme(entorno_limite):

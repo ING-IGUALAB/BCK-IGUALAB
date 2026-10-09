@@ -36,7 +36,8 @@ def test_un_paso_correcto_registra_inicio_y_fin_con_duracion_en_info(caplog):
     inicio, fin = caplog.records
     assert (inicio.levelno, fin.levelno) == (logging.INFO, logging.INFO)
     assert inicio.getMessage() == "Arranque | 1/6 Prueba | inicio"
-    assert fin.getMessage().startswith("Arranque | 1/6 Prueba | fin en ") and fin.getMessage().endswith(" s")
+    assert fin.getMessage().startswith("Arranque | 1/6 Prueba | fin en ")
+    assert fin.getMessage().endswith(" s")
 
 
 def test_un_paso_que_falla_registra_solo_la_clase_y_relanza(caplog):
@@ -46,7 +47,8 @@ def test_un_paso_que_falla_registra_solo_la_clase_y_relanza(caplog):
             with paso_de_arranque(logger, "2/6 Falla"):
                 raise OSError("host-secreto:5432 usuario_secreto:CLAVE-SECRETA")
     assert [r.levelno for r in caplog.records] == [logging.INFO, logging.ERROR]
-    assert "falló o se interrumpió tras" in caplog.records[1].getMessage() and "(OSError)" in caplog.records[1].getMessage()
+    assert "falló o se interrumpió tras" in caplog.records[1].getMessage()
+    assert "(OSError)" in caplog.records[1].getMessage()
     assert caplog.records[1].exc_info is None  # sin traceback: el mensaje de la excepción puede traer hosts o credenciales
     sin_secretos(caplog)
 
@@ -152,7 +154,29 @@ async def test_un_fallo_de_migracion_se_registra_en_su_paso_y_el_arranque_contin
     assert "Arranque | 5/6 Migraciones vectoriales | inicio" in texto
     assert any(m.startswith("Arranque | 5/6 Migraciones vectoriales | falló o se interrumpió") and "(ErrorMigracion)" in m for m in texto)
     assert not any(m.startswith("Arranque | 6/6") for m in texto)  # no se llegó a iniciar el gestor
-    assert app.state.ingesta is None and app.state.ingesta_error[0] == "INGESTION_SCHEMA_NOT_READY"
+    assert app.state.ingesta is None
+    assert app.state.ingesta_error[0] == "INGESTION_SCHEMA_NOT_READY"
+
+
+async def test_el_log_de_esquema_no_revela_la_causa_original(monkeypatch, caplog):
+    """El fallo de esquema se registra con traza, pero la traza no contiene la excepción original del driver."""
+    app = _AppDoble()
+    _gestor_doble([], monkeypatch)
+
+    async def preparar():
+        try:
+            raise OSError("host-secreto:5432 usuario_secreto:CLAVE-SECRETA")
+        except OSError as origen:
+            raise motor._base_no_disponible("vectorial", origen) from None
+
+    with caplog.at_level(logging.INFO):
+        await modulo_gestor.iniciar_ingesta(app, preparar_esquema=preparar)
+    registro = next(r for r in caplog.records if r.getMessage().startswith("Ingesta no disponible: preparación del esquema"))
+    assert registro.exc_info is not None
+    assert registro.exc_info[0] is ErrorMigracion
+    for secreto in SECRETOS:
+        assert secreto not in caplog.text
+    assert app.state.ingesta_error[0] == "INGESTION_SCHEMA_NOT_READY"
 
 
 # ============================================ Subpasos de las migraciones ============================================
@@ -187,8 +211,9 @@ async def test_el_bloqueo_registra_su_obtencion_y_avisa_si_la_espera_se_prolonga
 
 async def test_el_bloqueo_agotado_sigue_fallando_igual_y_sin_credenciales(monkeypatch, caplog):
     with caplog.at_level(logging.INFO, logger="igualab.migraciones"):
+        valor_conexionminima = ConexionMinima(ocupada=10**6)
         with pytest.raises(ErrorMigracion) as error:
-            await motor._tomar_candado(ConexionMinima(ocupada=10**6), "vectorial", espera=0.3)
+            await motor._tomar_candado(valor_conexionminima, "vectorial", espera=0.3)
     assert error.value.codigo == "MIGRATION_LOCK_TIMEOUT"
     sin_secretos(caplog)
 
@@ -206,7 +231,8 @@ async def test_migrar_registra_conexion_y_lectura_del_registro(monkeypatch, capl
         await motor.migrar("postgresql+asyncpg://usuario_secreto:CLAVE-SECRETA@host-secreto/bd", catalogo.ESQUEMA_TRANSACCIONAL)
     texto = mensajes(caplog)
     assert any(m.startswith("Base transaccional: conexión establecida en") for m in texto)
-    assert any("bloqueo de migraciones obtenido" in m for m in texto) and any("leyendo el registro" in m for m in texto)
+    assert any("bloqueo de migraciones obtenido" in m for m in texto)
+    assert any("leyendo el registro" in m for m in texto)
     sin_secretos(caplog)
 
 

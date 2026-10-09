@@ -27,7 +27,8 @@ def verificar_citas(texto, resultado):
             assert texto[m.inicio:m.fin] == m.referencia_original
             assert texto[m.cita_inicio:m.cita_fin] == m.cita
             assert m.cita_inicio <= m.inicio < m.fin <= m.cita_fin
-            assert "\n" not in m.cita and "\r" not in m.cita
+            assert "\n" not in m.cita
+            assert "\r" not in m.cita
             assert len(m.cita) <= deteccion_gri.MAX_LONGITUD_CITA + 2 * deteccion_gri.MARGEN_CITA
 
 
@@ -130,7 +131,9 @@ def test_sasb_junto_a_una_referencia_gri_no_se_atribuye_a_gri():
 
 def test_sin_referencias_el_resultado_esta_vacio_y_no_asigna_estados():
     resultado = detectar_referencias_gri("Texto sin ninguna referencia a estándares.\n")
-    assert resultado.grupos == () and resultado.total_menciones == 0 and resultado.para_revision == ()
+    assert resultado.grupos == ()
+    assert resultado.total_menciones == 0
+    assert resultado.para_revision == ()
     # La detección no emite estados GRI, puntaje ESG ni OBSERVADO.
     atributos = {a.lower() for a in dir(resultado)}
     assert not any(palabra in a for a in atributos for palabra in ("observad", "puntaje", "esg", "estado", "sancion"))
@@ -181,7 +184,8 @@ def test_en_el_indice_solo_se_leen_las_columnas_gri_y_no_paginas_ni_sasb():
     assert grupos_por_clave(resultado)[("14", "2024")].menciones[0].rol == "indice"
     # El código solo (306) es del índice y su edición queda sin resolver porque hay dos.
     g306 = grupos_por_clave(resultado)[("306", None)]
-    assert g306.menciones[0].rol == "indice" and g306.identidad == "ambigua"
+    assert g306.menciones[0].rol == "indice"
+    assert g306.identidad == "ambigua"
 
 
 def test_la_cita_de_una_fila_de_indice_es_la_fila_y_no_los_parrafos_vecinos():
@@ -266,7 +270,8 @@ def test_un_parrafo_cercano_a_una_lista_de_codigos_no_se_atribuye_a_ellos():
     assert len(grupo.menciones) == 2
     for mencion in grupo.menciones:
         assert mencion.cita == "GRI 305-1, GRI 305-2"
-        assert "redujo" not in mencion.cita and "agua" not in mencion.cita
+        assert "redujo" not in mencion.cita
+        assert "agua" not in mencion.cita
     # El detector tampoco crea evidencia a partir de texto sin referencia.
     assert "redujo" not in "".join(m.cita for m in grupo.menciones)
 
@@ -278,10 +283,12 @@ def test_gri_102_sin_edicion_es_ambiguo_y_no_se_convierte_en_ninguno_de_los_dos(
     resultado = detectar_referencias_gri(texto)
     (grupo,) = resultado.grupos
     assert (grupo.codigo, grupo.edicion, grupo.identidad) == ("102", None, "ambigua")
-    assert grupo.entrada is None and grupo.nombre is None
+    assert grupo.entrada is None
+    assert grupo.nombre is None
     assert {e.nombre for e in grupo.candidatos} == {"General Disclosures", "Climate Change"}
     assert grupo.motivos_revision == ("edicion_ambigua",)
-    assert grupo.requiere_revision and resultado.para_revision == (grupo,)
+    assert grupo.requiere_revision
+    assert resultado.para_revision == (grupo,)
 
 
 def test_versiones_distintas_del_mismo_codigo_producen_grupos_distintos():
@@ -294,9 +301,11 @@ def test_versiones_distintas_del_mismo_codigo_producen_grupos_distintos():
     verificar_citas(texto, resultado)
     claves = grupos_por_clave(resultado)
     assert set(claves) == {("102", "2016"), ("102", "2025"), ("102", None), ("306", "2016"), ("306", "2020"), ("306", None)}
-    assert claves[("102", "2016")].nombre == "General Disclosures" and claves[("102", "2016")].identidad == "edicion_explicita"
+    assert claves[("102", "2016")].nombre == "General Disclosures"
+    assert claves[("102", "2016")].identidad == "edicion_explicita"
     assert claves[("102", "2025")].nombre == "Climate Change"
-    assert claves[("306", "2020")].nombre == "Waste" and claves[("306", "2016")].nombre == "Effluents and Waste"
+    assert claves[("306", "2020")].nombre == "Waste"
+    assert claves[("306", "2016")].nombre == "Effluents and Waste"
     # La mención sin edición NO hereda la de otra parte del documento.
     assert [m.referencia_original for m in claves[("102", None)].menciones] == ["GRI 102-55"]
     assert claves[("102", None)].identidad == "ambigua"
@@ -347,7 +356,8 @@ def test_formato_no_reconocido_se_conserva_para_revision(fragmento):
     (grupo,) = resultado.grupos
     assert grupo.codigo == "305"
     (mencion,) = grupo.menciones
-    assert mencion.forma == "no_reconocida" and mencion.revelacion is None
+    assert mencion.forma == "no_reconocida"
+    assert mencion.revelacion is None
     assert mencion.referencia_original == fragmento
     assert "formato_no_reconocido" in mencion.motivos_revision
 
@@ -382,7 +392,8 @@ def test_cita_de_una_linea_muy_larga_es_una_ventana_exacta():
     resultado = detectar_referencias_gri(texto)
     verificar_citas(texto, resultado)
     (mencion,) = [m for g in resultado.grupos for m in g.menciones]
-    assert len(mencion.cita) < len(texto) and "GRI 305-1" in mencion.cita
+    assert len(mencion.cita) < len(texto)
+    assert "GRI 305-1" in mencion.cita
 
 
 def test_referencias_en_bloques_de_codigo_se_detectan_marcadas():

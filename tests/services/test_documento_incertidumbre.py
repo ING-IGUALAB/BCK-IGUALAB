@@ -125,11 +125,14 @@ async def test_subida_que_termina_despues_del_timeout_mantiene_la_compensacion_p
     # La corrutina terminó, pero el hilo del SDK sigue y el objeto AÚN no existe: no hay limpieza posible.
     pendiente = recargar(e, documento)
     assert pendiente.estado_procesamiento is EstadoProcesamiento.FALLIDO
-    assert pendiente.estado_compensacion is EstadoCompensacion.PENDIENTE and pendiente.reserva_activa is True
-    assert pendiente.ultimo_error_compensacion == "STORAGE_UPLOAD_IN_FLIGHT" and pendiente.compensacion_intentos == 1
+    assert pendiente.estado_compensacion is EstadoCompensacion.PENDIENTE
+    assert pendiente.reserva_activa is True
+    assert pendiente.ultimo_error_compensacion == "STORAGE_UPLOAD_IN_FLIGHT"
+    assert pendiente.compensacion_intentos == 1
     assert (await conflicto(e, datos)).code == "DOCUMENT_CLEANUP_PENDING"  # no se reintenta como si estuviera limpio
     assert e.cliente.versiones_de(clave) == []
-    assert borrados(e.cliente) == [] and "head_object" not in e.cliente.metodos()  # ni DELETE ni HEAD «de prueba»
+    assert borrados(e.cliente) == []
+    assert "head_object" not in e.cliente.metodos()  # ni DELETE ni HEAD «de prueba»
 
     # Un compensador que insista mientras sigue en curso no puede concluir nada.
     assert await servicio.compensar_documento(e.db, almacen, documento.id) is EstadoCompensacion.PENDIENTE
@@ -152,7 +155,8 @@ async def test_subida_que_termina_despues_del_timeout_mantiene_la_compensacion_p
     assert e.cliente.versiones_de(clave) == []  # sin versión residual ni marca de borrado
     assert [kw.get("VersionId") for kw in borrados(e.cliente)] == [creada[0]["VersionId"]]  # versión concreta
     limpio = recargar(e, documento)
-    assert limpio.reserva_activa is False and limpio.version_id_original == creada[0]["VersionId"]
+    assert limpio.reserva_activa is False
+    assert limpio.version_id_original == creada[0]["VersionId"]
     await reservar(e, datos)  # solo ahora se puede reintentar
 
 
@@ -203,7 +207,8 @@ async def test_con_la_version_conocida_se_elimina_y_se_verifica_esa_version_sin_
 
     assert [kw["VersionId"] for kw in borrados(e.cliente)] == [version]
     comprobaciones = [kw for m, kw in e.cliente.llamadas if m == "head_object"]
-    assert comprobaciones and all(kw["VersionId"] == version for kw in comprobaciones)  # se verifica ESA versión
+    assert comprobaciones
+    assert all(kw["VersionId"] == version for kw in comprobaciones)  # se verifica ESA versión
     assert "list_object_versions" not in e.cliente.metodos()
     assert [v["VersionId"] for v in e.cliente.versiones_de(documento.clave_original)] == [otra]  # la ajena sigue
 
@@ -243,8 +248,10 @@ async def test_tras_un_reinicio_sin_permiso_de_listado_la_compensacion_sigue_pen
         assert await servicio.compensar_documento(e.db, reiniciado, documento.id) is EstadoCompensacion.PENDIENTE
         pendiente = recargar(e, documento)
         assert pendiente.ultimo_error_compensacion == "STORAGE_RECONCILIATION_UNAVAILABLE"
-        assert pendiente.compensacion_intentos == intento and pendiente.reserva_activa is True
-    assert borrados(e.cliente) == [] and len(e.cliente.versiones_de(clave)) == 1  # no se borró nada a ciegas
+        assert pendiente.compensacion_intentos == intento
+        assert pendiente.reserva_activa is True
+    assert borrados(e.cliente) == []
+    assert len(e.cliente.versiones_de(clave)) == 1  # no se borró nada a ciegas
     assert (await conflicto(e, datos)).code == "DOCUMENT_CLEANUP_PENDING"
 
     e.cliente.permitir_listado = True  # se concede el permiso: la reconciliación ya puede probar
@@ -264,8 +271,10 @@ async def test_resultado_incierto_sin_hallazgos_no_se_declara_limpio_y_exige_int
     for almacen in (e.almacen, nuevo_almacen(e.cliente)):  # con y sin registro del proceso
         assert await servicio.compensar_documento(e.db, almacen, documento.id) is EstadoCompensacion.PENDIENTE
         pendiente = recargar(e, documento)
-        assert pendiente.ultimo_error_compensacion == "STORAGE_OUTCOME_UNCERTAIN" and pendiente.reserva_activa is True
-    assert "head_object" not in e.cliente.metodos() and borrados(e.cliente) == []
+        assert pendiente.ultimo_error_compensacion == "STORAGE_OUTCOME_UNCERTAIN"
+        assert pendiente.reserva_activa is True
+    assert "head_object" not in e.cliente.metodos()
+    assert borrados(e.cliente) == []
     assert (await conflicto(e, datos)).code == "DOCUMENT_CLEANUP_PENDING"
 
     # Intervención documentada (07-almacenamiento-minio.md §8): tras comprobar a mano en MinIO que no hay
@@ -291,7 +300,8 @@ async def test_una_marca_de_borrado_sola_no_prueba_que_el_objeto_existio(e):
     await fallido_con_intento(e, documento)
     assert await servicio.compensar_documento(e.db, e.almacen, documento.id) is EstadoCompensacion.PENDIENTE
     assert recargar(e, documento).ultimo_error_compensacion == "STORAGE_OUTCOME_UNCERTAIN"
-    assert borrados(e.cliente) == [] and len(e.cliente.versiones_de(clave)) == 1
+    assert borrados(e.cliente) == []
+    assert len(e.cliente.versiones_de(clave)) == 1
 
 
 async def test_si_se_interrumpe_tras_borrar_el_reintento_sabe_que_la_ausencia_es_limpieza(e):
@@ -311,13 +321,16 @@ async def test_si_se_interrumpe_tras_borrar_el_reintento_sabe_que_la_ausencia_es
     documento, datos = await reservar(e)
     clave = documento.clave_original
     e.cliente.error_tras_crear = ReadTimeoutError(endpoint_url="https://x.invalid")
+    valor_nuevo_almacen = nuevo_almacen(e.cliente)
     with pytest.raises(ExternalServiceTimeoutError):
         await servicio.almacenar_original(
-            e.db, nuevo_almacen(e.cliente), documento.id, datos, token=documento.ejecucion_token
+            e.db, valor_nuevo_almacen, documento.id, datos, token=documento.ejecucion_token
         )
     intermedio = recargar(e, documento)
-    assert intermedio.estado_compensacion is EstadoCompensacion.PENDIENTE and intermedio.reserva_activa is True
-    assert intermedio.original_almacenado_en is not None and e.cliente.versiones_de(clave) == []
+    assert intermedio.estado_compensacion is EstadoCompensacion.PENDIENTE
+    assert intermedio.reserva_activa is True
+    assert intermedio.original_almacenado_en is not None
+    assert e.cliente.versiones_de(clave) == []
 
     assert await servicio.compensar_documento(e.db, nuevo_almacen(e.cliente), documento.id) is EstadoCompensacion.COMPLETADA
     assert recargar(e, documento).reserva_activa is False
@@ -332,11 +345,13 @@ async def test_un_objeto_de_otro_tamano_o_mas_de_uno_no_se_borra(e):
     await fallido_con_intento(e, documento)
     assert await servicio.compensar_documento(e.db, e.almacen, documento.id) is EstadoCompensacion.PENDIENTE
     assert recargar(e, documento).ultimo_error_compensacion == "STORAGE_UNEXPECTED_OBJECT"
-    assert [v["VersionId"] for v in e.cliente.versiones_de(clave)] == [ajena] and borrados(e.cliente) == []
+    assert [v["VersionId"] for v in e.cliente.versiones_de(clave)] == [ajena]
+    assert borrados(e.cliente) == []
 
     e.cliente.poner(clave, datos)  # ahora dos versiones: ninguna se borra
     assert await servicio.compensar_documento(e.db, e.almacen, documento.id) is EstadoCompensacion.PENDIENTE
-    assert len(e.cliente.versiones_de(clave)) == 2 and borrados(e.cliente) == []
+    assert len(e.cliente.versiones_de(clave)) == 2
+    assert borrados(e.cliente) == []
 
 
 async def test_la_compensacion_no_toca_claves_vecinas_con_el_mismo_prefijo_ni_otros_documentos(e):
@@ -360,15 +375,18 @@ async def test_un_rechazo_definitivo_se_limpia_sin_borrar_y_un_objeto_inesperado
     with pytest.raises(ExternalServiceError):
         await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     limpio = recargar(e, documento)  # compensación inmediata: NO_CREADA + comprobación de ausencia
-    assert limpio.estado_compensacion is EstadoCompensacion.COMPLETADA and limpio.reserva_activa is False
-    assert borrados(e.cliente) == [] and "list_object_versions" not in e.cliente.metodos()
+    assert limpio.estado_compensacion is EstadoCompensacion.COMPLETADA
+    assert limpio.reserva_activa is False
+    assert borrados(e.cliente) == []
+    assert "list_object_versions" not in e.cliente.metodos()
 
     segundo, datos2 = await reservar(e, b"# Segundo\n", anio=2024)
     e.cliente.poner(segundo.clave_original, b"aparecio algo")
     with pytest.raises(ExternalServiceError):
         await servicio.almacenar_original(e.db, e.almacen, segundo.id, datos2, token=segundo.ejecucion_token)
     assert recargar(e, segundo).ultimo_error_compensacion == "STORAGE_UNEXPECTED_OBJECT"
-    assert recargar(e, segundo).reserva_activa is True and len(e.cliente.versiones_de(segundo.clave_original)) == 1
+    assert recargar(e, segundo).reserva_activa is True
+    assert len(e.cliente.versiones_de(segundo.clave_original)) == 1
 
 
 async def test_sin_versionado_un_reinicio_reconcilia_borrando_la_unica_version_nula(e):
@@ -423,7 +441,8 @@ async def test_el_ejecutor_anterior_no_puede_publicar_ni_registrar_nada_tras_una
     resumen = await servicio.recuperar_documentos_pendientes(e.db, e.almacen, limite=10)
     assert (resumen.abandonados, resumen.compensados) == (1, 1)
     recuperado = recargar(e, documento)
-    assert recuperado.estado_procesamiento is EstadoProcesamiento.FALLIDO and recuperado.ejecucion_token != viejo
+    assert recuperado.estado_procesamiento is EstadoProcesamiento.FALLIDO
+    assert recuperado.ejecucion_token != viejo
 
     # El ejecutor anterior despierta e intenta terminar su trabajo.
     with pytest.raises(ConflictError) as capturado:
@@ -438,7 +457,8 @@ async def test_el_ejecutor_anterior_no_puede_publicar_ni_registrar_nada_tras_una
         with pytest.raises(ConflictError):
             await operacion
     final = recargar(e, documento)
-    assert final.estado_procesamiento is EstadoProcesamiento.FALLIDO and final.disponible_para_rag is False
+    assert final.estado_procesamiento is EstadoProcesamiento.FALLIDO
+    assert final.disponible_para_rag is False
     assert e.cliente.versiones_de(clave) == []
 
     # Aunque el token anterior se reutilice con una reserva nueva, el nuevo ejecutor es otro.
@@ -469,7 +489,8 @@ async def test_el_ejecutor_desplazado_durante_la_subida_no_registra_el_original_
     assert e.cliente.versiones_de(clave) != []  # el objeto sí se creó
 
     resumen = await servicio.recuperar_documentos_pendientes(e.db, e.almacen, limite=10, ahora=vencida)
-    assert resumen.compensados == 1 and e.cliente.versiones_de(clave) == []
+    assert resumen.compensados == 1
+    assert e.cliente.versiones_de(clave) == []
 
 
 async def test_una_operacion_vencida_no_empieza_a_subir(e):
@@ -507,7 +528,8 @@ async def test_dos_intentos_simultaneos_de_almacenar_el_mismo_documento_solo_lle
     e.cliente.compuerta.set()
     await primero
 
-    assert e.cliente.metodos().count("put_object") == 1 and len(e.cliente.versiones_de(documento.clave_original)) == 1
+    assert e.cliente.metodos().count("put_object") == 1
+    assert len(e.cliente.versiones_de(documento.clave_original)) == 1
     with pytest.raises(ConflictError):  # y tampoco uno tardío, con el original ya registrado
         await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=token)
     assert e.cliente.metodos().count("put_object") == 1
@@ -531,8 +553,9 @@ async def test_tokens_y_duraciones_invalidos(e):
             await servicio.renovar_vigencia(e.db, documento.id, token=token, duracion=duracion)
         with pytest.raises(ValueError):
             await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=token, duracion_vigencia=duracion)
+    token_ajeno = uuid.uuid4()
     with pytest.raises(ConflictError):
-        await servicio.renovar_vigencia(e.db, documento.id, token=uuid.uuid4())  # token ajeno
+        await servicio.renovar_vigencia(e.db, documento.id, token=token_ajeno)  # token ajeno
 
 
 async def test_fallar_exige_demostrar_propiedad_o_vigencia_vencida(e):
@@ -544,12 +567,14 @@ async def test_fallar_exige_demostrar_propiedad_o_vigencia_vencida(e):
         await servicio.fallar_documento(
             e.db, documento.id, "CARGA_CANCELADA", token=documento.ejecucion_token, vencido_antes_de=ahora
         )
+    valor_datetime = datetime(2025, 1, 1)
     with pytest.raises(ValueError):
-        await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", vencido_antes_de=datetime(2025, 1, 1))
+        await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", vencido_antes_de=valor_datetime)
     with pytest.raises(ConflictError):  # vigente: la recuperación no puede fallarlo
         await servicio.fallar_documento(e.db, documento.id, "RESERVA_ABANDONADA", vencido_antes_de=ahora)
+    token_ajeno = uuid.uuid4()
     with pytest.raises(ConflictError):  # token ajeno
-        await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", token=uuid.uuid4())
+        await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", token=token_ajeno)
     assert recargar(e, documento).estado_procesamiento is EstadoProcesamiento.EN_PROCESO
 
 
@@ -572,7 +597,8 @@ async def test_un_token_ajeno_no_publica_ni_almacena_un_documento_en_proceso(e):
     publicado = await servicio.publicar_documento(
         e.db, documento.id, token=propio, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO
     )
-    assert publicado.estado_procesamiento is EstadoProcesamiento.COMPLETADO and publicado.disponible_para_rag
+    assert publicado.estado_procesamiento is EstadoProcesamiento.COMPLETADO
+    assert publicado.disponible_para_rag
 
 
 async def test_con_version_conocida_si_la_version_sigue_existiendo_tras_eliminar_no_se_declara_limpio(e):
@@ -583,7 +609,8 @@ async def test_con_version_conocida_si_la_version_sigue_existiendo_tras_eliminar
     await servicio.fallar_documento(e.db, documento.id, "VALIDACION_POSTERIOR", requiere_compensacion=True, token=token)
     assert await servicio.compensar_documento(e.db, e.almacen, documento.id) is EstadoCompensacion.PENDIENTE
     pendiente = recargar(e, documento)
-    assert pendiente.ultimo_error_compensacion == "STORAGE_CLEANUP_NOT_CONFIRMED" and pendiente.reserva_activa is True
+    assert pendiente.ultimo_error_compensacion == "STORAGE_CLEANUP_NOT_CONFIRMED"
+    assert pendiente.reserva_activa is True
     assert (await conflicto(e, datos)).code == "DOCUMENT_CLEANUP_PENDING"
 
 
@@ -600,7 +627,8 @@ async def test_aunque_el_adaptador_olvide_la_clave_el_servicio_sigue_impidiendo_
         with pytest.raises(ConflictError) as capturado:
             await servicio.almacenar_original(e.db, almacen, documento.id, datos, token=token)
         assert capturado.value.code == "DOCUMENT_STATE_CONFLICT"
-    assert e.cliente.metodos().count("put_object") == 1 and len(e.cliente.versiones_de(clave)) == 1
+    assert e.cliente.metodos().count("put_object") == 1
+    assert len(e.cliente.versiones_de(clave)) == 1
 
     # Y se documenta el alcance real del adaptador: sin registro, él solo no lo impediría.
     await e.almacen.guardar(clave, datos, sha256_de(datos))

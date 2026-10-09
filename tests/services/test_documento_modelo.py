@@ -78,10 +78,14 @@ async def test_estado_inicial_y_valores_por_defecto(entorno):
     assert isinstance(d.id, uuid.UUID)
     assert d.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
     assert d.resultado_analisis is None  # análisis pendiente: NO es OBSERVADO
-    assert d.estado_compensacion is EstadoCompensacion.NINGUNA and d.compensacion_intentos == 0
+    assert d.estado_compensacion is EstadoCompensacion.NINGUNA
+    assert d.compensacion_intentos == 0
     assert d.reserva_activa is True
-    assert d.completado_en is None and d.original_almacenado_en is None and d.almacenamiento_intentado_en is None
-    assert d.motivo_fallo is None and d.version_id_original is None
+    assert d.completado_en is None
+    assert d.original_almacenado_en is None
+    assert d.almacenamiento_intentado_en is None
+    assert d.motivo_fallo is None
+    assert d.version_id_original is None
     assert d.creado_en is not None
     assert d.disponible_para_rag is False
 
@@ -148,7 +152,10 @@ async def test_estados_coherentes_si_se_aceptan(entorno):
     d3 = await guardar(entorno, sha256="3" * 64, anio=2024, estado_compensacion=EstadoCompensacion.COMPLETADA,
                        reserva_activa=False, **fallido)
     d4 = await guardar(entorno, sha256="4" * 64, anio=2023, estado_compensacion=EstadoCompensacion.PENDIENTE, **fallido)
-    assert d1.disponible_para_rag and d2.disponible_para_rag and not d3.disponible_para_rag and not d4.disponible_para_rag
+    assert d1.disponible_para_rag
+    assert d2.disponible_para_rag
+    assert not d3.disponible_para_rag
+    assert not d4.disponible_para_rag
 
 
 # --- Índices únicos parciales -----------------------------------------------------------------------------
@@ -210,8 +217,11 @@ def test_el_ddl_de_revision_contiene_indices_parciales_checks_y_solo_tipos_nuevo
         assert f"CREATE TYPE {tipo} AS ENUM" in ddl
     assert "CREATE TYPE sector_empresa" not in ddl  # ya existe por el módulo de empresas
     assert "ck_documentos_reserva_solo_liberada_si_limpio" in ddl
-    assert "REFERENCES empresas (id)" in ddl and "REFERENCES usuarios (id)" in ddl
-    assert "DROP" not in ddl and "ALTER" not in ddl and "password" not in ddl.lower()
+    assert "REFERENCES empresas (id)" in ddl
+    assert "REFERENCES usuarios (id)" in ddl
+    assert "DROP" not in ddl
+    assert "ALTER" not in ddl
+    assert "password" not in ddl.lower()
 
 
 def test_generar_el_ddl_no_abre_conexiones(monkeypatch):
