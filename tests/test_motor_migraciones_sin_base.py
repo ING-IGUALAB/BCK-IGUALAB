@@ -260,12 +260,8 @@ async def test_un_fallo_deshace_la_migracion_y_conserva_las_anteriores(conectar,
     with caplog.at_level("ERROR", logger="igualab.migraciones"):
         with pytest.raises(ErrorMigracion) as error:
             await migrar("x", ESQUEMA_TRANSACCIONAL)
-    # El log diagnostica con paso, clase y SQLSTATE, sin el mensaje original del servidor.
-    (registro,) = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert "0002" in registro
-    assert "UndefinedTableError" in registro
-    assert "SQLSTATE 42P01" in registro
-    assert "falla simulada" not in registro
+    # El motor no registra el mensaje del servidor: el diagnóstico viaja en `ErrorMigracion` (versión y SQLSTATE).
+    assert "falla simulada" not in caplog.text
     assert error.value.codigo == "MIGRATION_FAILED"
     assert error.value.detalles["version"] == 2
     assert error.value.detalles["sqlstate"] == "42P01"
@@ -308,10 +304,8 @@ async def test_un_error_de_postgresql_fuera_de_una_migracion_se_convierte_en_err
     with caplog.at_level("ERROR", logger="igualab.migraciones"):
         with pytest.raises(ErrorMigracion) as error:
             await migrar("x", ESQUEMA_TRANSACCIONAL)
-    (registro,) = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
-    assert "PostgresError" in registro
-    assert "SQLSTATE" in registro
-    assert "detalle con datos" not in registro
+    assert "detalle con datos" not in caplog.text
+    assert error.value.detalles == {"sqlstate": None}
     assert error.value.codigo == "MIGRATION_FAILED"
     assert "detalle con datos" not in f"{error.value.mensaje} {error.value.detalles}"
     assert c.candado is False

@@ -253,7 +253,7 @@ async def test_el_bucle_periodico_publica_pendientes_y_abandona_vencidas_y_se_de
                                   "WHERE estado_procesamiento = 'EN_PROCESO'"))
             await db.commit()
 
-        await gestor.iniciar()
+        gestor.iniciar()
         await esperar(lambda: gestor.barridos >= 1)
 
         async def resuelto():
@@ -286,7 +286,7 @@ async def test_un_barrido_que_falla_no_mata_el_bucle(entorno, monkeypatch):
 
     monkeypatch.setattr(coordinador, "ejecutar_recuperacion", falla_la_primera)
     gestor = GestorIngesta(entorno.deps, entorno.config, opciones_de_prueba(recuperacion_habilitada=True, intervalo_recuperacion=0.03))
-    await gestor.iniciar()
+    gestor.iniciar()
     await esperar(lambda: len(llamadas) >= 3)
     assert not gestor._bucle.done()
     await gestor.cerrar()
@@ -455,7 +455,7 @@ async def test_con_configuracion_valida_se_construyen_los_recursos_una_vez_y_se_
     assert gestor.dependencias.almacen._config.read_timeout == 11  # los plazos de MinIO también salen de los parámetros
     assert "clave-secreta-ficticia" not in repr(gestor.dependencias.almacen)
 
-    await gestor.iniciar()
+    gestor.iniciar()
     await gestor.cerrar()
     assert cierres == ["oci", "vectorial"]
     assert gestor._bucle.done()

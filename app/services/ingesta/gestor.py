@@ -147,7 +147,8 @@ class GestorIngesta:
 
     # --- ciclo de vida ----------------------------------------------------------------------------------
 
-    async def iniciar(self) -> None:
+    def iniciar(self) -> None:
+        """Programa la recuperación periódica (idempotente). Síncrono: solo crea la tarea en el bucle en ejecución."""
         if self.opciones.recuperacion_habilitada and self._bucle is None:
             self._bucle = asyncio.create_task(self._bucle_recuperacion(), name="recuperacion-ingesta")
             logger.info(
@@ -498,7 +499,7 @@ async def iniciar_ingesta(app, parametros: ParametrosIngesta | None = None, prep
             gestor = construir_gestor(parametros=parametros)
         await preparar()  # pasos 4/6 (transaccional) y 5/6 (vectorial): se registran en app.migraciones.catalogo
         with paso_de_arranque(logger, "6/6 Inicio del gestor y recuperación"):
-            await gestor.iniciar()
+            gestor.iniciar()
     except ServiceUnavailableError as exc:
         app.state.ingesta_error = (exc.code, exc.message, exc.details)
         logger.warning("Ingesta no disponible: %s", [c["componente"] for c in (exc.details or {}).get("componentes", [])])
@@ -508,9 +509,13 @@ async def iniciar_ingesta(app, parametros: ParametrosIngesta | None = None, prep
             f"La ingesta no está disponible: no se pudo preparar el esquema de la base {exc.base}. {exc.mensaje}",
             {"base": exc.base, "motivo": exc.codigo, **exc.detalles},
         )
-        # `ErrorMigracion` se lanza siempre sin causa encadenada (`from None`) y con un mensaje saneado: la traza no
-        # contiene la excepción original del driver (host, usuario). Lo fija `test_el_log_de_esquema_no_revela_la_causa_original`.
-        logger.exception("Ingesta no disponible: preparación del esquema de la base %s falló (%s).", exc.base, exc.codigo)
+        # `ErrorMigracion` se lanza siempre sin causa encadenada (`from None`), con mensaje y `detalles` saneados (versión,
+        # SQLSTATE, causa por clase): la traza no contiene la excepción original del driver. Ese es el único registro del
+        # fallo; lo fijan `test_el_log_de_esquema_no_revela_la_causa_original` y los de `test_motor_migraciones_sin_base`.
+        logger.exception(
+            "Ingesta no disponible: preparación del esquema de la base %s falló (%s). %s Detalles: %s",
+            exc.base, exc.codigo, exc.mensaje, exc.detalles,
+        )
     except Exception as exc:
         app.state.ingesta_error = (
             "INGESTION_NOT_CONFIGURED",

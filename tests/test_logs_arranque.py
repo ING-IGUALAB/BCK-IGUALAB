@@ -4,6 +4,7 @@ import asyncio
 import logging
 from types import SimpleNamespace
 
+import asyncpg
 import pytest
 
 from app.logging_config import paso_de_arranque
@@ -180,6 +181,41 @@ async def test_el_log_de_esquema_no_revela_la_causa_original(monkeypatch, caplog
     assert app.state.ingesta_error[0] == "INGESTION_SCHEMA_NOT_READY"
 
 
+async def test_un_fallo_de_postgresql_con_secretos_se_registra_solo_con_datos_saneados(monkeypatch, caplog):
+    """Cadena real: migrar -> ErrorMigracion -> registro del arranque. El log completo, traza incluida, lleva la versión y
+    el SQLSTATE, y ningún dato del mensaje original del servidor."""
+    from tests.test_motor_migraciones_sin_base import ConexionSimulada
+
+    class ErrorConSecretos(asyncpg.UndefinedTableError):
+        def __init__(self, *args):
+            super().__init__("host-secreto:5432 usuario_secreto:CLAVE-SECRETA PRIVATE KEY")
+
+    c = ConexionSimulada(catalogo.ESQUEMA_TRANSACCIONAL)
+    c.fallar_en = {2}
+
+    async def conectar(url, base):
+        return c
+
+    monkeypatch.setattr(asyncpg, "UndefinedTableError", ErrorConSecretos)
+    monkeypatch.setattr(motor, "_conectar", conectar)
+    app = _AppDoble()
+    _gestor_doble([], monkeypatch)
+
+    async def preparar():
+        await motor.migrar("postgresql+asyncpg://u@h/db", catalogo.ESQUEMA_TRANSACCIONAL)
+
+    with caplog.at_level(logging.INFO):
+        await modulo_gestor.iniciar_ingesta(app, preparar_esquema=preparar)
+    for secreto in SECRETOS:
+        assert secreto not in caplog.text
+    registro = next(r for r in caplog.records if r.getMessage().startswith("Ingesta no disponible: preparación del esquema"))
+    assert registro.exc_info is not None
+    assert registro.exc_info[0] is ErrorMigracion
+    assert "42P01" in registro.getMessage()
+    assert "'version': 2" in registro.getMessage()
+    assert app.state.ingesta_error[0] == "INGESTION_SCHEMA_NOT_READY"
+
+
 # ============================================ Subpasos de las migraciones ============================================
 
 class ConexionMinima:
@@ -262,7 +298,7 @@ async def test_el_primer_barrido_se_registra_con_su_duracion_y_no_bloquea_el_arr
 
     gestor._candado_de_barrido = libre
     with caplog.at_level(logging.INFO, logger="igualab.ingesta.http"):
-        await gestor.iniciar()
+        gestor.iniciar()
         assert "Primer barrido de recuperación" not in " ".join(mensajes(caplog))  # iniciar() volvió sin esperarlo
         async with asyncio.timeout(5):
             while len(llamadas) < 2:
@@ -278,5 +314,5 @@ async def test_con_la_recuperacion_deshabilitada_el_paso_6_lo_dice(monkeypatch, 
     deps = SimpleNamespace(almacen=SimpleNamespace(ambiente="development"))
     gestor = GestorIngesta(deps, opciones=OpcionesGestor(recuperacion_habilitada=False))
     with caplog.at_level(logging.INFO, logger="igualab.ingesta.http"):
-        await gestor.iniciar()
+        gestor.iniciar()
     assert "Recuperación periódica no programada (deshabilitada o ya iniciada)." in mensajes(caplog)
