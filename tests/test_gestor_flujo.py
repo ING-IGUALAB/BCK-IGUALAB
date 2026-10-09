@@ -397,8 +397,8 @@ async def test_el_bucle_barre_periodicamente_sobrevive_a_los_errores_y_se_detien
 
     f.gestor._candado_de_barrido = sin_candado
     with caplog.at_level(logging.WARNING, logger="igualab.ingesta.http"):
-        await f.gestor.iniciar()
-        await f.gestor.iniciar()  # idempotente: un solo bucle
+        f.gestor.iniciar()
+        f.gestor.iniciar()  # idempotente: un solo bucle
         async with asyncio.timeout(5):
             while len(intentos) < 3:
                 await asyncio.sleep(0.01)

@@ -370,11 +370,8 @@ async def _aplicar(conn: asyncpg.Connection, m: Migracion, base: str) -> None:
             await conn.execute(m.sql())
             await _registrar(conn, m, ORIGEN_APLICADA)
     except asyncpg.PostgresError as exc:
-        # Solo la clase y el SQLSTATE: el mensaje de PostgreSQL puede incluir nombres de objetos, valores de columnas o hosts.
-        logger.error(
-            "La migración %04d (%s) de la base %s falló (%s, SQLSTATE %s).",
-            m.version, m.nombre, base, type(exc).__name__, exc.sqlstate,
-        )
+        # No se registra aquí: el mensaje de PostgreSQL puede incluir nombres de objetos, valores de columnas o hosts. El
+        # `ErrorMigracion` lleva versión y SQLSTATE y quien lo captura lo registra (ver `iniciar_ingesta`).
         raise ErrorMigracion(
             "MIGRATION_FAILED",
             f"La migración {m.version:04d} ({m.nombre}) falló en la base {base}"
@@ -442,9 +439,7 @@ async def migrar(
                 logger.info("Migración %04d (%s) de la base %s aplicada.", m.version, m.nombre, base)
         return ResultadoMigracion(base, tuple(aplicadas), tuple(adoptadas), previas, desconocidas)
     except asyncpg.PostgresError as exc:
-        logger.error(
-            "Error de PostgreSQL al preparar el esquema de la base %s (%s, SQLSTATE %s).", base, type(exc).__name__, exc.sqlstate
-        )
+        # Sin registro aquí (ver `_aplicar`): el `ErrorMigracion` lleva el SQLSTATE y lo registra quien lo captura.
         raise ErrorMigracion(
             "MIGRATION_FAILED", f"Error de PostgreSQL al preparar la base {base}.", base, {"sqlstate": exc.sqlstate}
         ) from None

@@ -51,7 +51,7 @@ def preparar(cliente=None, **cambios):
 async def esperar_fin_de_subida(almacen, clave: str) -> EstadoSubida:
     """Espera una CONDICIÓN (el hilo anotó su desenlace), no un tiempo fijo."""
     async with asyncio.timeout(10):
-        while (estado := (await almacen.estado_subida(clave)).estado) is EstadoSubida.EN_CURSO:
+        while (estado := almacen.estado_subida(clave).estado) is EstadoSubida.EN_CURSO:
             await asyncio.sleep(0.005)
     return estado
 
@@ -98,12 +98,12 @@ async def test_una_subida_que_termina_despues_del_timeout_deja_su_desenlace_y_su
     with pytest.raises(ExternalServiceTimeoutError) as capturado:
         await almacen.guardar(clave, DATOS, SHA)
     assert capturado.value.details["resultado_incierto"] is True
-    assert (await almacen.estado_subida(clave)).estado is EstadoSubida.EN_CURSO  # el hilo sigue vivo
+    assert almacen.estado_subida(clave).estado is EstadoSubida.EN_CURSO  # el hilo sigue vivo
     assert cliente.versiones_de(clave) == []  # el objeto aún no existe: aparecerá DESPUÉS
 
     cliente.compuerta.set()
     assert await esperar_fin_de_subida(almacen, clave) is EstadoSubida.CREADA
-    conocida = await almacen.estado_subida(clave)
+    conocida = almacen.estado_subida(clave)
     assert conocida.version_id == cliente.versiones_de(clave)[0]["VersionId"]  # versión concreta conocida
 
 
@@ -116,7 +116,7 @@ async def test_una_subida_cancelada_tambien_termina_despues_y_se_registra():
     tarea.cancel()
     with pytest.raises(asyncio.CancelledError):
         await tarea
-    assert (await almacen.estado_subida(clave)).estado is EstadoSubida.EN_CURSO
+    assert almacen.estado_subida(clave).estado is EstadoSubida.EN_CURSO
 
     cliente.compuerta.set()
     assert await esperar_fin_de_subida(almacen, clave) is EstadoSubida.CREADA
@@ -128,7 +128,7 @@ async def test_sin_versionado_la_subida_creada_no_tiene_version():
     clave = clave_nueva()
     referencia = await almacen.guardar(clave, DATOS, SHA)
     assert referencia.version_id is None
-    conocida = await almacen.estado_subida(clave)
+    conocida = almacen.estado_subida(clave)
     assert (conocida.estado, conocida.version_id) == (EstadoSubida.CREADA, None)
 
 
@@ -150,21 +150,23 @@ async def test_el_desenlace_distingue_lo_que_nunca_llego_de_lo_que_pudo_crearse(
     clave = clave_nueva()
     with pytest.raises(ExternalServiceError):
         await almacen.guardar(clave, DATOS, SHA)
-    assert (await almacen.estado_subida(clave)).estado is esperado
+    assert almacen.estado_subida(clave).estado is esperado
 
 
 async def test_una_clave_nunca_subida_desde_este_proceso_no_tiene_registro():
     almacen, _ = preparar()
-    conocida = await almacen.estado_subida(clave_nueva())
+    conocida = almacen.estado_subida(clave_nueva())
     assert (conocida.estado, conocida.version_id) == (EstadoSubida.SIN_REGISTRO, None)
 
 
 async def test_estado_subida_y_listado_rechazan_claves_ajenas():
     almacen, cliente = preparar()
-    for operacion in (almacen.estado_subida, almacen.listar_versiones):
-        with pytest.raises(ExternalServiceError) as capturado:
-            await operacion("development/pruebas/ajena.md")
-        assert capturado.value.code == "STORAGE_INVALID_KEY"
+    with pytest.raises(ExternalServiceError) as capturado:
+        almacen.estado_subida("development/pruebas/ajena.md")
+    assert capturado.value.code == "STORAGE_INVALID_KEY"
+    with pytest.raises(ExternalServiceError) as capturado:
+        await almacen.listar_versiones("development/pruebas/ajena.md")
+    assert capturado.value.code == "STORAGE_INVALID_KEY"
     assert cliente.llamadas == []
 
 
@@ -205,7 +207,7 @@ async def test_el_registro_de_subidas_esta_acotado_y_nunca_descarta_las_que_sigu
     cliente.put_iniciado.clear()  # las subidas anteriores ya lo activaron: se espera la de esta clave
     en_curso = asyncio.create_task(almacen.guardar(claves[3], DATOS, SHA))
     await asyncio.to_thread(cliente.put_iniciado.wait, 5)
-    assert (await almacen.estado_subida(claves[3])).estado is EstadoSubida.EN_CURSO
+    assert almacen.estado_subida(claves[3]).estado is EstadoSubida.EN_CURSO
     cliente.compuerta.set()
     await en_curso
 

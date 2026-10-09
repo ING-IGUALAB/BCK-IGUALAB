@@ -102,7 +102,7 @@ async def fallido_con_intento(e, documento):
 
 async def esperar_fin_de_subida(almacen, clave: str) -> EstadoSubida:
     async with asyncio.timeout(10):
-        while (estado := (await almacen.estado_subida(clave)).estado) is EstadoSubida.EN_CURSO:
+        while (estado := almacen.estado_subida(clave).estado) is EstadoSubida.EN_CURSO:
             await asyncio.sleep(0.005)
     return estado
 
@@ -240,7 +240,7 @@ async def test_tras_un_reinicio_sin_permiso_de_listado_la_compensacion_sigue_pen
     e.cliente.permitir_listado = False
     with pytest.raises(ExternalServiceTimeoutError):
         await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
-    assert (await e.almacen.estado_subida(clave)).estado is EstadoSubida.INCIERTA
+    assert e.almacen.estado_subida(clave).estado is EstadoSubida.INCIERTA
     assert len(e.cliente.versiones_de(clave)) == 1  # el servidor sí guardó el objeto
 
     reiniciado = nuevo_almacen(e.cliente)  # sin registro de la subida
@@ -621,7 +621,7 @@ async def test_aunque_el_adaptador_olvide_la_clave_el_servicio_sigue_impidiendo_
     token, clave = documento.ejecucion_token, documento.clave_original
     await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=token)
     e.almacen._subidas.clear()  # el adaptador «olvida» la clave (poda o reinicio)
-    assert (await e.almacen.estado_subida(clave)).estado is EstadoSubida.SIN_REGISTRO
+    assert e.almacen.estado_subida(clave).estado is EstadoSubida.SIN_REGISTRO
 
     for almacen in (e.almacen, nuevo_almacen(e.cliente)):  # mismo adaptador sin registro, y uno reiniciado
         with pytest.raises(ConflictError) as capturado:

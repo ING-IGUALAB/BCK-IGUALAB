@@ -204,7 +204,7 @@ class AlmacenEnMemoria:
         self.objetos.pop(self._llave(referencia), None)  # idempotente
         self.marcas.discard((referencia.clave, referencia.version_id or ""))
 
-    async def estado_subida(self, clave: str) -> SubidaConocida:
+    def estado_subida(self, clave: str) -> SubidaConocida:
         self._entrar("estado_subida", clave)
         return self.subidas.get(clave, SubidaConocida(EstadoSubida.SIN_REGISTRO))
 
