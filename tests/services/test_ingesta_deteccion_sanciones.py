@@ -6,6 +6,7 @@ contenido del reporte del cliente. La comprobación con el reporte local es opci
 comportamiento acordado, no una precisión medida sobre documentos reales.
 """
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -489,8 +490,19 @@ def test_resultado_vacio_sin_menciones():
     assert resultado.sanciones == () and resultado.descartes == ()
 
 
+def test_muchos_blancos_tras_el_termino_no_vuelven_cuadratica_la_deteccion():
+    """Antes `_NEGACION_POSTERIOR` (dos `\\s*` contiguos) tardaba ~5 s con 20 000 blancos tras «multa»."""
+    texto = "Recibimos una multa" + " " * 40_000 + "x.\n"
+    inicio = time.perf_counter()
+    resultado = detectar_sanciones(texto)
+    assert time.perf_counter() - inicio < 2
+    verificar(texto, resultado)
+    assert len(resultado.sanciones) == 1 and resultado.sanciones[0].referencia_original == "multa"
+
+
 def test_determinismo_y_tipo_de_entrada():
-    assert detectar_sanciones(OEFA) == detectar_sanciones(OEFA)
+    primero, segundo = detectar_sanciones(OEFA), detectar_sanciones(OEFA)
+    assert primero == segundo
     with pytest.raises(TypeError):
         detectar_sanciones(b"multa")  # type: ignore[arg-type]
 

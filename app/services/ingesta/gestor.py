@@ -26,6 +26,7 @@ idempotente), que hacen inocuo un barrido repetido.
 import asyncio
 import contextlib
 import logging
+import math
 import re
 import uuid
 import zlib
@@ -113,7 +114,8 @@ class OpcionesGestor:
     def __post_init__(self) -> None:
         for nombre in ("intervalo_recuperacion", "espera_cierre", "retraso_primer_barrido"):
             valor = getattr(self, nombre)
-            if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not valor >= 0:
+            # `math.isnan` y no `not valor >= 0` negado: NaN debe seguir rechazándose.
+            if isinstance(valor, bool) or not isinstance(valor, (int, float)) or math.isnan(valor) or valor < 0:
                 raise ValueError(f"{nombre} debe ser un número de segundos no negativo.")
         if self.intervalo_recuperacion <= 0:
             raise ValueError("intervalo_recuperacion debe ser mayor que 0.")

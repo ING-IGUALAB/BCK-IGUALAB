@@ -46,7 +46,10 @@ _CONTROL_NO_PERMITIDO = re.compile(r"[\x00-\x08\x0b\x0e-\x1f\x7f]")
 # especificación tolera hasta 1024, no se reconoce). Markdown no tiene firma
 # propia y nada de esto se exige: solo se rechaza lo inequívocamente ajeno.
 _CABECERA_PDF = re.compile(rb"%PDF-\d\.\d")
-_OBJETO_PDF = re.compile(rb"\d+\s+\d+\s+obj\b")
+# Acepta lo mismo que `\d+\s+\d+\s+obj\b` sin imponer límites propios a dígitos ni blancos: ese patrón
+# era cuadrático al buscar en 64 KiB de dígitos. El inicio solo en el comienzo de una racha de dígitos y
+# los cuantificadores posesivos (el siguiente símbolo nunca puede pertenecer a la racha) evitan el retroceso.
+_OBJETO_PDF = re.compile(rb"(?<!\d)\d++\s++\d++\s++obj\b")
 _FIN_PDF = b"%%EOF"
 _FIRMAS_SIN_CORROBORACION = (
     (b"%!PS-Adobe-", "PostScript"),
@@ -131,25 +134,26 @@ class DocumentoValidado:
     @property
     def advertencias(self) -> tuple[AdvertenciaCalidad, ...]:
         diagnostico = self.diagnostico_tablas
-        if not diagnostico.tiene_inconsistencias:
-            return ()
-        return (
-            AdvertenciaCalidad(
-                codigo=ADVERTENCIA_TABLAS_INCONSISTENTES,
-                mensaje=(
-                    "El documento contiene tablas Markdown con un número de columnas "
-                    "inconsistente. Se conservan como texto literal, sin completar "
-                    "celdas ni reconstruir datos; sus valores no deben leerse como "
-                    "una estructura fila/columna fiable."
-                ),
-                detalles={
-                    "tablas": diagnostico.tablas,
-                    "tablas_inconsistentes": diagnostico.tablas_inconsistentes,
-                    "total_inconsistencias": diagnostico.total_inconsistencias,
-                    "inconsistencias": [asdict(d) for d in diagnostico.detalles],
-                },
-            ),
-        )
+        advertencias: list[AdvertenciaCalidad] = []
+        if diagnostico.tiene_inconsistencias:
+            advertencias.append(
+                AdvertenciaCalidad(
+                    codigo=ADVERTENCIA_TABLAS_INCONSISTENTES,
+                    mensaje=(
+                        "El documento contiene tablas Markdown con un número de columnas "
+                        "inconsistente. Se conservan como texto literal, sin completar "
+                        "celdas ni reconstruir datos; sus valores no deben leerse como "
+                        "una estructura fila/columna fiable."
+                    ),
+                    detalles={
+                        "tablas": diagnostico.tablas,
+                        "tablas_inconsistentes": diagnostico.tablas_inconsistentes,
+                        "total_inconsistencias": diagnostico.total_inconsistencias,
+                        "inconsistencias": [asdict(d) for d in diagnostico.detalles],
+                    },
+                )
+            )
+        return tuple(advertencias)
 
 
 async def obtener_empresa_activa(

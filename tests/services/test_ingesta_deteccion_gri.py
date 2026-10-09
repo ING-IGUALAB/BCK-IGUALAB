@@ -420,7 +420,8 @@ def test_texto_no_str_se_rechaza():
 def test_el_detector_es_determinista_y_no_modifica_el_texto():
     texto = INDICE
     copia = str(texto)
-    assert detectar_referencias_gri(texto) == detectar_referencias_gri(texto)
+    primero, segundo = detectar_referencias_gri(texto), detectar_referencias_gri(texto)
+    assert primero == segundo
     assert texto == copia
 
 

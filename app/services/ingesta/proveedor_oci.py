@@ -63,7 +63,7 @@ def _identidad_desde_variables() -> dict | None:
         return None
     try:
         llave = base64.b64decode(valores["OCI_KEY_PEM_B64"].strip(), validate=True).decode("utf-8")
-    except (ValueError, UnicodeDecodeError):
+    except ValueError:  # incluye binascii.Error y UnicodeDecodeError
         raise ValueError("OCI_KEY_PEM_B64 debe ser la llave privada PEM en base64 de una sola línea.") from None
     config = {
         "user": valores["OCI_USER_OCID"].strip(),

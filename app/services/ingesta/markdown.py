@@ -27,10 +27,14 @@ _BLANCA = re.compile(r"\s*")
 _SANGRIA = re.compile(r"[ \t]*")
 _CELDA_DELIMITADORA = re.compile(r":?-+:?")
 _PIPE_NO_ESCAPADO = re.compile(r"(?<!\\)\|")
-_ENCABEZADO_ATX = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*")
+# Marcas `#` seguidas de blanco o fin de línea; el resto (título y secuencia de
+# cierre opcional) se interpreta en `titulo_atx` sin retroceso, porque una
+# expresión con cuantificador perezoso seguido de blancos es cuadrática en
+# líneas con muchos espacios.
+_ENCABEZADO_ATX = re.compile(r" {0,3}(#{1,6})(?![^ \t\n])([^\n]*)")
 # CommonMark: la información de una cerca de acentos graves no puede contener
 # acentos graves (``` código ``` en línea no abre un bloque).
-_APERTURA_CERCA = re.compile(r" {0,3}(?:(`{3,})[^`]*|(~{3,}).*)")
+_APERTURA_CERCA = re.compile(r" {0,3}(?:(`{3,}+)[^`]*+|(~{3,}+).*+)")
 # La cerca de cierre no admite información después de la marca.
 _CIERRE_CERCA = re.compile(r" {0,3}(`{3,}|~{3,})[ \t]*")
 _CITA = re.compile(r" {0,3}>")
@@ -104,9 +108,19 @@ def titulo_atx(texto: str, inicio: int = 0, fin: int | None = None) -> tuple[int
     encontrado = _ENCABEZADO_ATX.fullmatch(texto, inicio, _hasta(texto, fin))
     if encontrado is None:
         return None
-    titulo = (encontrado.group(2) or "").strip()
+    titulo = _sin_secuencia_de_cierre(encontrado.group(2)).strip()
     # «## ###»: lo único que sigue es la secuencia de cierre; el título está vacío.
     return len(encontrado.group(1)), "" if not titulo.strip("#") else titulo
+
+
+def _sin_secuencia_de_cierre(resto: str) -> str:
+    """Quita los blancos iniciales, los finales y la secuencia de cierre ATX
+    (`#` finales precedidos por al menos un blanco dentro del contenido)."""
+    contenido = resto.strip(" \t")
+    sin_marcas = contenido.rstrip("#")
+    if len(sin_marcas) < len(contenido) and sin_marcas[-1:] in (" ", "\t"):
+        return sin_marcas.rstrip(" \t")
+    return contenido
 
 
 def inicia_otro_bloque(texto: str, inicio: int = 0, fin: int | None = None) -> bool:

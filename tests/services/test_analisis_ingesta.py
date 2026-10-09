@@ -296,7 +296,8 @@ def test_las_advertencias_tienen_detalles_acotados():
 
 
 def test_el_analisis_es_determinista():
-    assert analizar_texto(AMBOS) == analizar_texto(AMBOS)
+    primero, segundo = analizar_texto(AMBOS), analizar_texto(AMBOS)
+    assert primero == segundo
 
 
 # --- Correcciones: negación con alcance, evidencia vinculada y cero en tablas --------------------------------------------------

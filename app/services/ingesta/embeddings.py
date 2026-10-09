@@ -134,6 +134,40 @@ def _es_secuencia(valor: object) -> bool:
     return isinstance(valor, Sequence) and not isinstance(valor, (str, bytes, bytearray))
 
 
+def _componente_finito(valor: object) -> float:
+    """El valor como float, o NaN si no es convertible (el llamador lo rechaza por no finito)."""
+    try:
+        return float(valor)
+    except (OverflowError, ValueError, TypeError):
+        return math.nan
+
+
+def _validar_vector(
+    vector: object, posicion: int, identidad: IdentidadEmbeddings, lote: int
+) -> tuple[float, ...]:
+    if not _es_secuencia(vector):
+        raise _error_respuesta(identidad, lote, "vector_mal_formado", vector=posicion)
+    if len(vector) != identidad.dimension:
+        raise _error_respuesta(
+            identidad, lote, "dimension_incorrecta",
+            vector=posicion, esperada=identidad.dimension, recibida=len(vector),
+        )
+    componentes = []
+    for indice, valor in enumerate(vector):
+        # bool es subclase de int: debe descartarse antes de Real.
+        if isinstance(valor, bool) or not isinstance(valor, Real):
+            raise _error_respuesta(
+                identidad, lote, "componente_no_numerico", vector=posicion, componente=indice
+            )
+        numero = _componente_finito(valor)
+        if not math.isfinite(numero):
+            raise _error_respuesta(
+                identidad, lote, "componente_no_finito", vector=posicion, componente=indice
+            )
+        componentes.append(numero)
+    return tuple(componentes)
+
+
 def validar_respuesta(
     respuesta: object, cantidad: int, identidad: IdentidadEmbeddings, lote: int
 ) -> tuple[tuple[float, ...], ...]:
@@ -145,33 +179,7 @@ def validar_respuesta(
         raise _error_respuesta(
             identidad, lote, "cantidad_incorrecta", esperada=cantidad, recibida=len(respuesta)
         )
-    vectores = []
-    for posicion, vector in enumerate(respuesta):
-        if not _es_secuencia(vector):
-            raise _error_respuesta(identidad, lote, "vector_mal_formado", vector=posicion)
-        if len(vector) != identidad.dimension:
-            raise _error_respuesta(
-                identidad, lote, "dimension_incorrecta",
-                vector=posicion, esperada=identidad.dimension, recibida=len(vector),
-            )
-        componentes = []
-        for indice, valor in enumerate(vector):
-            # bool es subclase de int: debe descartarse antes de Real.
-            if isinstance(valor, bool) or not isinstance(valor, Real):
-                raise _error_respuesta(
-                    identidad, lote, "componente_no_numerico", vector=posicion, componente=indice
-                )
-            try:
-                numero = float(valor)
-            except (OverflowError, ValueError, TypeError):
-                numero = math.nan
-            if not math.isfinite(numero):
-                raise _error_respuesta(
-                    identidad, lote, "componente_no_finito", vector=posicion, componente=indice
-                )
-            componentes.append(numero)
-        vectores.append(tuple(componentes))
-    return tuple(vectores)
+    return tuple(_validar_vector(vector, posicion, identidad, lote) for posicion, vector in enumerate(respuesta))
 
 
 def _exigir_entero_positivo(nombre: str, valor: object) -> None:

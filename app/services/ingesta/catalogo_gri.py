@@ -25,6 +25,8 @@ from typing import Any
 
 RUTA_CATALOGO_PREDETERMINADA = Path(__file__).parent / "datos" / "catalogo_gri.json"
 ESQUEMA_SOPORTADO = 1
+# Prefijo de contexto de los errores del catálogo completo (los de cada entrada llevan su etiqueta).
+_CONTEXTO_CATALOGO = "catálogo"
 
 TIPOS = ("universal", "tematico", "sectorial")
 CATEGORIAS = ("Universal", "Económica", "Ambiental", "Social", "Sectorial")
@@ -159,26 +161,28 @@ def _coherencia_de_vigencia(entrada: EntradaGri, corte: str) -> None:
         )
 
 
-def _entrada(datos: Any, posicion: int) -> EntradaGri:
-    contexto = f"entradas[{posicion}]"
-    if not isinstance(datos, dict):
-        raise CatalogoGriInvalido(f"{contexto}: debe ser un objeto.")
+def _codigo_y_edicion(datos: dict, contexto: str) -> tuple[str, str]:
     codigo = _texto(datos, "codigo", contexto)
     if not _CODIGO.fullmatch(codigo):
         raise CatalogoGriInvalido(f"{contexto}: código «{codigo}» no válido (1 a 3 dígitos, sin ceros a la izquierda).")
     edicion = _texto(datos, "edicion", contexto)
     if not _EDICION.fullmatch(edicion):
         raise CatalogoGriInvalido(f"{contexto}: edición «{edicion}» no es un año.")
-    contexto = f"GRI {codigo} {edicion}"
+    return codigo, edicion
+
+
+def _clasificacion(datos: dict, contexto: str) -> tuple[str, str, str]:
+    """(tipo, categoría, vigencia), cada uno dentro de sus valores permitidos."""
     tipo = _texto(datos, "tipo", contexto)
     categoria = _texto(datos, "categoria", contexto)
     vigencia = _texto(datos, "vigencia", contexto)
     for valor, permitidos, nombre in ((tipo, TIPOS, "tipo"), (categoria, CATEGORIAS, "categoria"), (vigencia, VIGENCIAS, "vigencia")):
         if valor not in permitidos:
             raise CatalogoGriInvalido(f"{contexto}: {nombre} «{valor}» no permitido.")
-    url = _texto(datos, "url_oficial", contexto, opcional=True)
-    if url is not None and not url.startswith((PREFIJO_URL_OFICIAL, PREFIJO_URL_OFICIAL_SIN_WWW)):
-        raise CatalogoGriInvalido(f"{contexto}: la URL oficial debe estar en globalreporting.org.")
+    return tipo, categoria, vigencia
+
+
+def _verificacion(datos: dict, contexto: str, url: str | None) -> dict:
     verificacion = datos.get("verificacion")
     if not isinstance(verificacion, dict):
         raise CatalogoGriInvalido(f"{contexto}: falta «verificacion».")
@@ -186,12 +190,31 @@ def _entrada(datos: Any, posicion: int) -> EntradaGri:
         raise CatalogoGriInvalido(f"{contexto}: «url_comprobada» debe ser lógico.")
     if verificacion["url_comprobada"] and url is None:
         raise CatalogoGriInvalido(f"{contexto}: no puede tener la URL comprobada sin URL.")
+    return verificacion
+
+
+def _reemplazos(datos: dict, contexto: str) -> list[tuple[str, str]]:
     reemplazos = []
     for destino in datos.get("reemplazado_por") or []:
         if not isinstance(destino, dict) or not _CODIGO.fullmatch(str(destino.get("codigo"))) \
                 or not _EDICION.fullmatch(str(destino.get("edicion"))):
             raise CatalogoGriInvalido(f"{contexto}: «reemplazado_por» mal formado.")
         reemplazos.append((destino["codigo"], destino["edicion"]))
+    return reemplazos
+
+
+def _entrada(datos: Any, posicion: int) -> EntradaGri:
+    contexto = f"entradas[{posicion}]"
+    if not isinstance(datos, dict):
+        raise CatalogoGriInvalido(f"{contexto}: debe ser un objeto.")
+    codigo, edicion = _codigo_y_edicion(datos, contexto)
+    contexto = f"GRI {codigo} {edicion}"
+    tipo, categoria, vigencia = _clasificacion(datos, contexto)
+    url = _texto(datos, "url_oficial", contexto, opcional=True)
+    if url is not None and not url.startswith((PREFIJO_URL_OFICIAL, PREFIJO_URL_OFICIAL_SIN_WWW)):
+        raise CatalogoGriInvalido(f"{contexto}: la URL oficial debe estar en globalreporting.org.")
+    verificacion = _verificacion(datos, contexto, url)
+    reemplazos = _reemplazos(datos, contexto)
     version_documento = _texto(datos, "version_documento", contexto, opcional=True)
     return EntradaGri(
         codigo=codigo,
@@ -217,22 +240,7 @@ def _entrada(datos: Any, posicion: int) -> EntradaGri:
     )
 
 
-def interpretar_catalogo(datos: Any) -> CatalogoGri:
-    """Valida el contenido ya leído del JSON. No acepta duplicados (código, edición)
-    ni referencias de reemplazo a entradas que no existan en el propio catálogo."""
-    if not isinstance(datos, dict):
-        raise CatalogoGriInvalido("El catálogo debe ser un objeto JSON.")
-    if datos.get("esquema") != ESQUEMA_SOPORTADO:
-        raise CatalogoGriInvalido(f"Esquema {datos.get('esquema')!r} no soportado; se esperaba {ESQUEMA_SOPORTADO}.")
-    version = _texto(datos, "version_catalogo", "catálogo")
-    cobertura = datos.get("cobertura")
-    if not isinstance(cobertura, dict):
-        raise CatalogoGriInvalido("catálogo: falta «cobertura».")
-    crudas = datos.get("entradas")
-    if not isinstance(crudas, list) or not crudas:
-        raise CatalogoGriInvalido("catálogo: «entradas» debe ser una lista no vacía.")
-    entradas = tuple(_entrada(cruda, i) for i, cruda in enumerate(crudas))
-
+def _validar_claves_y_reemplazos(entradas: tuple[EntradaGri, ...]) -> None:
     claves = [(e.codigo, e.edicion) for e in entradas]
     repetidas = sorted({c for c in claves if claves.count(c) > 1})
     if repetidas:
@@ -242,13 +250,9 @@ def interpretar_catalogo(datos: Any) -> CatalogoGri:
         for destino in entrada.reemplazado_por:
             if destino not in existentes:
                 raise CatalogoGriInvalido(f"{entrada.etiqueta}: reemplazo {destino} inexistente en el catálogo.")
-    if cobertura.get("total_entradas") != len(entradas):
-        raise CatalogoGriInvalido("La cobertura declarada no coincide con el número de entradas.")
-    recopilado_en = _texto(datos, "recopilado_en", "catálogo")
-    if not _FECHA.fullmatch(recopilado_en):
-        raise CatalogoGriInvalido("catálogo: «recopilado_en» debe tener formato AAAA-MM-DD.")
-    for entrada in entradas:
-        _coherencia_de_vigencia(entrada, recopilado_en)
+
+
+def _validar_cobertura_por_vigencia(cobertura: dict, entradas: tuple[EntradaGri, ...]) -> None:
     por_vigencia: dict[str, int] = {}
     for entrada in entradas:
         por_vigencia[entrada.vigencia] = por_vigencia.get(entrada.vigencia, 0) + 1
@@ -261,10 +265,37 @@ def interpretar_catalogo(datos: Any) -> CatalogoGri:
     for clave, valor in esperado.items():
         if cobertura.get(clave) != valor:
             raise CatalogoGriInvalido(f"La cobertura declarada «{clave}» no coincide con las entradas.")
+
+
+def interpretar_catalogo(datos: Any) -> CatalogoGri:
+    """Valida el contenido ya leído del JSON. No acepta duplicados (código, edición)
+    ni referencias de reemplazo a entradas que no existan en el propio catálogo."""
+    if not isinstance(datos, dict):
+        raise CatalogoGriInvalido("El catálogo debe ser un objeto JSON.")
+    if datos.get("esquema") != ESQUEMA_SOPORTADO:
+        raise CatalogoGriInvalido(f"Esquema {datos.get('esquema')!r} no soportado; se esperaba {ESQUEMA_SOPORTADO}.")
+    version = _texto(datos, "version_catalogo", _CONTEXTO_CATALOGO)
+    cobertura = datos.get("cobertura")
+    if not isinstance(cobertura, dict):
+        raise CatalogoGriInvalido("catálogo: falta «cobertura».")
+    crudas = datos.get("entradas")
+    if not isinstance(crudas, list) or not crudas:
+        raise CatalogoGriInvalido("catálogo: «entradas» debe ser una lista no vacía.")
+    entradas = tuple(_entrada(cruda, i) for i, cruda in enumerate(crudas))
+
+    _validar_claves_y_reemplazos(entradas)
+    if cobertura.get("total_entradas") != len(entradas):
+        raise CatalogoGriInvalido("La cobertura declarada no coincide con el número de entradas.")
+    recopilado_en = _texto(datos, "recopilado_en", _CONTEXTO_CATALOGO)
+    if not _FECHA.fullmatch(recopilado_en):
+        raise CatalogoGriInvalido("catálogo: «recopilado_en» debe tener formato AAAA-MM-DD.")
+    for entrada in entradas:
+        _coherencia_de_vigencia(entrada, recopilado_en)
+    _validar_cobertura_por_vigencia(cobertura, entradas)
     return CatalogoGri(
         version_catalogo=version,
         recopilado_en=recopilado_en,
-        fuente_principal=_texto(datos, "fuente_principal", "catálogo"),
+        fuente_principal=_texto(datos, "fuente_principal", _CONTEXTO_CATALOGO),
         cobertura=cobertura,
         entradas=entradas,
     )

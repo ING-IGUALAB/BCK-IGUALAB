@@ -3,6 +3,8 @@
 Cubre el criterio único de línea, cerca de código, encabezado ATX y tabla pipes.
 Nivel: unidad.
 """
+import time
+
 import pytest
 
 from app.services.ingesta import markdown
@@ -110,10 +112,26 @@ def test_actualizar_cerca_sigue_el_estado_de_un_bloque():
         ("####### siete", None),
         ("    # código", None),
         ("texto", None),
+        ("# a ## b ##", (1, "a ## b")),
+        ("# a   ##   ", (1, "a")),
+        ("#   ", (1, "")),
+        ("#\t", (1, "")),
+        ("##  ##", (2, "")),
+        ("# ## x", (1, "## x")),
+        ("# a\nb", None),
     ],
 )
 def test_titulo_atx(linea, esperado):
     assert markdown.titulo_atx(linea) == esperado
+
+
+def test_titulo_atx_no_es_cuadratico_con_muchos_blancos_internos():
+    """Antes el patrón con cuantificador perezoso tardaba ~12 s con 40 000 espacios."""
+    linea = "# a" + " " * 200_000 + "b"
+    inicio = time.perf_counter()
+    assert markdown.titulo_atx(linea) == (1, "a" + " " * 200_000 + "b")
+    assert markdown.inicia_otro_bloque(linea) is True
+    assert time.perf_counter() - inicio < 2
 
 
 @pytest.mark.parametrize(
