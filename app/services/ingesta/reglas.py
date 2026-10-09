@@ -19,7 +19,7 @@ EXTENSION_PERMITIDA = ".md"
 LONGITUD_MAXIMA_NOMBRE_ARCHIVO = 255
 
 # Solo dígitos ASCII: sin signo, espacios, decimales ni dígitos Unicode.
-_ANIO_TEXTO = re.compile(r"[0-9]{1,9}")
+_ANIO_TEXTO = re.compile(r"\d{1,9}", re.ASCII)
 
 
 def _ahora() -> datetime:
