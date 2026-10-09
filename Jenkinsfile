@@ -86,44 +86,6 @@ pipeline {
             }
         }
 
-        stage('Diagnóstico red BD (temporal)') {
-            when { branch 'development' }
-            steps {
-                sh '''
-                    set +e
-                    echo '=== 1. Contenedores de Postgres en el servidor ==='
-                    docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep -iE 'NAMES|postgres|pgvector|vector'
-
-                    echo '=== 2. Redes de esos contenedores ==='
-                    for c in $(docker ps -a --format '{{.Names}}' | grep -iE 'postgres|pgvector|vector'); do
-                        echo "$c -> $(docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$c")"
-                    done
-
-                    echo '=== 3. Prueba de conexión TCP desde cada tipo de red ==='
-                    for red in proxy_net bridge host; do
-                        echo "--- Red: $red ---"
-                        docker run --rm -i --network "$red" python:3.13-slim python - <<'EOF'
-import socket, time
-for host, port in [("213.199.42.57", 54323), ("213.199.42.57", 54322)]:
-    t = time.monotonic()
-    try:
-        socket.create_connection((host, port), timeout=15).close()
-        r = "OK"
-    except Exception as e:
-        r = "FALLA " + type(e).__name__
-    print(f"  {host}:{port} -> {r} ({time.monotonic() - t:.1f} s)")
-EOF
-                    done
-
-                    echo '=== 4. Prueba por nombre de contenedor (red interna) ==='
-                    for c in $(docker ps --format '{{.Names}}' | grep -iE 'postgres|pgvector|vector'); do
-                        docker run --rm --network proxy_net python:3.13-slim python -c "import socket; socket.create_connection(('$c',5432),timeout=5); print('  $c:5432 -> OK')" 2>/dev/null || echo "  $c:5432 -> no alcanzable desde proxy_net"
-                    done
-                    exit 0
-                '''
-            }
-        }
-
         stage('Deploy Dev (Docker Compose)') {
             when {
                 branch 'development'
@@ -132,22 +94,60 @@ EOF
                 withCredentials([file(credentialsId: 'IGUALAB_BACKEND_DEV', variable: 'SECRET_FILE')]) {
                     withEnv(['COMPOSE_PROJECT=igualab-backend-development']) {
                         sh '''
-                            set -eu
-                            rm -f .env
-                            cp "$SECRET_FILE" .env
-                            docker compose -p "$COMPOSE_PROJECT" down
-                            docker compose -p "$COMPOSE_PROJECT" up -d --build
-                            sleep 60
-                            
-                            echo '--- Ambiente dentro del contenedor ---'
-                            docker compose -p "$COMPOSE_PROJECT" exec -T backend python -c "import os; nombres=['ENV_FILE','APP_ENV','CORS_ORIGINS']; [print(n + '=' + os.environ.get(n, 'NO DEFINIDA')) for n in nombres]"
+set -eu
+rm -f .env
+cp "$SECRET_FILE" .env
+docker compose -p "$COMPOSE_PROJECT" down
+docker compose -p "$COMPOSE_PROJECT" up -d --build
 
-                            echo '--- Estado del backend ---'
-                            docker compose -p "$COMPOSE_PROJECT" ps -a
+echo '--- Diagnóstico OCI dentro del backend ---'
+docker compose -p "$COMPOSE_PROJECT" exec -T backend python - <<'PY'
+import os
+from pathlib import Path
+import oci
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
-                            echo '--- Logs de arranque ---'
-                            docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=200 backend
-                        '''
+ruta = Path(
+    os.environ.get("OCI_CONFIG_FILE") or "~/.oci/config"
+).expanduser()
+perfil = os.environ.get("OCI_CONFIG_PROFILE") or "svc-embeddings"
+
+print("OCI_CONFIG_FILE:", ruta)
+print("Archivo existe:", ruta.is_file())
+print("Perfil solicitado:", perfil)
+print("OCI_KEY_PEM_B64 configurada:",
+      bool(os.environ.get("OCI_KEY_PEM_B64", "").strip()))
+
+if ruta.is_file():
+    try:
+        config = oci.config.from_file(str(ruta), perfil)
+        oci.config.validate_config(config)
+        print("Configuración y perfil: OK")
+
+        llave = config.get("key_file")
+        existe = bool(llave) and Path(llave).expanduser().is_file()
+        print("Archivo de llave existe:", existe)
+
+        if existe:
+            with open(Path(llave).expanduser(), "rb") as archivo:
+                passphrase = config.get("pass_phrase")
+                load_pem_private_key(
+                    archivo.read(),
+                    password=passphrase.encode() if passphrase else None,
+                )
+            print("Llave privada legible: SÍ")
+    except Exception as error:
+        print("Verificación falló:", type(error).__name__)
+else:
+    print("Configuración por archivo: NO DISPONIBLE")
+PY
+
+echo '--- Estado del backend ---'
+docker compose -p "$COMPOSE_PROJECT" ps -a
+
+echo '--- Logs de arranque ---'
+docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=200 backend
+'''
                     }
                 }
             }
