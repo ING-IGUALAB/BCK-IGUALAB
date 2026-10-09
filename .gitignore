@@ -1,24 +1,66 @@
+# Variables de entorno reales; conservar la plantilla
+.env
+.env.*
+!.env.example
+
+# Credenciales y llaves privadas
+.oci/
+*.pem
+*.key
+*.p12
+*.pfx
+igualab-credenciales*.zip
+
+# Entornos virtuales
+.venv/
 venv/
 env/
-.venv/
- 
-.env
-.env.development
-.env.qa
-.env.uat
- 
+ENV/
+
+# Caché y archivos compilados de Python
 __pycache__/
-*.pyc
-*.pyo
- 
+*.py[cod]
 .pytest_cache/
- 
-.vscode/
-.idea/
- 
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# Cobertura: incluye .coverage.Juan_Ferreyra...
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Artefactos de herramientas
+.sonar/
+.scannerwork/
+build/
+dist/
+*.egg-info/
+
+# Ayuda local para IA y planificación
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+docs/ingesta/
+prompts/
+
+# ZIP de revisión del proyecto
+Backend_igualab_revision*.zip
+
+LEEME.md
+docs/
+
+# Logs y temporales
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Archivos del sistema operativo
 .DS_Store
 Thumbs.db
-
-coverage.xml
-.coverage
-htmlcov/
+Desktop.ini

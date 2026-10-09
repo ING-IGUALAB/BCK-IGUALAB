@@ -19,7 +19,12 @@ from app.exceptions import (
     AuthorizationError,
     BusinessValidationError,
     ConflictError,
+    ExternalServiceError,
+    ExternalServiceTimeoutError,
+    InternalProcessingError,
     NotFoundError,
+    PayloadTooLargeError,
+    ServiceUnavailableError,
 )
 
 logger = logging.getLogger("igualab.errors")
@@ -32,6 +37,11 @@ _STATUS_BY_EXCEPTION: dict[type[AppException], int] = {
     NotFoundError: status.HTTP_404_NOT_FOUND,
     ConflictError: status.HTTP_409_CONFLICT,
     BusinessValidationError: status.HTTP_400_BAD_REQUEST,
+    PayloadTooLargeError: status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+    ExternalServiceError: status.HTTP_502_BAD_GATEWAY,
+    ExternalServiceTimeoutError: status.HTTP_504_GATEWAY_TIMEOUT,
+    InternalProcessingError: status.HTTP_500_INTERNAL_SERVER_ERROR,
+    ServiceUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
 }
 
 _HTTP_ERROR_CODES = {
@@ -41,6 +51,7 @@ _HTTP_ERROR_CODES = {
     status.HTTP_404_NOT_FOUND: "NOT_FOUND",
     status.HTTP_405_METHOD_NOT_ALLOWED: "METHOD_NOT_ALLOWED",
     status.HTTP_409_CONFLICT: "CONFLICT",
+    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE: "PAYLOAD_TOO_LARGE",
     status.HTTP_423_LOCKED: "ACCOUNT_LOCKED",
 }
 
@@ -74,14 +85,22 @@ def _error_response(
     )
 
 
+def status_for_exception(exc: AppException) -> int:
+    """Estado HTTP según la jerarquía: la clase más específica de la MRO que tenga mapeo. Buscar solo el
+    tipo exacto enviaba a 400 a toda subclase (p. ej. PublicacionVectorialPendiente). Una subclase de
+    ExternalServiceTimeoutError es 504 y no 502 porque su clase aparece antes en la MRO."""
+    for clase in type(exc).__mro__:
+        estado = _STATUS_BY_EXCEPTION.get(clase)
+        if estado is not None:
+            return estado
+    return status.HTTP_400_BAD_REQUEST
+
+
 def app_exception_handler(
     request: Request,
     exc: AppException,
 ) -> JSONResponse:
-    status_code = _STATUS_BY_EXCEPTION.get(
-        type(exc),
-        status.HTTP_400_BAD_REQUEST,
-    )
+    status_code = status_for_exception(exc)
 
     logger.warning(
         "Solicitud rechazada: code=%s request_id=%s",
