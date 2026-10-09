@@ -84,7 +84,9 @@ async def test_segundo_arranque_no_ejecuta_ninguna_migracion(url_pg_aislado, mon
     monkeypatch.setattr(motor, "_aplicar", no_debe_ejecutarse)
     monkeypatch.setattr(motor, "_registrar", no_debe_ejecutarse)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.sin_cambios and resultado.previas == (1, 2, 3) and resultado.aplicadas == () == resultado.adoptadas
+    assert resultado.sin_cambios
+    assert resultado.previas == (1, 2, 3)
+    assert resultado.aplicadas == () == resultado.adoptadas
     assert await consultar(url, "SELECT version, aplicada_en, xmin::text AS xmin FROM igualab_migraciones ORDER BY version") == antes
 
 
@@ -120,7 +122,8 @@ async def test_adopta_una_instalacion_manual_completa_solo_si_el_esquema_coincid
     await ejecutar(url, generar_ddl_operaciones())  # y 003
     monkeypatch.setattr(motor, "_aplicar", no_debe_ejecutarse)  # adoptar NO ejecuta SQL de migración
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.adoptadas == (1, 2, 3) and resultado.aplicadas == ()
+    assert resultado.adoptadas == (1, 2, 3)
+    assert resultado.aplicadas == ()
     assert await versiones_registradas(url) == [(1, "adoptada"), (2, "adoptada"), (3, "adoptada")]
     assert (await migrar(url, ESQUEMA_TRANSACCIONAL)).sin_cambios
 
@@ -143,8 +146,10 @@ async def test_una_tabla_que_existe_pero_difiere_no_se_adopta_ni_se_modifica(url
     antes = await esquema_de(url, ("documentos",))
     with pytest.raises(ErrorMigracion) as error:
         await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH" and error.value.base == "transaccional"
-    assert error.value.detalles["objeto"] == "documentos" and error.value.detalles["diferencias"][diferencia[0]] == diferencia[1]
+    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH"
+    assert error.value.base == "transaccional"
+    assert error.value.detalles["objeto"] == "documentos"
+    assert error.value.detalles["diferencias"][diferencia[0]] == diferencia[1]
     assert await esquema_de(url, ("documentos",)) == antes  # no se tocó
     assert "operaciones_ingesta" not in await tablas(url)
     assert await consultar(url, "SELECT 1 FROM igualab_migraciones") == []  # nada quedó registrado
@@ -157,7 +162,8 @@ async def test_una_tabla_con_el_mismo_nombre_pero_otra_estructura_es_un_conflict
         await migrar(url, ESQUEMA_TRANSACCIONAL)
     assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH"
     assert "columnas_faltantes" in error.value.detalles["diferencias"]
-    assert await tablas(url) >= {"documentos"} and "operaciones_ingesta" not in await tablas(url)
+    assert await tablas(url) >= {"documentos"}
+    assert "operaciones_ingesta" not in await tablas(url)
 
 
 async def test_una_migracion_a_medias_se_rechaza(url_pg_aislado):
@@ -171,7 +177,8 @@ async def test_una_migracion_a_medias_se_rechaza(url_pg_aislado):
     )
     with pytest.raises(ErrorMigracion) as error:
         await migrar(url, esquema)
-    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH" and "a medias" in error.value.mensaje
+    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH"
+    assert "a medias" in error.value.mensaje
 
 
 async def test_un_archivo_de_migracion_editado_despues_de_aplicarse_se_detecta(url_pg_aislado):
@@ -180,7 +187,8 @@ async def test_un_archivo_de_migracion_editado_despues_de_aplicarse_se_detecta(u
     await ejecutar(url, "UPDATE igualab_migraciones SET checksum = repeat('0', 64) WHERE version = 2")
     with pytest.raises(ErrorMigracion) as error:
         await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert error.value.codigo == "MIGRATION_CHECKSUM_MISMATCH" and error.value.detalles == {"version": 2}
+    assert error.value.codigo == "MIGRATION_CHECKSUM_MISMATCH"
+    assert error.value.detalles == {"version": 2}
 
 
 async def test_lo_registrado_debe_seguir_existiendo(url_pg_aislado):
@@ -189,7 +197,8 @@ async def test_lo_registrado_debe_seguir_existiendo(url_pg_aislado):
     await ejecutar(url, "DROP TABLE operaciones_ingesta")
     with pytest.raises(ErrorMigracion) as error:
         await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH" and error.value.detalles["objeto"] == "operaciones_ingesta"
+    assert error.value.codigo == "MIGRATION_SCHEMA_MISMATCH"
+    assert error.value.detalles["objeto"] == "operaciones_ingesta"
 
 
 async def test_sin_los_prerrequisitos_no_se_crea_nada(url_pg_aislado):
@@ -206,7 +215,8 @@ async def test_las_migraciones_de_una_version_mas_nueva_se_respetan(url_pg_aisla
     await migrar(url, ESQUEMA_TRANSACCIONAL)
     await ejecutar(url, "INSERT INTO igualab_migraciones (version, nombre, checksum, origen) VALUES (99, 'futura', repeat('a', 64), 'aplicada')")
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)  # una aplicación más vieja (rollback de despliegue) sigue funcionando
-    assert resultado.desconocidas == (99,) and resultado.sin_cambios
+    assert resultado.desconocidas == (99,)
+    assert resultado.sin_cambios
 
 
 # ============================================ Concurrencia y bloqueo ============================================
@@ -229,7 +239,8 @@ async def test_el_bloqueo_es_por_base_y_se_agota_con_error_claro(url_pg_aislado)
         with pytest.raises(ErrorMigracion) as error:
             await migrar(url, ESQUEMA_TRANSACCIONAL, espera_candado=0.6)
         assert error.value.codigo == "MIGRATION_LOCK_TIMEOUT"
-        assert "igualab_migraciones" not in await tablas(url) and "documentos" not in await tablas(url)  # nada se aplicó
+        assert "igualab_migraciones" not in await tablas(url)
+        assert "documentos" not in await tablas(url)  # nada se aplicó
         # Otra BASE (otro candado, otra sesión) no se bloquea.
         assert (await migrar(otra, ESQUEMA_TRANSACCIONAL, espera_candado=0.6)).aplicadas == (1, 2, 3)
     finally:
@@ -256,7 +267,8 @@ async def test_un_fallo_a_mitad_de_una_migracion_la_deshace_por_completo(url_pg_
     ))
     with pytest.raises(ErrorMigracion) as error:
         await migrar(url, esquema)
-    assert error.value.codigo == "MIGRATION_FAILED" and error.value.detalles == {"version": 2, "sqlstate": "42P07"}
+    assert error.value.codigo == "MIGRATION_FAILED"
+    assert error.value.detalles == {"version": 2, "sqlstate": "42P07"}
     assert "prueba_a" in await tablas(url)  # la anterior, ya confirmada, se conserva
     assert not {"prueba_b", "prueba_c"} & await tablas(url)  # la fallida se deshizo entera; la siguiente no corrió
     assert await versiones_registradas(url) == [(1, "aplicada")]  # el registro solo tiene lo confirmado
@@ -302,13 +314,15 @@ async def test_una_migracion_no_transaccional_se_ejecuta_fuera_de_transaccion_y_
     ))
     with pytest.raises(ErrorMigracion) as error:
         await migrar(url2, mal)
-    assert error.value.detalles["version"] == 2 and await versiones_registradas(url2) == [(1, "aplicada")]
+    assert error.value.detalles["version"] == 2
+    assert await versiones_registradas(url2) == [(1, "aplicada")]
 
 
 async def test_versiones_duplicadas_o_desordenadas_se_rechazan(url_pg_aislado, tmp_path):
     a = migracion_de_texto(tmp_path, 1, "a", "SELECT 1;", ("a",))
+    valor_esquemabase = EsquemaBase("t", (a, a))
     with pytest.raises(ValueError):
-        await migrar("postgresql+asyncpg://x@127.0.0.1:1/x", EsquemaBase("t", (a, a)))
+        await migrar("postgresql+asyncpg://x@127.0.0.1:1/x", valor_esquemabase)
 
 
 # ============================================ Conexión y credenciales ============================================
@@ -354,7 +368,8 @@ async def test_vectorial_adopta_una_instalacion_manual_verificada(url_pgvector_a
         await ejecutar(url, m.sql())
     monkeypatch.setattr(motor, "_aplicar", no_debe_ejecutarse)
     resultado = await migrar(url, ESQUEMA_VECTORIAL)
-    assert resultado.adoptadas == (1, 2) and await versiones_registradas(url) == [(1, "adoptada"), (2, "adoptada")]
+    assert resultado.adoptadas == (1, 2)
+    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "adoptada")]
 
 
 async def test_vectorial_con_una_dimension_distinta_no_se_adopta(url_pgvector_aislado):
@@ -384,8 +399,10 @@ async def test_vectorial_rollback_ante_fallo(url_pgvector_aislado, tmp_path):
     ), requiere_pgvector=True)
     with pytest.raises(ErrorMigracion) as error:
         await migrar(url, esquema)
-    assert error.value.codigo == "MIGRATION_FAILED" and error.value.detalles["version"] == 2
-    assert "v_a" in await tablas(url) and "v_b" not in await tablas(url)
+    assert error.value.codigo == "MIGRATION_FAILED"
+    assert error.value.detalles["version"] == 2
+    assert "v_a" in await tablas(url)
+    assert "v_b" not in await tablas(url)
     assert await versiones_registradas(url) == [(1, "aplicada")]
 
 
@@ -397,8 +414,10 @@ async def test_sin_pgvector_instalado_en_el_servidor_se_informa_el_requisito(url
         pytest.skip("Este PostgreSQL local sí tiene pgvector disponible: no se puede probar la ausencia del paquete.")
     with pytest.raises(ErrorMigracion) as error:
         await migrar(url, ESQUEMA_VECTORIAL)
-    assert error.value.codigo == "PGVECTOR_REQUIRED" and error.value.base == "vectorial"
-    assert "CREATE EXTENSION vector" in error.value.mensaje and "instalar pgvector" in error.value.mensaje
+    assert error.value.codigo == "PGVECTOR_REQUIRED"
+    assert error.value.base == "vectorial"
+    assert "CREATE EXTENSION vector" in error.value.mensaje
+    assert "instalar pgvector" in error.value.mensaje
     assert error.value.detalles["sqlstate"]
     assert await tablas(url) == set()  # no se creó ni el registro
 
@@ -424,7 +443,8 @@ async def test_sin_permiso_para_crear_la_extension_se_informa_el_requisito(url_p
         pytest.skip("pgvector es una extensión «trusted» en esta versión: el rol puede crearla; no se puede simular la falta de permiso.")
     with pytest.raises(ErrorMigracion) as error:
         await migrar(con_rol, ESQUEMA_VECTORIAL)
-    assert error.value.codigo == "PGVECTOR_REQUIRED" and error.value.detalles["sqlstate"] == "42501"
+    assert error.value.codigo == "PGVECTOR_REQUIRED"
+    assert error.value.detalles["sqlstate"] == "42501"
     assert "x@" not in f"{error.value.detalles} {error.value.mensaje}"  # sin credenciales
     assert await tablas(admin_url) == set()
 
@@ -443,7 +463,8 @@ async def test_asegurar_esquema_usa_cada_url_sin_fallback_entre_ellas(url_pg_ais
     monkeypatch.setattr(catalogo.settings, "VECTOR_DATABASE_URL", vectorial)
     resultados = await catalogo.asegurar_esquema_ingesta()
     assert [r.base for r in resultados] == ["transaccional", "vectorial"]  # primero la transaccional
-    assert TABLAS_TRANSACCIONALES <= await tablas(transaccional) and TABLAS_VECTORIALES <= await tablas(vectorial)
+    assert TABLAS_TRANSACCIONALES <= await tablas(transaccional)
+    assert TABLAS_VECTORIALES <= await tablas(vectorial)
     assert "fragmentos_documento" not in await tablas(transaccional)  # nada de lo vectorial fue a la transaccional
     assert "documentos" not in await tablas(vectorial)
     resultados = await catalogo.asegurar_esquema_ingesta()
@@ -456,7 +477,8 @@ async def test_sin_vector_database_url_no_hay_fallback_a_la_transaccional(url_pg
     monkeypatch.setattr(catalogo.settings, "VECTOR_DATABASE_URL", None)
     with pytest.raises(ErrorMigracion) as error:
         await catalogo.asegurar_esquema_ingesta()
-    assert error.value.codigo == "MIGRATION_DB_NOT_CONFIGURED" and error.value.base == "vectorial"
+    assert error.value.codigo == "MIGRATION_DB_NOT_CONFIGURED"
+    assert error.value.base == "vectorial"
     assert "fragmentos_documento" not in await tablas(transaccional)
     assert "vector" not in {f["extname"] for f in await consultar(transaccional, "SELECT extname FROM pg_extension")}
 

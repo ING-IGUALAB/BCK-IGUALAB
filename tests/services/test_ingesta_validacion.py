@@ -89,8 +89,9 @@ async def test_sector_declarado_coincidente_es_aceptado(db_empresas):
 
 async def test_empresa_inexistente(db_empresas):
     db, _, _ = db_empresas
+    valor_uuid_uuid4 = uuid.uuid4()
     with pytest.raises(NotFoundError) as capturado:
-        await validacion.obtener_empresa_activa(db, uuid.uuid4())
+        await validacion.obtener_empresa_activa(db, valor_uuid_uuid4)
     assert capturado.value.code == "COMPANY_NOT_FOUND"
 
 
@@ -237,9 +238,10 @@ async def test_archivo_de_exactamente_50_000_000_bytes_es_aceptado():
 
 async def test_archivo_de_50_000_001_bytes_es_rechazado_con_413():
     solicitudes: list[int] = []
+    valor_lector = lector(b"a" * (TAMANO_MAXIMO_BYTES + 1), solicitudes)
     with pytest.raises(PayloadTooLargeError) as capturado:
         await validacion.leer_archivo_limitado(
-            lector(b"a" * (TAMANO_MAXIMO_BYTES + 1), solicitudes)
+            valor_lector
         )
     assert capturado.value.code == "FILE_TOO_LARGE"
     assert capturado.value.details == {"tamano_maximo_bytes": 50_000_000}
@@ -249,9 +251,10 @@ async def test_archivo_de_50_000_001_bytes_es_rechazado_con_413():
 
 async def test_lectura_se_detiene_al_primer_byte_excedente():
     solicitudes: list[int] = []
+    valor_lector_2 = lector(b"a" * 10_000, solicitudes)
     with pytest.raises(PayloadTooLargeError):
         await validacion.leer_archivo_limitado(
-            lector(b"a" * 10_000, solicitudes), limite_bytes=100, tamano_bloque=64
+            valor_lector_2, limite_bytes=100, tamano_bloque=64
         )
     assert solicitudes == [64, 37]
 
@@ -361,9 +364,11 @@ async def test_tablas_bien_formadas_no_generan_advertencia():
 async def test_offsets_de_inconsistencias_con_bom_y_crlf_son_sobre_el_texto_sin_bom():
     texto = "Intro\r\n\r\n| A | B |\r\n|---|---|\r\n| solo |\r\n"
     documento = await validar(BOM + texto.encode("utf-8"))
-    assert documento.tiene_bom and documento.texto == texto
+    assert documento.tiene_bom
+    assert documento.texto == texto
     (detalle,) = documento.diagnostico_tablas.detalles
-    assert detalle.linea == 5 and detalle.inicio == texto.index("| solo |")
+    assert detalle.linea == 5
+    assert detalle.inicio == texto.index("| solo |")
     assert documento.contenido.startswith(BOM)  # bytes originales intactos
 
 
@@ -489,9 +494,10 @@ async def test_nombre_de_255_caracteres_con_unicode_aceptado_y_256_rechazado():
 
 async def test_nombre_invalido_no_llega_a_leer_el_archivo():
     solicitudes: list[int] = []
+    valor_lector_3 = lector(b"# Memoria\n", solicitudes)
     with pytest.raises(BusinessValidationError):
         await validacion.validar_archivo(
-            "../../x.md", lector(b"# Memoria\n", solicitudes)
+            "../../x.md", valor_lector_3
         )
     assert solicitudes == []
 
@@ -599,11 +605,13 @@ def test_el_pdf_de_prueba_esta_bien_formado_sin_depender_del_detector():
     # texto con cabecera, es un PDF cuyas referencias internas son correctas.
     datos = PDF_ASCII
     assert all(byte < 128 for byte in datos)
-    assert datos.startswith(b"%PDF-1.4\n") and datos.endswith(b"%%EOF\n")
+    assert datos.startswith(b"%PDF-1.4\n")
+    assert datos.endswith(b"%%EOF\n")
     inicio_xref = int(datos.rsplit(b"startxref\n", 1)[1].split(b"\n")[0])
     assert datos[inicio_xref:inicio_xref + 5] == b"xref\n"
     entradas = datos[inicio_xref:].split(b"trailer")[0].split(b"\n")[2:-1]
-    assert len(entradas) == 6 and all(len(e) == 19 for e in entradas)  # 20 bytes con el salto
+    assert len(entradas) == 6
+    assert all(len(e) == 19 for e in entradas)  # 20 bytes con el salto
     for numero, entrada in enumerate(entradas[1:], start=1):
         offset = int(entrada[:10])
         assert datos[offset:].startswith(f"{numero} 0 obj\n".encode())
@@ -616,7 +624,8 @@ def test_el_pdf_de_prueba_es_ascii_y_antes_superaba_todas_las_comprobaciones():
     texto_interpretado, _ = validacion.decodificar_utf8(PDF_ASCII)
     validacion.validar_texto(texto_interpretado)  # sin controles prohibidos ni vacío
     assert validacion.diagnosticar_tablas(texto_interpretado).tablas == 0  # sin tablas
-    assert texto.startswith("%PDF-") and texto.rstrip().endswith("%%EOF")
+    assert texto.startswith("%PDF-")
+    assert texto.rstrip().endswith("%%EOF")
 
 
 async def test_pdf_ascii_renombrado_a_md_se_rechaza_por_formato_no_por_utf8():
@@ -629,7 +638,8 @@ async def test_pdf_ascii_renombrado_a_md_se_rechaza_por_formato_no_por_utf8():
         await validacion.validar_archivo(upload.filename, upload.read)
     assert capturado.value.code == "INVALID_FILE_CONTENT"
     assert capturado.value.details == {"formato_detectado": "PDF"}
-    assert "PDF" in capturado.value.message and "Markdown" in capturado.value.message
+    assert "PDF" in capturado.value.message
+    assert "Markdown" in capturado.value.message
     assert "Catalog" not in capturado.value.message  # sin contenido del archivo
 
 
@@ -755,7 +765,8 @@ async def test_inconsistencias_entre_varias_tablas_se_cuentan_todas_con_maximo_g
     assert diagnostico.total_inconsistencias == 36
     # Orden de documento: la tabla 1 aporta 12 y la tabla 2, los 8 primeros.
     assert [d.linea for d in diagnostico.detalles] == invalidas[:20]
-    assert invalidas[11] < invalidas[12] and invalidas[19] < invalidas[20]
+    assert invalidas[11] < invalidas[12]
+    assert invalidas[19] < invalidas[20]
     assert {d.linea_tabla for d in diagnostico.detalles} == {1, 21}
 
 
@@ -802,7 +813,9 @@ def test_durante_el_recorrido_de_varias_tablas_nunca_hay_mas_de_20_detalles_en_m
     diagnostico = validacion.diagnosticar_tablas("\n\nTexto.\n\n".join(tablas))
 
     assert registros == list(range(1, 151))  # se contaron las 150, sin detenerse en 20
-    assert max(maximos) == 20 and maximos[:20] == list(range(1, 21)) and set(maximos[20:]) == {20}
+    assert max(maximos) == 20
+    assert maximos[:20] == list(range(1, 21))
+    assert set(maximos[20:]) == {20}
     assert diagnostico.total_inconsistencias == 150
     assert len(diagnostico.detalles) == 20
 

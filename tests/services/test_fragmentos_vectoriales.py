@@ -134,8 +134,10 @@ class SesionProhibida:
 async def test_vectores_invalidos_se_rechazan_antes_de_persistir(vector):
     sesion = SesionProhibida()
     elementos = (FragmentoEmbebido(sintetico(0), vec(1)), FragmentoEmbebido(sintetico(1), vector))
+    valor_loteembebido = LoteEmbebido(0, IDENTIDAD, elementos)
+    valor_args = args()
     with pytest.raises(ValueError):
-        await fv.guardar_lote(sesion, lote=LoteEmbebido(0, IDENTIDAD, elementos), **args())
+        await fv.guardar_lote(sesion, lote=valor_loteembebido, **valor_args)
     assert sesion.usos == 0  # ni siquiera se abrió la transacción
 
 
@@ -146,8 +148,10 @@ async def test_vectores_invalidos_se_rechazan_antes_de_persistir(vector):
 ])
 async def test_metadatos_invalidos_se_rechazan_antes_de_persistir(cambios):
     sesion = SesionProhibida()
+    valor_lote = lote()
+    valor_args_2 = args(**cambios)
     with pytest.raises(ValueError):
-        await fv.guardar_lote(sesion, lote=lote(), **args(**cambios))
+        await fv.guardar_lote(sesion, lote=valor_lote, **valor_args_2)
     assert sesion.usos == 0
 
 
@@ -167,8 +171,10 @@ async def test_metadatos_invalidos_se_rechazan_antes_de_persistir(cambios):
 ])
 async def test_lotes_inconsistentes_se_rechazan_antes_de_persistir(construir):
     sesion = SesionProhibida()
+    valor_construir = construir()
+    valor_args_3 = args()
     with pytest.raises(ValueError):
-        await fv.guardar_lote(sesion, lote=construir(), **args())
+        await fv.guardar_lote(sesion, lote=valor_construir, **valor_args_3)
     assert sesion.usos == 0
 
 
@@ -180,13 +186,16 @@ async def test_lotes_inconsistentes_se_rechazan_antes_de_persistir(construir):
 ])
 def test_vectores_que_siguen_siendo_validos_en_float32_se_aceptan(vector):
     literal = fv._validar_vector(vector, "El vector")
-    assert literal.startswith("[") and literal.endswith("]") and literal.count(",") == DIM - 1
+    assert literal.startswith("[")
+    assert literal.endswith("]")
+    assert literal.count(",") == DIM - 1
 
 
 def test_el_literal_enviado_es_exactamente_la_representacion_float32():
     literal = fv._validar_vector(tuple([0.1] * DIM), "El vector")
     valor = float(literal[1:].split(",")[0])
-    assert valor == fv._a_float32(0.1) and valor != 0.1  # lo validado es lo almacenado, no el double original
+    assert valor == fv._a_float32(0.1)
+    assert valor != 0.1  # lo validado es lo almacenado, no el double original
 
 
 async def test_una_sesion_con_transaccion_abierta_se_rechaza():
@@ -238,8 +247,9 @@ async def test_operaciones_por_documento_validan_ambiente_y_documento(operacion)
     for cambios in (dict(ambiente="Mal"), dict(documento_id="x"), dict(documento_id=None)):
         valores = dict(ambiente="development", documento_id=DOC_A)
         valores.update(cambios)
+        valor_getattr = getattr(fv, operacion)
         with pytest.raises(ValueError):
-            await getattr(fv, operacion)(sesion, **valores)
+            await valor_getattr(sesion, **valores)
     assert sesion.usos == 0
 
 
@@ -262,14 +272,16 @@ def test_una_url_vectorial_con_otro_controlador_se_rechaza_sin_repetirla(monkeyp
     monkeypatch.setattr(settings, "VECTOR_DATABASE_URL", "mysql://usuario:CLAVE-SECRETA@host/db")
     with pytest.raises(ExternalServiceError) as capturado:
         url_vectorial()
-    assert capturado.value.code == "VECTOR_DATABASE_URL_INVALID" and "CLAVE-SECRETA" not in str(capturado.value)
+    assert capturado.value.code == "VECTOR_DATABASE_URL_INVALID"
+    assert "CLAVE-SECRETA" not in str(capturado.value)
 
 
 async def test_el_motor_vectorial_se_crea_de_forma_perezosa_con_la_url_configurada(monkeypatch):
     monkeypatch.setattr(settings, "VECTOR_DATABASE_URL", "postgresql+asyncpg://usuario:clave@127.0.0.1:1/db")
     try:
         motor = obtener_motor_vectorial()  # no conecta
-        assert obtener_motor_vectorial() is motor and motor.url.database == "db"
+        assert obtener_motor_vectorial() is motor
+        assert motor.url.database == "db"
     finally:
         await cerrar_motor_vectorial()
     assert obtener_motor_vectorial() is not motor  # tras cerrar, se crea otro
@@ -305,7 +317,8 @@ async def test_la_extension_vector_real_y_el_esquema_del_archivo_sql(fabrica_vec
 
 async def test_persistencia_y_lectura_conservan_texto_literal_y_metadatos(fabrica_vectorial):
     fragmentos = fragmentos_reales()
-    assert len(fragmentos) >= 2 and any(len(t) > 500 for f in fragmentos for t in f.ruta_encabezados)  # encabezado largo
+    assert len(fragmentos) >= 2
+    assert any(len(t) > 500 for f in fragmentos for t in f.ruta_encabezados)  # encabezado largo
     assert await guardar(fabrica_vectorial, lote(fragmentos)) == len(fragmentos)
 
     filas = await sql(fabrica_vectorial,
@@ -314,12 +327,14 @@ async def test_persistencia_y_lectura_conservan_texto_literal_y_metadatos(fabric
         "FROM fragmentos_documento ORDER BY indice")
     assert len(filas) == len(fragmentos)
     for fila, f in zip(filas, fragmentos):
-        assert fila.texto_literal == f.texto_literal and fila.texto_literal == TEXTO[f.inicio:f.fin]  # sin alterar (CRLF, ñ, emoji)
+        assert fila.texto_literal == f.texto_literal
+        assert fila.texto_literal == TEXTO[f.inicio:f.fin]  # sin alterar (CRLF, ñ, emoji)
         assert (fila.contexto, fila.inicio, fila.fin, fila.continuacion) == (f.contexto, f.inicio, f.fin, f.continuacion)
         assert tuple(fila.ruta_encabezados) == f.ruta_encabezados
         assert (fila.empresa_id, fila.anio, fila.tipo, fila.sector) == (EMPRESA, 2025, "MEMORIA_ANUAL", "MINERIA")
         assert (fila.embedding_proveedor, fila.embedding_modelo, fila.embedding_dimension) == ("oci-cohere", "cohere.embed-v4.0", DIM)
-        assert fila[14] == DIM and fila.publicado is False
+        assert fila[14] == DIM
+        assert fila.publicado is False
         assert (fila.ambiente, fila.documento_id) == ("development", DOC_A)
 
     # Tras publicar, la lectura de recuperación devuelve lo mismo y la composición del embedding se reproduce.
@@ -330,10 +345,12 @@ async def test_persistencia_y_lectura_conservan_texto_literal_y_metadatos(fabric
     assert set(por_indice) == {f.indice for f in fragmentos}
     for f in fragmentos:
         h = por_indice[f.indice]
-        assert h.texto_literal == f.texto_literal and h.contexto == f.contexto
+        assert h.texto_literal == f.texto_literal
+        assert h.contexto == f.contexto
         assert h.texto_embedding == f.texto_embedding  # lo que se envió al proveedor, sin cambiar la composición
         assert (h.inicio, h.fin, h.continuacion, h.ruta_encabezados, h.seccion) == (f.inicio, f.fin, f.continuacion, f.ruta_encabezados, f.seccion)
-    assert hallados[0].indice == 0 and hallados[0].similitud == pytest.approx(1.0, abs=1e-6)  # vec(0) vs sí mismo
+    assert hallados[0].indice == 0
+    assert hallados[0].similitud == pytest.approx(1.0, abs=1e-6)  # vec(0) vs sí mismo
 
 
 async def test_el_vector_guardado_conserva_sus_componentes(fabrica_vectorial):
@@ -341,7 +358,8 @@ async def test_el_vector_guardado_conserva_sus_componentes(fabrica_vectorial):
     await guardar(fabrica_vectorial, lote([sintetico(0)], [v]))
     guardado = (await sql(fabrica_vectorial, "SELECT embedding::text FROM fragmentos_documento"))[0][0]
     leidos = [float(x) for x in guardado.strip("[]").split(",")]
-    assert len(leidos) == DIM and all(abs(a - b) < 1e-6 for a, b in zip(leidos, v))  # float4: ~7 cifras
+    assert len(leidos) == DIM
+    assert all(abs(a - b) < 1e-6 for a, b in zip(leidos, v))  # float4: ~7 cifras
 
 
 async def publicar(fabrica, ambiente="development", documento=DOC_A):
@@ -435,8 +453,9 @@ async def test_aislamiento_entre_ambientes(fabrica_vectorial):
 
 async def test_un_indice_duplicado_del_documento_se_rechaza_y_no_altera_lo_existente(fabrica_vectorial):
     await guardar(fabrica_vectorial, lote([sintetico(0, "original")], [eje(0)]))
+    valor_lote_2 = lote([sintetico(0, "intruso")], [eje(1)])
     with pytest.raises(ConflictError) as capturado:
-        await guardar(fabrica_vectorial, lote([sintetico(0, "intruso")], [eje(1)]))
+        await guardar(fabrica_vectorial, valor_lote_2)
     assert capturado.value.code == "FRAGMENTS_ALREADY_PERSISTED"
     assert [f.texto_literal for f in await sql(fabrica_vectorial, "SELECT texto_literal FROM fragmentos_documento")] == ["original"]
 
@@ -444,13 +463,15 @@ async def test_un_indice_duplicado_del_documento_se_rechaza_y_no_altera_lo_exist
 async def test_un_fallo_a_mitad_del_lote_no_deja_filas_parciales(fabrica_vectorial):
     await guardar(fabrica_vectorial, lote([sintetico(0, "previo")], [eje(0)]))
     # 1) Conflicto en la última fila: los índices 1 y 2 NO deben quedar.
+    valor_lote_3 = lote([sintetico(1), sintetico(2), sintetico(0)], [eje(1), eje(2), eje(3)])
     with pytest.raises(ConflictError):
-        await guardar(fabrica_vectorial, lote([sintetico(1), sintetico(2), sintetico(0)], [eje(1), eje(2), eje(3)]))
+        await guardar(fabrica_vectorial, valor_lote_3)
     assert [f.indice for f in await sql(fabrica_vectorial, "SELECT indice FROM fragmentos_documento ORDER BY indice")] == [0]
     # 2) Error de datos de la base (entero fuera de rango) en la tercera fila: no es un conflicto y tampoco deja filas.
     fuera_de_rango = replace(sintetico(5, "x"), inicio=2**31, fin=2**31 + 1)
+    valor_lote_4 = lote([sintetico(3), sintetico(4), fuera_de_rango], [eje(1), eje(2), eje(3)])
     with pytest.raises(DBAPIError):
-        await guardar(fabrica_vectorial, lote([sintetico(3), sintetico(4), fuera_de_rango], [eje(1), eje(2), eje(3)]))
+        await guardar(fabrica_vectorial, valor_lote_4)
     assert [f.indice for f in await sql(fabrica_vectorial, "SELECT indice FROM fragmentos_documento ORDER BY indice")] == [0]
     # La sesión sigue siendo utilizable tras el fallo y el mismo lote correcto sí se guarda.
     assert await guardar(fabrica_vectorial, lote([sintetico(3), sintetico(4)], [eje(1), eje(2)])) == 2
@@ -468,7 +489,8 @@ async def test_busqueda_exacta_por_coseno_con_vectores_sinteticos(fabrica_vector
     assert [h.texto_literal for h in await buscar(fabrica_vectorial, escalada)] == ["d0", "d1", "d2"]
     # Consulta opuesta: orden inverso y similitud negativa (rango [-1, 1]).
     opuesta = [h for h in await buscar(fabrica_vectorial, tuple(-c for c in eje(0)))]
-    assert [h.texto_literal for h in opuesta][0] in ("d2",) and opuesta[-1].similitud == pytest.approx(-1.0, abs=1e-5)
+    assert [h.texto_literal for h in opuesta][0] in ("d2",)
+    assert opuesta[-1].similitud == pytest.approx(-1.0, abs=1e-5)
     assert [h.texto_literal for h in await buscar(fabrica_vectorial, eje(0), limite=2)] == ["d0", "d1"]
 
 
@@ -480,7 +502,8 @@ async def test_busqueda_con_empate_es_determinista_y_respeta_los_filtros(fabrica
     await publicar(fabrica_vectorial, documento=DOC_B)
     ambos = (EMPRESA, OTRA_EMPRESA)
     orden = [(h.documento_id, h.indice) for h in await buscar(fabrica_vectorial, eje(0), empresas=ambos)]
-    assert orden == sorted(orden, key=lambda p: (str(p[0]), p[1])) and len(orden) == 3  # desempate por documento e índice
+    assert orden == sorted(orden, key=lambda p: (str(p[0]), p[1]))
+    assert len(orden) == 3  # desempate por documento e índice
     assert {h.texto_literal for h in await buscar(fabrica_vectorial, eje(0))} == {"a", "b"}  # solo la empresa pedida
     assert await buscar(fabrica_vectorial, eje(0), empresas=[uuid.uuid4()]) == []
     assert {h.texto_literal for h in await buscar(fabrica_vectorial, eje(0), empresas=ambos, anio=2024)} == {"o"}
@@ -610,7 +633,8 @@ async def test_cualquier_fallo_hace_rollback_y_se_propaga_sin_convertirse_en_con
     with pytest.raises(type(error)) as capturado:
         await llamadas[operacion]()
     assert not isinstance(capturado.value, ConflictError)
-    assert sesion.rollbacks == 1 and sesion.commits == 0  # nada confirmado
+    assert sesion.rollbacks == 1
+    assert sesion.commits == 0  # nada confirmado
 
 
 async def test_la_dependencia_de_sesion_vectorial_usa_la_url_configurada_y_hace_rollback_ante_errores(url_pgvector_aislado, monkeypatch):
@@ -621,8 +645,9 @@ async def test_la_dependencia_de_sesion_vectorial_usa_la_url_configurada_y_hace_
         generador = get_vector_db()
         sesion = await generador.__anext__()
         assert (await sesion.execute(text("SELECT 1"))).scalar_one() == 1
+        valor_runtimeerror = RuntimeError("fallo en la solicitud")
         with pytest.raises(RuntimeError):
-            await generador.athrow(RuntimeError("fallo en la solicitud"))
+            await generador.athrow(valor_runtimeerror)
         assert not sesion.in_transaction()  # el rollback cerró la transacción
         async with fabrica_sesiones_vectoriales()() as otra:
             assert (await otra.execute(text("SELECT 1"))).scalar_one() == 1
@@ -634,8 +659,9 @@ async def test_sin_url_la_dependencia_de_sesion_falla_de_forma_controlada(monkey
     from app.database_vectorial import get_vector_db
 
     monkeypatch.setattr(settings, "VECTOR_DATABASE_URL", None)
+    valor_vector_db = get_vector_db()
     with pytest.raises(ExternalServiceError) as capturado:
-        await get_vector_db().__anext__()
+        await valor_vector_db.__anext__()
     assert capturado.value.code == "VECTOR_DATABASE_NOT_CONFIGURED"
 
 
@@ -697,7 +723,8 @@ async def test_lo_que_se_acepta_funciona_en_pgvector_con_similitud_finita(fabric
     await guardar(fabrica_vectorial, lote([sintetico(0, "x")], [vector]))
     await publicar(fabrica_vectorial)
     hallados = await buscar(fabrica_vectorial, vector)
-    assert len(hallados) == 1 and math.isfinite(hallados[0].similitud)
+    assert len(hallados) == 1
+    assert math.isfinite(hallados[0].similitud)
     assert hallados[0].similitud == pytest.approx(1.0, abs=1e-4)  # consigo mismo
 
 
@@ -718,8 +745,9 @@ async def test_lo_que_se_rechaza_es_justamente_lo_que_pgvector_no_sabe_comparar(
     assert math.isnan(distancia)
     # 2) La aplicación los rechaza ANTES de persistir y de buscar, tanto como documento como como consulta.
     vector = tuple([valor] * DIM)
+    valor_lote_5 = lote([sintetico(0, "x")], [vector])
     with pytest.raises(ValueError):
-        await guardar(fabrica_vectorial, lote([sintetico(0, "x")], [vector]))
+        await guardar(fabrica_vectorial, valor_lote_5)
     assert (await sql(fabrica_vectorial, "SELECT count(*) FROM fragmentos_documento"))[0][0] == 0
     with pytest.raises(ValueError):
         await buscar(fabrica_vectorial, vector)

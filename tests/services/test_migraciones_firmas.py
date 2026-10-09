@@ -70,7 +70,8 @@ def test_el_catalogo_y_las_firmas_declaran_lo_mismo():
             for objeto in m.objetos:
                 assert m.version in firmas[esquema.nombre][objeto], (esquema.nombre, m.version, objeto)
         versiones = [m.version for m in esquema.migraciones]
-        assert versiones == sorted(set(versiones)) and versiones[0] == 1
+        assert versiones == sorted(set(versiones))
+        assert versiones[0] == 1
         # El archivo de cada migración existe, no abre ni cierra transacciones y es el que numera el catálogo.
         for m in esquema.migraciones:
             texto = m.sql().upper()

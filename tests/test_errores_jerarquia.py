@@ -110,14 +110,16 @@ async def test_una_excepcion_no_prevista_sigue_siendo_500_generico_sin_detalles(
     respuesta = await _pedir(RuntimeError("texto del documento y credenciales"))
     assert respuesta.status_code == 500
     error = respuesta.json()["error"]
-    assert error["code"] == "INTERNAL_ERROR" and error["details"] is None
+    assert error["code"] == "INTERNAL_ERROR"
+    assert error["details"] is None
     assert "credenciales" not in respuesta.text
 
 
 async def test_las_cabeceras_de_la_excepcion_se_conservan():
     excepcion = AuthenticationError("INVALID_SESSION", "Sin sesión.", headers={"WWW-Authenticate": "Bearer"})
     respuesta = await _pedir(excepcion)
-    assert respuesta.status_code == 401 and respuesta.headers["www-authenticate"] == "Bearer"
+    assert respuesta.status_code == 401
+    assert respuesta.headers["www-authenticate"] == "Bearer"
 
 
 async def test_metadatos_invalidos_son_422_con_el_contrato_vigente():
@@ -132,7 +134,8 @@ async def test_metadatos_invalidos_son_422_con_el_contrato_vigente():
             respuesta = await cliente.post("/metadatos", json=carga)
             assert respuesta.status_code == 422, respuesta.text
             error = respuesta.json()["error"]
-            assert error["code"] == "REQUEST_VALIDATION_ERROR" and "input" not in str(error["details"])
+            assert error["code"] == "REQUEST_VALIDATION_ERROR"
+            assert "input" not in str(error["details"])
 
 
 def test_toda_subclase_de_una_clase_mapeada_hereda_su_estado():

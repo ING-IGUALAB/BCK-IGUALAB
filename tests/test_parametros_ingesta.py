@@ -38,10 +38,12 @@ def test_los_valores_acordados_estan_en_codigo():
 
 
 def test_la_configuracion_es_tipada_inmutable_y_sustituible():
+    copia = dataclasses.replace(PARAMETROS_INGESTA)  # `frozen` es de la clase: no hace falta tocar el global
     with pytest.raises(dataclasses.FrozenInstanceError):
-        PARAMETROS_INGESTA.tamano_lote = 1
+        copia.tamano_lote = 1
     propios = dataclasses.replace(PARAMETROS_INGESTA, tamano_lote=2, vigencia=timedelta(seconds=30))
-    assert propios.tamano_lote == 2 and PARAMETROS_INGESTA.tamano_lote == 16  # sustituir no toca el valor de código
+    assert propios.tamano_lote == 2
+    assert PARAMETROS_INGESTA.tamano_lote == 16  # sustituir no toca el valor de código
 
 
 def test_los_parametros_se_traducen_al_coordinador_y_al_gestor_y_coinciden_con_los_valores_por_defecto_de_cada_uno():

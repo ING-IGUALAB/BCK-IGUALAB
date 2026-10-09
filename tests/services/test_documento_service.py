@@ -116,11 +116,14 @@ async def test_la_reserva_registra_metadatos_y_deja_el_documento_en_proceso(e):
     assert documento.sector is e.empresa.sector
     assert documento.nombre_archivo == "Memoria anual 2025.md"
     assert (documento.sha256, documento.tamano_bytes) == (hashlib.sha256(datos).hexdigest(), len(datos))
-    assert documento.usuario_id == e.usuario.id and documento.creado_en is not None
+    assert documento.usuario_id == e.usuario.id
+    assert documento.creado_en is not None
     assert documento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
     assert documento.resultado_analisis is None
-    assert documento.estado_compensacion is EstadoCompensacion.NINGUNA and documento.reserva_activa is True
-    assert documento.original_almacenado_en is None and documento.almacenamiento_intentado_en is None
+    assert documento.estado_compensacion is EstadoCompensacion.NINGUNA
+    assert documento.reserva_activa is True
+    assert documento.original_almacenado_en is None
+    assert documento.almacenamiento_intentado_en is None
     assert documento.disponible_para_rag is False
     assert e.almacen.llamadas == []  # reservar no toca el almacén
     assert e.db.in_transaction() is False
@@ -129,25 +132,29 @@ async def test_la_reserva_registra_metadatos_y_deja_el_documento_en_proceso(e):
 async def test_la_clave_usa_ambiente_y_uuid_del_servidor_nunca_el_nombre_recibido(e):
     documento, _ = await reservar(e, nombre="../../x Memoria anual 2025.md".replace("../../", ""))
     assert documento.clave_original == generar_clave_original("development", documento.id)
-    assert "Memoria" not in documento.clave_original and ".md" == documento.clave_original[-3:]
+    assert "Memoria" not in documento.clave_original
+    assert ".md" == documento.clave_original[-3:]
     assert documento.nombre_archivo.startswith("x Memoria")  # el nombre es solo metadata
     qa, _ = await reservar(e, datos_unicos(1), ambiente="qa")
-    assert qa.clave_original.startswith("qa/") and qa.ambiente == "qa"
+    assert qa.clave_original.startswith("qa/")
+    assert qa.ambiente == "qa"
 
 
 async def test_el_sector_se_toma_de_la_empresa_y_el_declarado_solo_se_contrasta(e):
     documento, _ = await reservar(e, sector=SectorEmpresa.MINERIA)
     assert documento.sector is SectorEmpresa.MINERIA
+    valor_datos_unicos = datos_unicos(2)
     with pytest.raises(BusinessValidationError) as capturado:
-        await reservar(e, datos_unicos(2), anio=2024, sector=SectorEmpresa.ENERGIA)
+        await reservar(e, valor_datos_unicos, anio=2024, sector=SectorEmpresa.ENERGIA)
     assert capturado.value.code == "COMPANY_SECTOR_MISMATCH"
 
 
 async def test_empresa_inexistente_o_inactiva_no_reserva_nada(e):
+    valor_metadatosingestarequest = MetadatosIngestaRequest(empresa_id=uuid.uuid4(), anio=2025, tipo=TipoDocumento.MEMORIA_ANUAL)
     with pytest.raises(NotFoundError):
         await servicio.reservar_documento(
             e.db,
-            metadatos=MetadatosIngestaRequest(empresa_id=uuid.uuid4(), anio=2025, tipo=TipoDocumento.MEMORIA_ANUAL),
+            metadatos=valor_metadatosingestarequest,
             nombre_archivo="a.md", sha256="a" * 64, tamano_bytes=3, usuario_id=e.usuario.id, ambiente="development",
         )
     inactiva = await crear_empresa(e.db, nombre="Inactiva", activa=False)
@@ -162,8 +169,9 @@ async def test_solo_un_superadmin_habilitado_puede_reservar(e):
     with pytest.raises(AuthorizationError) as capturado:
         await reservar(e, usuario=admin)
     assert capturado.value.code == "INGESTION_FORBIDDEN"
+    valor_simplenamespace = SimpleNamespace(id=uuid.uuid4())
     with pytest.raises(AuthorizationError):
-        await reservar(e, usuario=SimpleNamespace(id=uuid.uuid4()))
+        await reservar(e, usuario=valor_simplenamespace)
     e.db.sync.execute(update(type(e.usuario)).where(type(e.usuario).id == e.usuario.id).values(habilitado=False))
     e.db.sync.commit()
     with pytest.raises(AuthorizationError):
@@ -179,18 +187,20 @@ async def test_solo_un_superadmin_habilitado_puede_reservar(e):
 async def test_entradas_invalidas_se_rechazan_sin_reservar(e, cambios):
     valores = dict(nombre_archivo="a.md", sha256="a" * 64, tamano_bytes=3)
     valores.update(cambios)
+    valor_metadatos = metadatos(e.empresa)
     with pytest.raises((BusinessValidationError, ValueError)):
         await servicio.reservar_documento(
-            e.db, metadatos=metadatos(e.empresa), usuario_id=e.usuario.id, ambiente="development", **valores
+            e.db, metadatos=valor_metadatos, usuario_id=e.usuario.id, ambiente="development", **valores
         )
     assert e.db.sync.scalars(select(Documento)).all() == []
 
 
 @pytest.mark.parametrize("ambiente", ["", "Dev", "../qa", "a/b", None])
 async def test_ambiente_invalido(e, ambiente):
+    valor_metadatos_2 = metadatos(e.empresa)
     with pytest.raises(ValueError):
         await servicio.reservar_documento(
-            e.db, metadatos=metadatos(e.empresa), nombre_archivo="a.md", sha256="a" * 64, tamano_bytes=3,
+            e.db, metadatos=valor_metadatos_2, nombre_archivo="a.md", sha256="a" * 64, tamano_bytes=3,
             usuario_id=e.usuario.id, ambiente=ambiente,
         )
 
@@ -224,17 +234,21 @@ async def test_documento_completado_bloquea_por_hash_con_fecha_y_cuenta_original
     assert error.details["documento_id"] == str(original.id)
     assert error.details["cuenta"] == "superadmin@pruebas.invalid"
     cargado = datetime.fromisoformat(error.details["cargado_en"])
-    assert cargado.tzinfo is not None and cargado.utcoffset() == timedelta(0)
+    assert cargado.tzinfo is not None
+    assert cargado.utcoffset() == timedelta(0)
     assert abs((cargado - recargar(e, original).creado_en.replace(tzinfo=timezone.utc)).total_seconds()) < 1
     visible = f"{error} {error.message} {error.details!r}"
-    assert sha256_de(datos) not in visible and "Memoria anual 2025.md" not in visible and original.clave_original not in visible
+    assert sha256_de(datos) not in visible
+    assert "Memoria anual 2025.md" not in visible
+    assert original.clave_original not in visible
 
 
 async def test_documento_completado_bloquea_por_empresa_anio_tipo(e):
     original, datos = await reservar(e)
     await completar(e, original, datos)
     error = await conflicto(e, datos=datos_unicos(7))
-    assert error.code == "DOCUMENT_ALREADY_INGESTED" and error.details["criterio"] == ["empresa_anio_tipo"]
+    assert error.code == "DOCUMENT_ALREADY_INGESTED"
+    assert error.details["criterio"] == ["empresa_anio_tipo"]
     ambos = await conflicto(e, datos=datos)
     assert ambos.details["criterio"] == ["sha256", "empresa_anio_tipo"]
 
@@ -260,7 +274,8 @@ async def test_carga_en_curso_impide_otra_reserva_equivalente_sin_revelar_la_cue
     por_hash = await conflicto(e, datos=CONTENIDO, anio=2020)
     por_combinacion = await conflicto(e, datos=datos_unicos(1))
     for error, criterio in ((por_hash, ["sha256"]), (por_combinacion, ["empresa_anio_tipo"])):
-        assert error.code == "DOCUMENT_UPLOAD_IN_PROGRESS" and error.details == {"criterio": criterio}
+        assert error.code == "DOCUMENT_UPLOAD_IN_PROGRESS"
+        assert error.details == {"criterio": criterio}
 
 
 async def test_si_hay_varios_conflictos_se_informa_primero_el_completado(e):
@@ -286,8 +301,9 @@ async def test_solo_se_traducen_las_violaciones_de_los_indices_de_reserva(e, mon
         return None
 
     monkeypatch.setattr(servicio, "_buscar_conflicto", sin_consulta)
+    contenido_distinto = datos_unicos(1)
     with pytest.raises(ConflictError) as capturado:
-        await reservar(e, datos_unicos(1))  # misma empresa/año/tipo
+        await reservar(e, contenido_distinto)  # misma empresa/año/tipo
     assert capturado.value.code == "DOCUMENT_RESERVATION_CONFLICT"
     with pytest.raises(ConflictError):
         await reservar(e, CONTENIDO, anio=2020)  # mismo hash
@@ -298,8 +314,9 @@ async def test_cualquier_otra_integrityerror_se_propaga_sin_traducir(e, monkeypa
     mismo_id = uuid.uuid4()
     monkeypatch.setattr(servicio.uuid, "uuid4", lambda: mismo_id)
     await reservar(e)
+    contenido_distinto = datos_unicos(1)
     with pytest.raises(IntegrityError):  # clave primaria repetida: no es una reserva duplicada
-        await reservar(e, datos_unicos(1), anio=2024)
+        await reservar(e, contenido_distinto, anio=2024)
 
 
 def test_clasificacion_de_integrityerror():
@@ -329,10 +346,12 @@ async def test_el_original_se_guarda_con_los_bytes_exactos_bom_incluido_y_sha256
     assert e.almacen.objetos == {(documento.clave_original, None): datos}
     assert e.almacen.objetos[(documento.clave_original, None)].startswith(BOM)
     assert sha256_de(e.almacen.objetos[(documento.clave_original, None)]) == guardado.sha256 == sha256_de(datos)
-    assert guardado.original_almacenado_en is not None and guardado.almacenamiento_intentado_en is not None
+    assert guardado.original_almacenado_en is not None
+    assert guardado.almacenamiento_intentado_en is not None
     # Con el original almacenado NO está disponible ni completado.
     assert guardado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
-    assert guardado.resultado_analisis is None and guardado.disponible_para_rag is False
+    assert guardado.resultado_analisis is None
+    assert guardado.disponible_para_rag is False
     await servicio.verificar_original(e.db, e.almacen, documento.id)
 
 
@@ -345,7 +364,8 @@ async def test_ninguna_transaccion_de_bd_esta_abierta_durante_las_llamadas_al_al
     await fallar_subida(e, otro, datos2)  # incluye fallar + compensar
     operaciones = [op for op, _ in e.almacen.llamadas]
     assert {"guardar", "leer", "estado_subida", "listar_versiones", "eliminar"} <= set(operaciones)
-    assert e.almacen.transaccion_abierta_en_llamada and not any(e.almacen.transaccion_abierta_en_llamada)
+    assert e.almacen.transaccion_abierta_en_llamada
+    assert not any(e.almacen.transaccion_abierta_en_llamada)
 
 
 async def test_contenido_distinto_del_reservado_se_rechaza_sin_cambiar_estado_ni_subir(e):
@@ -369,15 +389,18 @@ async def test_el_original_solo_se_sube_una_vez_y_nunca_se_sobrescribe(e):
 
 async def test_un_almacen_de_otro_ambiente_se_rechaza(e):
     documento, datos = await reservar(e)
+    valor_almacenenmemoria = AlmacenEnMemoria("qa")
     with pytest.raises(BusinessValidationError) as capturado:
-        await servicio.almacenar_original(e.db, AlmacenEnMemoria("qa"), documento.id, datos, token=documento.ejecucion_token)
+        await servicio.almacenar_original(e.db, valor_almacenenmemoria, documento.id, datos, token=documento.ejecucion_token)
     assert capturado.value.code == "STORAGE_ENVIRONMENT_MISMATCH"
     assert recargar(e, documento).almacenamiento_intentado_en is None
 
 
 async def test_documento_inexistente_o_ya_fallido_no_se_almacena(e):
+    valor_uuid_uuid4 = uuid.uuid4()
+    valor_uuid_uuid4_2 = uuid.uuid4()
     with pytest.raises(NotFoundError):
-        await servicio.almacenar_original(e.db, e.almacen, uuid.uuid4(), CONTENIDO, token=uuid.uuid4())
+        await servicio.almacenar_original(e.db, e.almacen, valor_uuid_uuid4, CONTENIDO, token=valor_uuid_uuid4_2)
     documento, datos = await reservar(e)
     await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", token=documento.ejecucion_token)
     with pytest.raises(ConflictError):
@@ -405,7 +428,8 @@ async def test_con_versionado_y_subida_incierta_la_version_se_encuentra_y_se_eli
     documento, datos = await reservar(e)
     await fallar_subida(e, documento, datos, ExternalServiceTimeoutError("STORAGE_TIMEOUT", "plazo"))
     assert recargar(e, documento).estado_compensacion is EstadoCompensacion.COMPLETADA
-    assert e.almacen.objetos == {} and e.almacen.marcas == set()  # sin versión residual ni marca de borrado
+    assert e.almacen.objetos == {}
+    assert e.almacen.marcas == set()  # sin versión residual ni marca de borrado
     assert ("eliminar", documento.clave_original) in e.almacen.llamadas
     assert recargar(e, documento).disponible_para_rag is False
 
@@ -417,13 +441,17 @@ async def test_fallo_de_subida_compensado_libera_la_reserva_y_permite_reintentar
     await fallar_subida(e, documento, datos)
     fallido = recargar(e, documento)
     assert fallido.estado_procesamiento is EstadoProcesamiento.FALLIDO
-    assert fallido.motivo_fallo == "STORAGE_ERROR" and fallido.fallido_en is not None
-    assert fallido.estado_compensacion is EstadoCompensacion.COMPLETADA and fallido.compensada_en is not None
-    assert fallido.reserva_activa is False and fallido.disponible_para_rag is False
+    assert fallido.motivo_fallo == "STORAGE_ERROR"
+    assert fallido.fallido_en is not None
+    assert fallido.estado_compensacion is EstadoCompensacion.COMPLETADA
+    assert fallido.compensada_en is not None
+    assert fallido.reserva_activa is False
+    assert fallido.disponible_para_rag is False
     assert e.almacen.objetos == {}
     # Reintento: mismo contenido y misma combinación, con un documento nuevo.
     reintento, _ = await reservar(e, datos)
-    assert reintento.id != documento.id and reintento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
+    assert reintento.id != documento.id
+    assert reintento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
     await servicio.almacenar_original(e.db, e.almacen, reintento.id, datos, token=reintento.ejecucion_token)
     assert e.almacen.claves() == {reintento.clave_original}
 
@@ -448,8 +476,10 @@ async def test_compensacion_fallida_conserva_la_reserva_y_no_informa_limpieza(e)
     pendiente = recargar(e, documento)
     assert pendiente.estado_procesamiento is EstadoProcesamiento.FALLIDO
     assert pendiente.estado_compensacion is EstadoCompensacion.PENDIENTE
-    assert pendiente.reserva_activa is True and pendiente.compensada_en is None
-    assert pendiente.compensacion_intentos == 1 and pendiente.ultimo_error_compensacion == "STORAGE_ERROR"
+    assert pendiente.reserva_activa is True
+    assert pendiente.compensada_en is None
+    assert pendiente.compensacion_intentos == 1
+    assert pendiente.ultimo_error_compensacion == "STORAGE_ERROR"
     assert len(e.almacen.objetos) == 1  # el residuo sigue ahí y está registrado
     error = await conflicto(e, datos=datos)
     assert error.code == "DOCUMENT_CLEANUP_PENDING"
@@ -462,7 +492,8 @@ async def test_si_el_objeto_sigue_existiendo_tras_eliminar_la_compensacion_no_se
     e.almacen.eliminar_sin_efecto = True
     await fallar_subida(e, documento, datos)
     pendiente = recargar(e, documento)
-    assert pendiente.estado_compensacion is EstadoCompensacion.PENDIENTE and pendiente.reserva_activa is True
+    assert pendiente.estado_compensacion is EstadoCompensacion.PENDIENTE
+    assert pendiente.reserva_activa is True
     assert pendiente.ultimo_error_compensacion == "STORAGE_CLEANUP_NOT_CONFIRMED"
 
 
@@ -485,8 +516,10 @@ async def test_la_recuperacion_completa_la_compensacion_y_recien_entonces_libera
     )
     assert (resumen.abandonados, resumen.compensados, resumen.pendientes) == (0, 1, 0)
     limpio = recargar(e, documento)
-    assert limpio.estado_compensacion is EstadoCompensacion.COMPLETADA and limpio.reserva_activa is False
-    assert limpio.ultimo_error_compensacion is None and e.almacen.objetos == {}
+    assert limpio.estado_compensacion is EstadoCompensacion.COMPLETADA
+    assert limpio.reserva_activa is False
+    assert limpio.ultimo_error_compensacion is None
+    assert e.almacen.objetos == {}
     await reservar(e, datos)  # ahora sí se puede reintentar
 
 
@@ -500,7 +533,8 @@ async def test_recuperacion_que_vuelve_a_fallar_acumula_intentos_y_mantiene_la_r
     )
     assert (resumen.compensados, resumen.pendientes) == (0, 1)
     pendiente = recargar(e, documento)
-    assert pendiente.compensacion_intentos == 2 and pendiente.reserva_activa is True
+    assert pendiente.compensacion_intentos == 2
+    assert pendiente.reserva_activa is True
 
 
 async def test_la_compensacion_es_repetible_e_idempotente(e):
@@ -542,19 +576,22 @@ async def test_nunca_se_compensa_un_documento_en_proceso_ni_completado(e, prepar
     antes = list(e.almacen.llamadas)
     with pytest.raises(ConflictError):
         await servicio.compensar_documento(e.db, e.almacen, documento.id)
-    assert e.almacen.llamadas == antes and (documento.clave_original, None) in e.almacen.objetos
+    assert e.almacen.llamadas == antes
+    assert (documento.clave_original, None) in e.almacen.objetos
 
 
 async def test_compensar_un_documento_inexistente(e):
+    valor_uuid_uuid4_3 = uuid.uuid4()
     with pytest.raises(NotFoundError):
-        await servicio.compensar_documento(e.db, e.almacen, uuid.uuid4())
+        await servicio.compensar_documento(e.db, e.almacen, valor_uuid_uuid4_3)
 
 
 async def test_un_almacen_de_otro_ambiente_no_compensa(e):
     documento, datos = await reservar(e)
     await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", requiere_compensacion=True, token=documento.ejecucion_token)
+    valor_almacenenmemoria_2 = AlmacenEnMemoria("qa")
     with pytest.raises(BusinessValidationError):
-        await servicio.compensar_documento(e.db, AlmacenEnMemoria("qa"), documento.id)
+        await servicio.compensar_documento(e.db, valor_almacenenmemoria_2, documento.id)
     assert recargar(e, documento).reserva_activa is True
 
 
@@ -574,7 +611,8 @@ async def test_fallar_sin_intento_de_subida_libera_la_reserva_de_inmediato(e):
     documento, datos = await reservar(e)
     fallido = await servicio.fallar_documento(e.db, documento.id, "VALIDACION_POSTERIOR", token=documento.ejecucion_token)
     assert fallido.estado_procesamiento is EstadoProcesamiento.FALLIDO
-    assert fallido.estado_compensacion is EstadoCompensacion.NINGUNA and fallido.reserva_activa is False
+    assert fallido.estado_compensacion is EstadoCompensacion.NINGUNA
+    assert fallido.reserva_activa is False
     await reservar(e, datos)
 
 
@@ -585,7 +623,8 @@ async def test_fallar_con_intento_de_subida_deja_la_compensacion_pendiente_y_ret
     with pytest.raises(asyncio.CancelledError):
         await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     fallido = await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", token=documento.ejecucion_token)
-    assert fallido.estado_compensacion is EstadoCompensacion.PENDIENTE and fallido.reserva_activa is True
+    assert fallido.estado_compensacion is EstadoCompensacion.PENDIENTE
+    assert fallido.reserva_activa is True
 
 
 async def test_fallar_con_false_explicito_y_un_intento_registrado_es_un_conflicto(e):
@@ -611,8 +650,10 @@ async def test_fallar_dos_veces_o_un_documento_inexistente_es_un_conflicto(e):
     await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", token=documento.ejecucion_token)
     with pytest.raises(ConflictError):
         await servicio.fallar_documento(e.db, documento.id, "CARGA_CANCELADA", token=documento.ejecucion_token)
+    valor_uuid_uuid4_4 = uuid.uuid4()
+    valor_uuid_uuid4_5 = uuid.uuid4()
     with pytest.raises(ConflictError):
-        await servicio.fallar_documento(e.db, uuid.uuid4(), "CARGA_CANCELADA", token=uuid.uuid4())
+        await servicio.fallar_documento(e.db, valor_uuid_uuid4_4, "CARGA_CANCELADA", token=valor_uuid_uuid4_5)
 
 
 # =============================== Cancelación, abandono y recuperación ===============================
@@ -643,8 +684,10 @@ async def test_la_cancelacion_no_toca_la_bd_y_la_recuperacion_limpia_la_reserva_
     # La cancelación no se convierte en éxito ni en fallo registrado: queda EN_PROCESO, recuperable.
     pendiente = recargar(e, documento)
     assert pendiente.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
-    assert pendiente.almacenamiento_intentado_en is not None and pendiente.original_almacenado_en is None
-    assert pendiente.reserva_activa is True and len(almacen.objetos) == 1
+    assert pendiente.almacenamiento_intentado_en is not None
+    assert pendiente.original_almacenado_en is None
+    assert pendiente.reserva_activa is True
+    assert len(almacen.objetos) == 1
     assert (await conflicto(e, datos=datos)).code == "DOCUMENT_UPLOAD_IN_PROGRESS"
 
     resumen = await servicio.recuperar_documentos_pendientes(
@@ -652,7 +695,8 @@ async def test_la_cancelacion_no_toca_la_bd_y_la_recuperacion_limpia_la_reserva_
     )
     assert (resumen.abandonados, resumen.compensados, resumen.pendientes) == (1, 1, 0)
     limpio = recargar(e, documento)
-    assert limpio.motivo_fallo == "RESERVA_ABANDONADA" and limpio.reserva_activa is False
+    assert limpio.motivo_fallo == "RESERVA_ABANDONADA"
+    assert limpio.reserva_activa is False
     assert almacen.objetos == {}
     await reservar(e, datos)
 
@@ -704,7 +748,8 @@ async def test_la_recuperacion_no_toca_completados_ni_en_proceso_recientes(e):
         e.db, e.almacen, ahora=datetime.now(timezone.utc) + timedelta(days=1), limite=10
     )
     assert (resumen.abandonados, resumen.compensados, resumen.pendientes) == (0, 0, 0)
-    assert recargar(e, original).disponible_para_rag and (original.clave_original, None) in e.almacen.objetos
+    assert recargar(e, original).disponible_para_rag
+    assert (original.clave_original, None) in e.almacen.objetos
 
 
 # =============================== verificación de integridad ===============================
@@ -735,8 +780,10 @@ async def test_un_documento_con_solo_el_original_no_se_publica(e):
     assert capturado.value.code == "DOCUMENT_NOT_PUBLISHABLE"
     assert capturado.value.details == {"faltantes": ["indexacion_confirmada", "resultado_analisis"]}
     asegurado = recargar(e, documento)
-    assert asegurado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO and not asegurado.disponible_para_rag
-    assert asegurado.resultado_analisis is None and asegurado.completado_en is None
+    assert asegurado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
+    assert not asegurado.disponible_para_rag
+    assert asegurado.resultado_analisis is None
+    assert asegurado.completado_en is None
 
 
 @pytest.mark.parametrize(("indexacion", "resultado", "faltante"), [
@@ -773,7 +820,8 @@ async def test_empresa_desactivada_antes_de_publicar_impide_la_publicacion(e):
             e.db, documento.id, token=documento.ejecucion_token, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)
     assert capturado.value.code == "COMPANY_INACTIVE"
     asegurado = recargar(e, documento)
-    assert asegurado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO and not asegurado.disponible_para_rag
+    assert asegurado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
+    assert not asegurado.disponible_para_rag
 
 
 async def test_cambio_de_sector_de_la_empresa_tambien_se_revalida(e):
@@ -792,7 +840,8 @@ async def test_con_todo_confirmado_y_empresa_valida_la_compuerta_permite_complet
     completo = await completar(e, documento, datos, ResultadoAnalisis.CON_HALLAZGOS)
     assert completo.estado_procesamiento is EstadoProcesamiento.COMPLETADO
     assert completo.resultado_analisis is ResultadoAnalisis.CON_HALLAZGOS
-    assert completo.completado_en is not None and completo.disponible_para_rag is True
+    assert completo.completado_en is not None
+    assert completo.disponible_para_rag is True
     assert completo.reserva_activa is True  # un completado sigue bloqueando duplicados
     with pytest.raises(ConflictError) as repetido:  # no se publica dos veces
         await servicio.publicar_documento(
@@ -807,7 +856,9 @@ async def test_nada_asigna_observado_ni_completa_por_si_solo(e):
     await fallar_subida(e, otro, otros)
     for d in (documento, otro):
         actual = recargar(e, d)
-        assert actual.resultado_analisis is None and actual.completado_en is None and not actual.disponible_para_rag
+        assert actual.resultado_analisis is None
+        assert actual.completado_en is None
+        assert not actual.disponible_para_rag
 
 
 # =============================== Contrato uniforme y datos sensibles ===============================
@@ -840,7 +891,8 @@ async def test_un_duplicado_responde_409_con_el_contrato_uniforme_y_sin_datos_se
     error = respuesta.json()["error"]
     assert set(error) == {"code", "message", "details", "request_id"}
     assert error["code"] == "DOCUMENT_ALREADY_INGESTED"
-    assert error["details"]["cuenta"] == "superadmin@pruebas.invalid" and "cargado_en" in error["details"]
+    assert error["details"]["cuenta"] == "superadmin@pruebas.invalid"
+    assert "cargado_en" in error["details"]
     assert error["request_id"] == respuesta.headers["x-request-id"]
     for prohibido in (original.sha256, original.clave_original, "Memoria anual 2025.md", "password", "hash-de-prueba"):
         assert prohibido not in respuesta.text
@@ -855,7 +907,8 @@ async def test_un_fallo_del_almacen_responde_502_sin_credenciales_contenido_ni_c
     e.almacen.fallos["guardar"] = [secreto]
     cliente = TestClient(_app(e))
     respuesta = await asyncio.to_thread(cliente.post, f"/subir/{documento.id}")
-    assert respuesta.status_code == 502 and respuesta.json()["error"]["code"] == "STORAGE_ERROR"
+    assert respuesta.status_code == 502
+    assert respuesta.json()["error"]["code"] == "STORAGE_ERROR"
     for prohibido in (documento.clave_original, documento.sha256, "Ñandú", "development/"):
         assert prohibido not in respuesta.text
     assert recargar(e, documento).estado_procesamiento is EstadoProcesamiento.FALLIDO
@@ -879,10 +932,12 @@ async def test_si_la_bd_falla_al_registrar_el_fallo_se_relanza_el_error_del_alma
 
     asegurado = recargar(e, documento)
     assert asegurado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
-    assert asegurado.almacenamiento_intentado_en is not None and asegurado.reserva_activa is True
+    assert asegurado.almacenamiento_intentado_en is not None
+    assert asegurado.reserva_activa is True
     resumen = await servicio.recuperar_documentos_pendientes(
         e.db, e.almacen, ahora=datetime.now(timezone.utc) + timedelta(days=1), limite=5)
-    assert (resumen.abandonados, resumen.compensados) == (1, 1) and e.almacen.objetos == {}
+    assert (resumen.abandonados, resumen.compensados) == (1, 1)
+    assert e.almacen.objetos == {}
 
 
 async def test_si_tampoco_funciona_el_rollback_el_error_original_sigue_siendo_el_del_almacen(e, monkeypatch):
@@ -916,7 +971,8 @@ async def test_si_el_documento_cambia_de_estado_durante_la_subida_se_informa_con
     with pytest.raises(ConflictError) as capturado:
         await servicio.almacenar_original(e.db, almacen, documento.id, datos, token=documento.ejecucion_token)
     assert capturado.value.code == "DOCUMENT_STATE_CONFLICT"
-    assert len(almacen.objetos) == 1 and recargar(e, documento).original_almacenado_en is None
+    assert len(almacen.objetos) == 1
+    assert recargar(e, documento).original_almacenado_en is None
     assert await servicio.compensar_documento(e.db, almacen, documento.id) is EstadoCompensacion.COMPLETADA
     assert almacen.objetos == {}
 
@@ -973,4 +1029,5 @@ async def test_si_el_documento_deja_de_estar_en_proceso_durante_la_publicacion_n
     assert capturado.value.code == "DOCUMENT_STATE_CONFLICT"
     monkeypatch.undo()
     asegurado = recargar(e, documento)
-    assert asegurado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO and not asegurado.disponible_para_rag
+    assert asegurado.estado_procesamiento is EstadoProcesamiento.EN_PROCESO
+    assert not asegurado.disponible_para_rag

@@ -81,8 +81,10 @@ def test_texto_breve_es_un_solo_fragmento_con_el_rango_completo():
     [f] = comprobar(texto)
     assert (f.indice, f.inicio, f.fin) == (0, 0, len(texto))
     assert f.texto_literal == texto
-    assert f.ruta_encabezados == () and f.seccion == ""
-    assert f.contexto == "" and f.continuacion is False
+    assert f.ruta_encabezados == ()
+    assert f.seccion == ""
+    assert f.contexto == ""
+    assert f.continuacion is False
 
 
 def test_documento_sin_encabezados_se_divide_por_parrafos_sin_ruta_ni_contexto():
@@ -102,8 +104,10 @@ def test_la_cantidad_de_fragmentos_depende_del_contenido_no_es_fija():
         return len(comprobar(texto, params(300)))
 
     cantidades = [cantidad(n) for n in (1, 10, 50, 100)]
-    assert cantidades == sorted(cantidades) and len(set(cantidades)) == 4
-    assert cantidades[0] == 1 and cantidades[-1] != 100
+    assert cantidades == sorted(cantidades)
+    assert len(set(cantidades)) == 4
+    assert cantidades[0] == 1
+    assert cantidades[-1] != 100
 
 
 def test_texto_largo_respeta_el_limite_predeterminado_provisional():
@@ -324,7 +328,8 @@ async def test_tabla_inconsistente_se_fragmenta_con_literales_exactos_y_sin_cont
 def test_tabla_inconsistente_pequena_se_mantiene_junta_y_literal():
     texto = TABLA_DETERIORADA
     [f] = comprobar(texto)
-    assert f.texto_literal == texto and f.contexto == ""
+    assert f.texto_literal == texto
+    assert f.contexto == ""
 
 
 def test_tabla_bien_formada_sigue_repitiendo_el_encabezado_como_contexto():
@@ -378,7 +383,8 @@ def test_contexto_de_tabla_se_acota_y_se_marca_con_puntos_suspensivos():
     contextos = {f.contexto for f in fragmentos[1:]}
     assert len(contextos) == 1
     [contexto] = contextos
-    assert len(contexto) == 60 and contexto.endswith("…\n\n")
+    assert len(contexto) == 60
+    assert contexto.endswith("…\n\n")
     assert contexto.startswith("Encabezado de tabla: | Columna0 |")
 
 
@@ -606,15 +612,16 @@ def test_iterar_fragmentos_produce_de_forma_incremental_y_coincide_con_fragmenta
     texto = "# T\n\n" + "párrafo. " * 200
     iterador = iterar_fragmentos(texto, params(100))
     primero = next(iterador)
-    assert primero.indice == 0 and primero.inicio == 0
-    assert [primero, *iterador] == fragmentar(texto, params(100))
+    assert primero.indice == 0
+    assert primero.inicio == 0
+    assert fragmentar(texto, params(100)) == [primero, *iterador]
 
 
 def test_el_texto_de_entrada_no_se_modifica_y_los_literales_son_cadenas_propias():
     texto = "# Título\r\n\r\ncontenido  con  espacios\r\n"
     copia = str(texto)
     comprobar(texto, params(15))
-    assert texto == copia
+    assert copia == texto
 
 
 # --- Integración con el resultado real de validación de la Etapa 1 ---------------------
@@ -634,7 +641,8 @@ async def test_integracion_con_el_documento_validado_de_la_etapa_1_con_bom():
 
     # Los rangos se miden sobre el texto interpretado, que omite el BOM inicial.
     assert documento.texto == fuente
-    assert fragmentos[0].inicio == 0 and fragmentos[-1].fin == len(fuente)
+    assert fragmentos[0].inicio == 0
+    assert fragmentos[-1].fin == len(fuente)
     assert "".join(f.texto_literal for f in fragmentos) == fuente
     assert "\ufeff" not in "".join(f.texto_literal for f in fragmentos)
     assert fragmentos[0].ruta_encabezados == ("Memoria 2025",)
@@ -653,7 +661,8 @@ async def test_integracion_con_documento_sin_tablas_ni_encabezados_validado():
     texto = "Texto plano de una memoria sin estructura. " * 50
     documento = await validacion.validar_archivo("plano.md", lector(texto.encode("utf-8")))
     fragmentos = comprobar(documento.texto, params(300))
-    assert len(fragmentos) > 1 and all(f.ruta_encabezados == () for f in fragmentos)
+    assert len(fragmentos) > 1
+    assert all(f.ruta_encabezados == () for f in fragmentos)
 
 
 # --- Barrido determinista de documentos generados -----------------------------------------

@@ -125,6 +125,19 @@ DESCARTE_ANAFORA = "anaforica_sin_antecedente"
 
 _I = re.IGNORECASE
 
+
+class _UnionDePatrones:
+    """Varios patrones de palabras completas con raíces distintas (sus coincidencias nunca se solapan) usados como
+    uno solo: `finditer` entrega las coincidencias de todos por orden de posición."""
+
+    def __init__(self, *patrones: re.Pattern[str]) -> None:
+        self._patrones = patrones
+
+    def finditer(self, texto: str, pos: int = 0, endpos: int | None = None):
+        fin = len(texto) if endpos is None else endpos
+        coincidencias = [m for patron in self._patrones for m in patron.finditer(texto, pos, fin)]
+        return iter(sorted(coincidencias, key=lambda m: m.start()))
+
 # --- Términos --------------------------------------------------------------------------
 _MULTA = re.compile(r"\b(?:multas?|multad[oa]s?|mult[óo]|multaron|multamos)\b", _I)
 _SANCION_ECONOMICA = re.compile(
@@ -212,8 +225,10 @@ _EVIDENCIA_ANTES = re.compile(
 _EVIDENCIA_DESPUES = re.compile(
     rf"\b(?:{_PARTICIPIOS_FEMENINOS}|(?:que|se)\s+(?:se\s+)?(?:nos\s+|le\s+|les\s+)?(?:{_FINITOS_IMPOSICION}))\b", _I
 )
-_TRAMITE_VINCULADO = re.compile(
-    r"\b(?:(?:impugn|revoc|anul)\w+|apel(?:ó|ación|adas?|aron|amos)|confirm(?:ó|aron|adas?|ación))\b", _I
+_TRAMITE_VINCULADO = _UnionDePatrones(
+    re.compile(r"\b(?:impugn|revoc|anul)\w+\b", _I),
+    re.compile(r"\bapel(?:ó|ación|adas?|aron|amos)\b", _I),
+    re.compile(r"\bconfirm(?:ó|aron|adas?|ación)\b", _I),
 )
 # Si entre el verbo y el término hay uno de estos objetos, el verbo se refiere a ellos, no a la multa
 # («pagó los impuestos asociados a la multa»).
@@ -234,7 +249,7 @@ PALABRAS_ANTES_DEL_TERMINO = 6
 PALABRAS_DESPUES_DEL_TERMINO = 12
 
 # --- Calificadores (literales) -------------------------------------------------------------------
-_CALIFICADORES: tuple[tuple[str, re.Pattern[str]], ...] = (
+_CALIFICADORES: tuple[tuple[str, "re.Pattern[str] | _UnionDePatrones"], ...] = (
     (CAL_PAGADA, re.compile(
         r"\b(?:(?:pag|cancel|abon|honr)ad[oa]s?|pag(?:ó|aron|amos)|(?:cancel|abon)(?:ó|aron))\b", _I)),
     (CAL_PENDIENTE, re.compile(
@@ -246,13 +261,16 @@ _CALIFICADORES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (CAL_HISTORICA, re.compile(
         r"\b(?:hist[óo]ric[ao]s?|(?:a[ñn]os|ejercicios|per[ií]odos|periodos)\s+anteriores|"
         r"de\s+(?:un\s+)?(?:a[ñn]o|ejercicio)\s+anterior|antigu[ao]s?)\b", _I)),
-    (CAL_REVOCADA, re.compile(
-        r"\b(?:(?:revoc|anul)(?:[óo]|aron|ad[ao]s?|aci[óo]n)|dej(?:[óo]|ada|aron)\s+sin\s+efecto)\b", _I)),
+    (CAL_REVOCADA, _UnionDePatrones(
+        re.compile(r"\b(?:revoc|anul)(?:[óo]|aron|ad[ao]s?|aci[óo]n)\b", _I),
+        re.compile(r"\bdej(?:[óo]|ada|aron)\s+sin\s+efecto\b", _I))),
     (CAL_CONFIRMADA, re.compile(r"\bconfirm(?:[óo]|aron|ad[oa]s?|aci[óo]n)\b", _I)),
 )
 # Un calificador precedido de estas negaciones o hipótesis no se registra.
-_PALABRA_NEGADORA = re.compile(
-    r"\b(?:no|nunca|jam[aá]s|ning[uú]n[ao]?s?|sin|ni|podr[ií]a(?:n|mos)?|podr[aá]n?|pudiera)\b", _I
+_PALABRAS_NEGADORAS = (
+    re.compile(r"\b(?:no|nunca|jam[aá]s|sin|ni|pudiera)\b", _I),
+    re.compile(r"\bning[uú]n[ao]?s?\b", _I),
+    re.compile(r"\bpodr(?:[ií]a(?:n|mos)?|[aá]n?)\b", _I),
 )
 # Lo que sigue a la palabra hasta el final del texto: sin coma, punto ni «;», sin una conjunción que corte, y
 # a lo sumo 40 caracteres.
@@ -260,7 +278,9 @@ _COLA_DE_NEGACION = re.compile(r"(?:(?!\b(?:y|e|pero|aunque)\b)[^,.;]){0,40}$", 
 
 
 def _niega_el_calificador(previo: str) -> bool:
-    return any(_COLA_DE_NEGACION.match(previo, m.end()) for m in _PALABRA_NEGADORA.finditer(previo))
+    return any(
+        _COLA_DE_NEGACION.match(previo, m.end()) for patron in _PALABRAS_NEGADORAS for m in patron.finditer(previo)
+    )
 
 # --- Montos -----------------------------------------------------------------------------------------
 _PREFIJO_MONEDA = r"(?:S/\.?|US\$|U\$S|USD|\$|PEN|EUR|€)"
@@ -308,9 +328,6 @@ _SOLO_MONTO = (_MONTO_PREFIJO, _MONTO_SUFIJO)
 _CERO_SUELTO = re.compile(r"[\W_]*(?:0+(?:[.,]0+)?|cero)[\W_]*", _I)
 _NUMERO_SUELTO = re.compile(r"[\W_]*+\d[\d.,'’   ]*+[\W_]*+")
 _ANIO_SUELTO = re.compile(r"(?:19|20)\d{2}")
-# Última palabra (letras) o último símbolo no blanco al final de una ventana. Solo se empieza al principio de
-# una racha de letras y el cuantificador es posesivo: sin retroceso cuadrático.
-_ULTIMA_PALABRA = re.compile(r"((?<![^\W\d_])[^\W\d_]++|\S)$")
 _ENCABEZADO_DE_MONTO = re.compile(r"monto|importe|valor|total|multa|sanci|s/|soles|uit|usd|us\$", _I)
 _SEPARADOR_FINAL = re.compile(r"[.,'’  ](\d+)$")
 
@@ -552,11 +569,28 @@ def _unidades(texto: str) -> Iterator[_Unidad]:
     return _RecorridoDeUnidades(texto).recorrer()
 
 
+def _es_letra(caracter: str) -> bool:
+    """Letra en sentido Unicode: alfanumérico que no es dígito decimal (ni «_»)."""
+    return caracter.isalnum() and not caracter.isdecimal()
+
+
+def _ultima_palabra(ventana: str) -> str:
+    """Última racha de letras al final de `ventana`; si termina en otro símbolo no blanco, ese símbolo; si termina en
+    blanco (o está vacía), cadena vacía."""
+    if ventana.endswith("\n"):  # `$` de la expresión equivalente admite un salto de línea final
+        ventana = ventana[:-1]
+    if not ventana or ventana[-1].isspace():
+        return ""
+    inicio = len(ventana)
+    while inicio > 0 and _es_letra(ventana[inicio - 1]):
+        inicio -= 1
+    return ventana[inicio:] if inicio < len(ventana) else ventana[-1]
+
+
 def _punto_cierra_oracion(texto: str, inicio: int, punto: re.Match[str]) -> bool:
     """False si el «.» es de una abreviatura, una inicial («S.A.»), «S/.» o va seguido de minúscula;
     un dígito o «)» antes del punto sí cierran la oración."""
-    palabra = _ULTIMA_PALABRA.search(texto[max(inicio, punto.start() - 12):punto.start()])
-    token = palabra.group(1) if palabra else ""
+    token = _ultima_palabra(texto[max(inicio, punto.start() - 12):punto.start()])
     if token and (token.lower() in _ABREVIATURAS or (len(token) == 1 and (token.isalpha() or token == "/"))):
         return False
     return not texto[punto.end()].islower()
@@ -830,7 +864,7 @@ class _Analizador:
 
     def _buscar_vinculado(
         self,
-        patron: re.Pattern[str],
+        patron: "re.Pattern[str] | _UnionDePatrones",
         rango: tuple[int, int],
         lado: str,
         limite_izquierdo: int | None = None,

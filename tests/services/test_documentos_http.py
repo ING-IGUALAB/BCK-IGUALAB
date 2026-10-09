@@ -86,7 +86,8 @@ async def test_crear_operacion_devuelve_el_identificador_sin_crear_documentos(en
         assert respuesta.status_code == 201
         cuerpo = respuesta.json()
         operacion_id = cuerpo["operacion_id"]
-        assert uuid.UUID(operacion_id) and cuerpo["estado"] == "CREADA"
+        assert uuid.UUID(operacion_id)
+        assert cuerpo["estado"] == "CREADA"
         assert cuerpo["ingesta_url"] == f"/documentos/operaciones/{operacion_id}/ingesta"
         assert cuerpo["progreso_url"] == f"/documentos/operaciones/{operacion_id}"
 
@@ -103,8 +104,12 @@ async def test_crear_operacion_devuelve_el_identificador_sin_crear_documentos(en
         assert any(f"Operación de ingesta creada; operacion_id={operacion_id}" in d for d in detalles)
 
         estado = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
-        assert estado["estado"] == "CREADA" and estado["terminal"] is False and estado["exitosa"] is False
-        assert estado["documento_id"] is None and estado["etapa"] is None and estado["error"] is None
+        assert estado["estado"] == "CREADA"
+        assert estado["terminal"] is False
+        assert estado["exitosa"] is False
+        assert estado["documento_id"] is None
+        assert estado["etapa"] is None
+        assert estado["error"] is None
 
 
 async def test_el_actor_sale_de_la_sesion_y_no_del_payload(entorno):
@@ -125,27 +130,39 @@ async def test_ingesta_con_hallazgos_responde_201_y_el_detalle_trae_el_analisis(
         operacion_id, respuesta = await ingerir_por_http(cliente, entorno, TEXTO_CON_HALLAZGOS)
         assert respuesta.status_code == 201, respuesta.text
         cuerpo = respuesta.json()
-        assert cuerpo["estado"] == "COMPLETADO" and cuerpo["exitosa"] is True and cuerpo["terminal"] is True
-        assert cuerpo["resultado_analisis"] == "CON_HALLAZGOS" and cuerpo["etapa"] == "FINALIZADO"
+        assert cuerpo["estado"] == "COMPLETADO"
+        assert cuerpo["exitosa"] is True
+        assert cuerpo["terminal"] is True
+        assert cuerpo["resultado_analisis"] == "CON_HALLAZGOS"
+        assert cuerpo["etapa"] == "FINALIZADO"
         assert cuerpo["motivos"] == ["referencias_gri_catalogadas", "sanciones_economicas"]
         assert cuerpo["fragmentos"] == cuerpo["fragmentos_total"] == cuerpo["fragmentos_procesados"] >= 3
-        assert cuerpo["error"] is None and cuerpo["publicacion_reintentable"] is False
+        assert cuerpo["error"] is None
+        assert cuerpo["publicacion_reintentable"] is False
         documento_id = cuerpo["documento_id"]
 
         # El progreso consultado después es el mismo desenlace.
         consulta = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
-        assert consulta["estado"] == "COMPLETADO" and consulta["documento_id"] == documento_id
+        assert consulta["estado"] == "COMPLETADO"
+        assert consulta["documento_id"] == documento_id
 
         detalle = (await cliente.get(f"/documentos/{documento_id}")).json()
-        assert detalle["estado"] == "COMPLETADO" and detalle["disponible_para_rag"] is True
-        assert detalle["operacion_id"] == operacion_id and detalle["sector"] == "MINERIA"
-        assert detalle["tipo"] == "MEMORIA_ANUAL" and detalle["anio"] == 2025 and detalle["empresa_nombre"]
+        assert detalle["estado"] == "COMPLETADO"
+        assert detalle["disponible_para_rag"] is True
+        assert detalle["operacion_id"] == operacion_id
+        assert detalle["sector"] == "MINERIA"
+        assert detalle["tipo"] == "MEMORIA_ANUAL"
+        assert detalle["anio"] == 2025
+        assert detalle["empresa_nombre"]
         analisis = detalle["analisis"]
-        assert analisis["resultado"] == "CON_HALLAZGOS" and {g["codigo"] for g in analisis["gri"]} == {"305"}
+        assert analisis["resultado"] == "CON_HALLAZGOS"
+        assert {g["codigo"] for g in analisis["gri"]} == {"305"}
         (sancion,) = analisis["sanciones"]
-        assert sancion["entidad"]["texto"] == "OEFA" and sancion["cita"] in TEXTO_CON_HALLAZGOS
+        assert sancion["entidad"]["texto"] == "OEFA"
+        assert sancion["cita"] in TEXTO_CON_HALLAZGOS
     (documento,) = await entorno.documentos()
-    assert documento.estado_procesamiento is EstadoProcesamiento.COMPLETADO and documento.vector_publicado_en is not None
+    assert documento.estado_procesamiento is EstadoProcesamiento.COMPLETADO
+    assert documento.vector_publicado_en is not None
     assert (documento.clave_original, None) in entorno.almacen.objetos
 
 
@@ -154,10 +171,12 @@ async def test_ingesta_observada_es_valida_indexada_y_disponible_para_rag(entorn
         _, respuesta = await ingerir_por_http(cliente, entorno, TEXTO_OBSERVADO)
         assert respuesta.status_code == 201, respuesta.text
         cuerpo = respuesta.json()
-        assert cuerpo["resultado_analisis"] == "OBSERVADO" and cuerpo["exitosa"] is True
+        assert cuerpo["resultado_analisis"] == "OBSERVADO"
+        assert cuerpo["exitosa"] is True
         assert cuerpo["motivos"] == ["sin_referencias_gri_catalogadas_ni_sanciones_economicas"]
         detalle = (await cliente.get(f"/documentos/{cuerpo['documento_id']}")).json()
-        assert detalle["disponible_para_rag"] is True and detalle["analisis"]["gri"] == detalle["analisis"]["sanciones"] == []
+        assert detalle["disponible_para_rag"] is True
+        assert detalle["analisis"]["gri"] == detalle["analisis"]["sanciones"] == []
     documento = (await entorno.documentos())[0]
     conteo = await entorno.conteo_vectorial(documento.id)
     assert conteo.total == conteo.publicados == documento.fragmentos_total > 0
@@ -186,7 +205,8 @@ async def test_duplicado_por_contenido_y_por_empresa_anio_tipo(entorno):
         # Mismo contenido (otro año): SHA-256.
         op2, dup = await ingerir_por_http(cliente, entorno, TEXTO_OBSERVADO, anio="2024")
         error = comprobar_error(dup, 409, "DOCUMENT_ALREADY_INGESTED")
-        assert error["details"]["criterio"] == ["sha256"] and error["details"]["documento_id"] == documento_id
+        assert error["details"]["criterio"] == ["sha256"]
+        assert error["details"]["documento_id"] == documento_id
         # Mismo empresa/año/tipo con otro contenido.
         op3, dup2 = await ingerir_por_http(cliente, entorno, TEXTO_CON_HALLAZGOS)
         assert comprobar_error(dup2, 409, "DOCUMENT_ALREADY_INGESTED")["details"]["criterio"] == ["empresa_anio_tipo"]
@@ -194,8 +214,11 @@ async def test_duplicado_por_contenido_y_por_empresa_anio_tipo(entorno):
         # Las operaciones rechazadas quedan RECHAZADAS con el código; no tienen documento.
         for operacion in (op2, op3):
             vista = (await cliente.get(f"/documentos/operaciones/{operacion}")).json()
-            assert vista["estado"] == "RECHAZADA" and vista["terminal"] and not vista["exitosa"]
-            assert vista["documento_id"] is None and vista["error"]["code"] == "DOCUMENT_ALREADY_INGESTED"
+            assert vista["estado"] == "RECHAZADA"
+            assert vista["terminal"]
+            assert not vista["exitosa"]
+            assert vista["documento_id"] is None
+            assert vista["error"]["code"] == "DOCUMENT_ALREADY_INGESTED"
     assert len(await entorno.documentos()) == 1
 
 
@@ -206,8 +229,10 @@ async def test_empresa_inactiva_se_rechaza_sin_dejar_nada(entorno):
         operacion_id, respuesta = await ingerir_por_http(cliente, entorno, TEXTO_OBSERVADO, empresa_id=str(inactiva.id))
         comprobar_error(respuesta, 400, "COMPANY_INACTIVE")
         vista = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
-        assert vista["estado"] == "RECHAZADA" and vista["error"]["code"] == "COMPANY_INACTIVE"
-    assert await entorno.documentos() == [] and entorno.almacen.objetos == {}
+        assert vista["estado"] == "RECHAZADA"
+        assert vista["error"]["code"] == "COMPANY_INACTIVE"
+    assert await entorno.documentos() == []
+    assert entorno.almacen.objetos == {}
     assert await entorno.sql_vectorial("SELECT 1 FROM fragmentos_documento") == []
     assert any("Rechazo" in str(e.tipo_evento) or "RECHAZO" in str(e.tipo_evento).upper() for e in await entorno.auditoria())
 
@@ -234,7 +259,8 @@ async def test_metadatos_invalidos_son_422_y_la_operacion_sigue_disponible(entor
     async with cliente_http(construir_app(entorno)) as cliente:
         operacion_id = await crear_operacion(cliente)
         error = comprobar_error(await subir(cliente, operacion_id, entorno, TEXTO_OBSERVADO, **cambios), 422, "REQUEST_VALIDATION_ERROR")
-        assert error["details"] and "input" not in str(error["details"])
+        assert error["details"]
+        assert "input" not in str(error["details"])
         # La operación no se consumió: se puede reenviar con metadatos correctos.
         assert (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()["estado"] == "CREADA"
         assert (await subir(cliente, operacion_id, entorno, TEXTO_OBSERVADO)).status_code == 201
@@ -265,8 +291,11 @@ async def test_archivos_invalidos_se_rechazan_y_la_operacion_queda_rechazada(ent
         operacion_id, respuesta = await ingerir_por_http(cliente, entorno, contenido, nombre)
         comprobar_error(respuesta, estado, codigo)
         vista = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
-        assert vista["estado"] == "RECHAZADA" and vista["error"]["code"] == codigo and vista["terminal"] is True
-    assert await entorno.documentos() == [] and entorno.almacen.objetos == {}
+        assert vista["estado"] == "RECHAZADA"
+        assert vista["error"]["code"] == codigo
+        assert vista["terminal"] is True
+    assert await entorno.documentos() == []
+    assert entorno.almacen.objetos == {}
 
 
 async def test_una_operacion_es_de_un_solo_uso(entorno):
@@ -332,8 +361,11 @@ async def test_el_progreso_es_real_mientras_la_peticion_sigue_en_curso(entorno):
 
         await esperar(en_indexacion)
         vista = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
-        assert vista["estado"] == "EN_PROCESO" and vista["terminal"] is False and vista["exitosa"] is False
-        assert vista["documento_id"] and vista["resultado_analisis"] is None  # no se anuncia nada antes de tiempo
+        assert vista["estado"] == "EN_PROCESO"
+        assert vista["terminal"] is False
+        assert vista["exitosa"] is False
+        assert vista["documento_id"]
+        assert vista["resultado_analisis"] is None  # no se anuncia nada antes de tiempo
         assert 0 < vista["fragmentos_procesados"] < vista["fragmentos_total"]
         assert not carga.done()
 
@@ -341,7 +373,8 @@ async def test_el_progreso_es_real_mientras_la_peticion_sigue_en_curso(entorno):
         final = await carga
         assert final.status_code == 201
         vista = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
-        assert vista["estado"] == "COMPLETADO" and vista["fragmentos_procesados"] == vista["fragmentos_total"]
+        assert vista["estado"] == "COMPLETADO"
+        assert vista["fragmentos_procesados"] == vista["fragmentos_total"]
         assert vista["resultado_analisis"] == "CON_HALLAZGOS"
 
 
@@ -358,30 +391,39 @@ async def test_publicacion_pendiente_es_502_no_es_exito_y_se_reintenta_sin_regen
     async with cliente_http(construir_app(entorno)) as cliente:
         operacion_id, respuesta = await publicacion_pendiente_por_http(cliente, entorno)
         error = comprobar_error(respuesta, 502, "VECTOR_PUBLICATION_PENDING")
-        assert error["details"]["operacion_id"] == operacion_id and error["details"]["causa"] == "VECTOR_PUBLICATION_FAILED"
+        assert error["details"]["operacion_id"] == operacion_id
+        assert error["details"]["causa"] == "VECTOR_PUBLICATION_FAILED"
         assert error["details"]["reintentar_url"] == f"/documentos/operaciones/{operacion_id}/reintentar-publicacion"
         documento_id = error["details"]["documento_id"]
 
         vista = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
-        assert vista["estado"] == "PUBLICACION_PENDIENTE" and vista["exitosa"] is False and vista["terminal"] is False
-        assert vista["resultado_analisis"] is None and vista["publicacion_reintentable"] is True
-        assert vista["error"]["code"] == "VECTOR_PUBLICATION_FAILED" and vista["etapa"] == "PUBLICANDO"
+        assert vista["estado"] == "PUBLICACION_PENDIENTE"
+        assert vista["exitosa"] is False
+        assert vista["terminal"] is False
+        assert vista["resultado_analisis"] is None
+        assert vista["publicacion_reintentable"] is True
+        assert vista["error"]["code"] == "VECTOR_PUBLICATION_FAILED"
+        assert vista["etapa"] == "PUBLICANDO"
 
         # En el historial tampoco figura como éxito ni disponible para RAG.
         lista = (await cliente.get("/documentos")).json()
         assert [d["estado"] for d in lista["items"]] == ["PUBLICACION_PENDIENTE"]
-        assert lista["items"][0]["disponible_para_rag"] is False and lista["items"][0]["resultado_analisis"] is None
+        assert lista["items"][0]["disponible_para_rag"] is False
+        assert lista["items"][0]["resultado_analisis"] is None
         assert (await cliente.get("/documentos", params={"estado": "COMPLETADO"})).json()["total"] == 0
         assert (await cliente.get("/documentos", params={"estado": "PUBLICACION_PENDIENTE"})).json()["total"] == 1
         detalle = (await cliente.get(f"/documentos/{documento_id}")).json()
-        assert detalle["publicacion_reintentable"] is True and detalle["disponible_para_rag"] is False
+        assert detalle["publicacion_reintentable"] is True
+        assert detalle["disponible_para_rag"] is False
         assert await entorno.sql_vectorial("SELECT 1 FROM fragmentos_consultables") == []
 
         llamadas = entorno.proveedor.llamadas
         reintento = await cliente.post(f"/documentos/operaciones/{operacion_id}/reintentar-publicacion")
         assert reintento.status_code == 200, reintento.text
         cuerpo = reintento.json()
-        assert cuerpo["estado"] == "COMPLETADO" and cuerpo["exitosa"] is True and cuerpo["resultado_analisis"] == "CON_HALLAZGOS"
+        assert cuerpo["estado"] == "COMPLETADO"
+        assert cuerpo["exitosa"] is True
+        assert cuerpo["resultado_analisis"] == "CON_HALLAZGOS"
         assert entorno.proveedor.llamadas == llamadas  # no regeneró embeddings
         assert len(await entorno.sql_vectorial("SELECT 1 FROM fragmentos_consultables")) > 0
 
@@ -402,7 +444,8 @@ async def test_si_el_reintento_vuelve_a_fallar_sigue_pendiente_y_reintentable(en
         assert error["details"]["operacion_id"] == operacion_id
         entorno.vectorial.quitar()
         vista = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
-        assert vista["estado"] == "PUBLICACION_PENDIENTE" and vista["publicacion_reintentable"] is True
+        assert vista["estado"] == "PUBLICACION_PENDIENTE"
+        assert vista["publicacion_reintentable"] is True
         assert (await cliente.post(f"/documentos/operaciones/{operacion_id}/reintentar-publicacion")).status_code == 200
 
 
@@ -434,18 +477,22 @@ async def test_fallo_del_proveedor_de_embeddings_es_502_sin_filtrar_detalles_y_e
     async with cliente_http(construir_app(entorno)) as cliente:
         operacion_id, respuesta = await ingerir_por_http(cliente, entorno, TEXTO_CON_HALLAZGOS)
         error = comprobar_error(respuesta, 502, "EMBEDDING_PROVIDER_ERROR")
-        assert "detalle interno del proveedor" not in respuesta.text and "OEFA" not in respuesta.text
+        assert "detalle interno del proveedor" not in respuesta.text
+        assert "OEFA" not in respuesta.text
         assert "RuntimeError" in str(error["details"]) or error["details"] is not None  # solo la clase, nunca el texto
 
         vista = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
         assert vista["estado"] in ("FALLIDO", "FALLIDO_LIMPIEZA_PENDIENTE")
-        assert vista["error"]["code"] == "EMBEDDING_PROVIDER_ERROR" and vista["exitosa"] is False
+        assert vista["error"]["code"] == "EMBEDDING_PROVIDER_ERROR"
+        assert vista["exitosa"] is False
         assert "detalle interno" not in str(vista)
         # Historial: aparece como fallido, sin análisis; el original y los fragmentos se limpiaron.
         lista = (await cliente.get("/documentos", params={"estado": vista["estado"]})).json()
-        assert lista["total"] == 1 and lista["items"][0]["resultado_analisis"] is None
+        assert lista["total"] == 1
+        assert lista["items"][0]["resultado_analisis"] is None
         detalle = (await cliente.get(f"/documentos/{vista['documento_id']}")).json()
-        assert detalle["analisis"] is None and detalle["disponible_para_rag"] is False
+        assert detalle["analisis"] is None
+        assert detalle["disponible_para_rag"] is False
         assert detalle["error"]["code"] == "EMBEDDING_PROVIDER_ERROR"
     assert entorno.almacen.objetos == {}
     assert await entorno.sql_vectorial("SELECT 1 FROM fragmentos_documento") == []
@@ -474,7 +521,8 @@ async def test_fallo_interno_del_analisis_es_500_con_su_codigo_y_no_es_observado
         error = comprobar_error(respuesta, 500, "INGESTION_ANALYSIS_FAILED")
         assert error["details"] == {"detector": "gri"}
         vista = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
-        assert vista["resultado_analisis"] is None and vista["exitosa"] is False
+        assert vista["resultado_analisis"] is None
+        assert vista["exitosa"] is False
         assert vista["error"]["code"] == "INGESTION_ANALYSIS_FAILED"
     assert entorno.almacen.objetos == {}  # no se incorpora al corpus
 
@@ -487,9 +535,11 @@ async def test_un_error_inesperado_es_500_generico_sin_detalles(entorno, monkeyp
     async with cliente_http(construir_app(entorno)) as cliente:
         operacion_id, respuesta = await ingerir_por_http(cliente, entorno, TEXTO_OBSERVADO)
         comprobar_error(respuesta, 500, "INTERNAL_ERROR")
-        assert "secreto" not in respuesta.text and "credenciales" not in respuesta.text
+        assert "secreto" not in respuesta.text
+        assert "credenciales" not in respuesta.text
         vista = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
-        assert vista["error"]["code"] == "UNEXPECTED_ERROR" and "secreto" not in str(vista)
+        assert vista["error"]["code"] == "UNEXPECTED_ERROR"
+        assert "secreto" not in str(vista)
 
 
 async def test_dimension_de_embeddings_incompatible_es_502_y_no_deja_nada(entorno):
@@ -526,7 +576,10 @@ async def test_listado_paginado_filtrable_y_ordenado(entorno):
     async with cliente_http(construir_app(entorno)) as cliente:
         datos = await poblar(entorno, cliente)
         lista = (await cliente.get("/documentos")).json()
-        assert lista["total"] == 4 and lista["pagina"] == 1 and lista["tamano"] == 20 and lista["paginas"] == 1
+        assert lista["total"] == 4
+        assert lista["pagina"] == 1
+        assert lista["tamano"] == 20
+        assert lista["paginas"] == 1
         # Más recientes primero.
         assert [d["anio"] for d in lista["items"]] == [2025, 2024, 2024, 2023]
         primero = lista["items"][0]
@@ -543,7 +596,8 @@ async def test_listado_paginado_filtrable_y_ordenado(entorno):
 
         # Filtros.
         por_empresa = (await cliente.get("/documentos", params={"empresa_id": str(datos["otra"].id)})).json()
-        assert por_empresa["total"] == 1 and por_empresa["items"][0]["empresa_nombre"] == "Petrolera Norte"
+        assert por_empresa["total"] == 1
+        assert por_empresa["items"][0]["empresa_nombre"] == "Petrolera Norte"
         assert por_empresa["items"][0]["sector"] == "PETROLEO"
         assert (await cliente.get("/documentos", params={"anio": 2024})).json()["total"] == 2
         assert (await cliente.get("/documentos", params={"tipo": "REPORTE_SOSTENIBILIDAD_GRI"})).json()["total"] == 1
@@ -567,7 +621,8 @@ async def test_el_historial_incluye_los_intentos_fallidos_y_los_completados(ento
         lista = (await cliente.get("/documentos")).json()
         assert sorted(d["estado"] for d in lista["items"]) == ["COMPLETADO", "FALLIDO"]
         fallido = next(d for d in lista["items"] if d["estado"] == "FALLIDO")
-        assert fallido["disponible_para_rag"] is False and fallido["completado_en"] is None
+        assert fallido["disponible_para_rag"] is False
+        assert fallido["completado_en"] is None
         # Un intento fallido y limpio libera la reserva: se puede volver a ingerir el mismo archivo.
         _, reintento = await ingerir_por_http(cliente, entorno, TEXTO_OBSERVADO, anio="2023")
         assert reintento.status_code == 201

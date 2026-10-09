@@ -32,22 +32,28 @@ def ejecutar(argv=("--ejecutar",), crear=None):
 def test_sin_ejecutar_no_hace_nada_ni_crea_el_proveedor():
     creados = []
     codigo, texto = ejecutar([], crear=lambda: creados.append(1))
-    assert codigo == smoke.EXIT_NO_EJECUTADO and creados == [] and "NO ejecutada" in texto
+    assert codigo == smoke.EXIT_NO_EJECUTADO
+    assert creados == []
+    assert "NO ejecutada" in texto
 
 
 def test_todo_correcto_devuelve_0_y_muestra_solo_resumenes(entorno):
     codigo, texto = ejecutar()
     assert codigo == smoke.EXIT_OK
-    assert "cohere.embed-v4.0" in texto and "dimensión solicitada=1536" in texto
-    assert "dimensiones recibidas=[1536]" in texto and "OK:" in texto
-    assert "0.25" not in texto and "[0." not in texto  # nunca vectores
+    assert "cohere.embed-v4.0" in texto
+    assert "dimensión solicitada=1536" in texto
+    assert "dimensiones recibidas=[1536]" in texto
+    assert "OK:" in texto
+    assert "0.25" not in texto
+    assert "[0." not in texto  # nunca vectores
     peticiones = entorno.cliente.peticiones
     assert len(peticiones) >= 2
     assert all(p.output_dimensions == 1536 and p.truncate == "NONE" for p in peticiones)
     assert [p.input_type for p in peticiones][:-1] == ["SEARCH_DOCUMENT"] * (len(peticiones) - 1)
     assert peticiones[-1].input_type == "SEARCH_QUERY"
     textos = [t for p in peticiones[:-1] for t in p.inputs]
-    assert 1 < len(textos) <= 12 and all("ficticia" in t or "inventado" in t or t for t in textos)
+    assert 1 < len(textos) <= 12
+    assert all("ficticia" in t or "inventado" in t or t for t in textos)
     assert entorno.cierres == 1  # recursos cerrados
 
 
@@ -57,15 +63,19 @@ def test_todo_correcto_devuelve_0_y_muestra_solo_resumenes(entorno):
 def test_una_respuesta_invalida_devuelve_distinto_de_0(entorno, respuesta):
     entorno.cliente.respuesta = respuesta
     codigo, texto = ejecutar()
-    assert codigo == smoke.EXIT_FALLO and "FALLO" in texto and "OK:" not in texto
+    assert codigo == smoke.EXIT_FALLO
+    assert "FALLO" in texto
+    assert "OK:" not in texto
     assert entorno.cierres == 1
 
 
 def test_una_identidad_distinta_de_embed_v4_1536_no_hace_llamadas_remotas(entorno, monkeypatch):
     monkeypatch.setattr(proveedor_oci, "settings", ajustes(OCI_EMBED_MODEL="cohere.embed-multilingual-v3.0", OCI_EMBED_DIMENSIONS=1024))
     codigo, texto = ejecutar()
-    assert codigo == smoke.EXIT_FALLO and "la identidad debe ser cohere.embed-v4.0 con 1536" in texto
-    assert entorno.cliente.peticiones == [] and entorno.cierres == 1
+    assert codigo == smoke.EXIT_FALLO
+    assert "la identidad debe ser cohere.embed-v4.0 con 1536" in texto
+    assert entorno.cliente.peticiones == []
+    assert entorno.cierres == 1
 
 
 def test_si_la_peticion_real_no_lleva_output_dimensions_el_script_falla(entorno, monkeypatch):
@@ -78,7 +88,8 @@ def test_si_la_peticion_real_no_lleva_output_dimensions_el_script_falla(entorno,
 
     monkeypatch.setattr(proveedor_oci.ProveedorEmbeddingsOCI, "_detalles", sin_dimension)
     codigo, texto = ejecutar()
-    assert codigo == smoke.EXIT_FALLO and "output_dimensions=1536" in texto
+    assert codigo == smoke.EXIT_FALLO
+    assert "output_dimensions=1536" in texto
 
 
 def test_si_la_peticion_real_no_lleva_truncate_none_el_script_falla(entorno, monkeypatch):
@@ -91,14 +102,18 @@ def test_si_la_peticion_real_no_lleva_truncate_none_el_script_falla(entorno, mon
 
     monkeypatch.setattr(proveedor_oci.ProveedorEmbeddingsOCI, "_detalles", con_truncate_end)
     codigo, texto = ejecutar()
-    assert codigo == smoke.EXIT_FALLO and 'truncate="NONE"' in texto
+    assert codigo == smoke.EXIT_FALLO
+    assert 'truncate="NONE"' in texto
 
 
 def test_un_error_remoto_se_informa_sin_secretos_ni_textos(entorno):
     entorno.cliente.error = RuntimeError(f"401 clave {SECRETO} con texto del documento")
     codigo, texto = ejecutar()
-    assert codigo == smoke.EXIT_FALLO and SECRETO not in texto and "documento" not in texto
-    assert "EMBEDDING_PROVIDER_ERROR" in texto and entorno.cierres == 1
+    assert codigo == smoke.EXIT_FALLO
+    assert SECRETO not in texto
+    assert "documento" not in texto
+    assert "EMBEDDING_PROVIDER_ERROR" in texto
+    assert entorno.cierres == 1
 
 
 def test_configuracion_invalida_devuelve_2_sin_filtrar_el_mensaje(entorno):
@@ -106,7 +121,9 @@ def test_configuracion_invalida_devuelve_2_sin_filtrar_el_mensaje(entorno):
         raise OSError(f"no se pudo leer la llave {SECRETO}")
 
     codigo, texto = ejecutar(crear=crear)
-    assert codigo == smoke.EXIT_NO_EJECUTADO and SECRETO not in texto and "OSError" in texto
+    assert codigo == smoke.EXIT_NO_EJECUTADO
+    assert SECRETO not in texto
+    assert "OSError" in texto
     assert entorno.cliente.peticiones == []
 
 
@@ -116,4 +133,6 @@ def test_un_error_al_cerrar_no_cambia_el_resultado_ni_filtra(entorno):
 
     entorno.cliente.base_client.session.close = falla
     codigo, texto = ejecutar()
-    assert codigo == smoke.EXIT_OK and SECRETO not in texto and "No se pudo cerrar el cliente de OCI" in texto
+    assert codigo == smoke.EXIT_OK
+    assert SECRETO not in texto
+    assert "No se pudo cerrar el cliente de OCI" in texto

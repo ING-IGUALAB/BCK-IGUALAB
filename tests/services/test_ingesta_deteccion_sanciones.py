@@ -29,7 +29,8 @@ def verificar(texto, resultado):
         for c in s.calificadores:
             assert texto[c.inicio:c.fin] == c.texto
         # Nunca se conserva un estado ni una conversión.
-        assert not hasattr(s, "estado") and not hasattr(s, "monto_soles")
+        assert not hasattr(s, "estado")
+        assert not hasattr(s, "monto_soles")
 
 
 def una(texto):
@@ -76,7 +77,8 @@ def test_multa_con_adjetivos_entre_el_termino_y_el_monto():
 
 def test_multa_sin_monto_deja_los_datos_ausentes_en_none():
     s = una("Durante el 2024 recibimos una multa por infracciones ambientales.")
-    assert s.monto is None and s.entidad is None
+    assert s.monto is None
+    assert s.entidad is None
     assert s.periodo.texto == "2024"
     assert s.calificadores == ()
 
@@ -84,7 +86,8 @@ def test_multa_sin_monto_deja_los_datos_ausentes_en_none():
 def test_multa_sin_ningun_dato_adicional():
     s = una("Recibimos una multa.")
     assert (s.entidad, s.monto, s.periodo) == (None, None, None)
-    assert s.fechas_en_contexto == () and s.motivos_revision == ()
+    assert s.fechas_en_contexto == ()
+    assert s.motivos_revision == ()
 
 
 def test_sancion_economica_con_adjetivo_explicito_es_hallazgo():
@@ -95,7 +98,8 @@ def test_sancion_economica_con_adjetivo_explicito_es_hallazgo():
     assert s.entidad is None  # «según la SUNAT» no la une a la sanción
     # «impuesta por la SUNAT» forma parte de la misma frase nominal: el monto sigue unido al término.
     s = una("La sanción económica impuesta por la SUNAT ascendió a 2.5 millones de soles.")
-    assert s.entidad.texto == "SUNAT" and s.monto.texto == "2.5 millones de soles"
+    assert s.entidad.texto == "SUNAT"
+    assert s.monto.texto == "2.5 millones de soles"
 
 
 def test_sancion_generica_solo_cuenta_con_un_monto_vinculado():
@@ -112,7 +116,8 @@ def test_multa_historica_pagada_e_impugnada_sigue_siendo_un_hallazgo_con_calific
     s = una(texto)
     assert [c.codigo for c in s.calificadores] == ["pagada", "historica", "impugnada"]
     assert [c.texto for c in s.calificadores] == ["pagó", "histórica", "impugnada"]
-    assert s.entidad.texto == "SUNAFIL" and s.monto.texto == "S/ 8,000"
+    assert s.entidad.texto == "SUNAFIL"
+    assert s.monto.texto == "S/ 8,000"
     # Ningún calificador la presenta como deuda pendiente ni como sanción nueva.
     assert "pendiente_de_pago" not in {c.codigo for c in s.calificadores}
 
@@ -280,7 +285,8 @@ def test_con_dos_montos_solo_se_vincula_el_que_el_texto_une_a_la_multa():
 def test_el_monto_conserva_el_texto_original_sin_convertir_uit():
     s = una("Se aplicó una multa equivalente a 59.078 UIT.")
     assert s.monto.texto == "59.078 UIT"
-    assert s.monto.unidad == "UIT" and s.monto.numero_texto == "59.078"
+    assert s.monto.unidad == "UIT"
+    assert s.monto.numero_texto == "59.078"
     assert not any(isinstance(v, float) for v in (s.monto.texto, s.monto.numero_texto, s.monto.unidad))
 
 
@@ -318,7 +324,8 @@ def test_cantidades_en_palabras_no_se_reconocen_como_monto():
 def test_entidad_ausente_o_ambigua_queda_nula():
     assert una("Se impuso una multa de S/ 5,000.").entidad is None
     s = una("Recibimos multas del OEFA y de la SUNAFIL por S/ 1,000.")
-    assert s.entidad is None and "entidad_ambigua" in s.motivos_revision
+    assert s.entidad is None
+    assert "entidad_ambigua" in s.motivos_revision
     assert s.monto is None  # el monto no está unido al término
 
 
@@ -365,7 +372,8 @@ OEFA = (
 
 def test_estructura_del_caso_oefa_conserva_pago_e_impugnacion():
     s = una(OEFA)
-    assert s.monto.texto == "59.078 UIT" and s.monto.separador_ambiguo is True
+    assert s.monto.texto == "59.078 UIT"
+    assert s.monto.separador_ambiguo is True
     assert s.entidad.texto == "OEFA"
     assert [c.codigo for c in s.calificadores] == ["impugnada", "pagada"]
     # Las obligaciones «pendientes» están negadas: no se presenta como deuda pendiente.
@@ -375,7 +383,9 @@ def test_estructura_del_caso_oefa_conserva_pago_e_impugnacion():
     assert s.seccion == "Cumplimiento legal > Multas"
     assert s.cita.startswith("No obstante, continúa en trámite")
     assert s.cita.endswith("no mantenemos obligaciones de pago pendientes.")
-    assert "59.078 UIT" in s.cita and "pagada íntegramente" in s.cita and "impugnación" in s.cita
+    assert "59.078 UIT" in s.cita
+    assert "pagada íntegramente" in s.cita
+    assert "impugnación" in s.cita
     assert "supervisiones por parte de OEFA" not in s.cita
     assert s.motivos_revision == ("monto_con_separador_ambiguo",)
 
@@ -389,7 +399,8 @@ def test_fila_de_tabla_bien_formada_une_la_etiqueta_con_su_unico_monto():
         "| Monto total de multas ambientales | S/ 15,000 | 2024 |\n"
     )
     s = una(texto)
-    assert s.en_tabla and s.base_deteccion == ("fila_de_tabla",)
+    assert s.en_tabla
+    assert s.base_deteccion == ("fila_de_tabla",)
     assert (s.monto.texto, s.monto.vinculo) == ("S/ 15,000", "fila_de_tabla")
     assert s.cita == "| Monto total de multas ambientales | S/ 15,000 | 2024 |"
     assert s.periodo is None  # la celda del año no se atribuye
@@ -407,7 +418,8 @@ def test_fila_de_tabla_con_cero_explicito_no_es_hallazgo():
 def test_fila_con_varios_montos_no_elige_uno_y_lo_senala():
     texto = "| Concepto | A | B |\n|---|---|---|\n| Multas pagadas | S/ 1,000 | S/ 2,000 |\n"
     s = una(texto)
-    assert s.monto is None and "montos_multiples_en_fila" in s.motivos_revision
+    assert s.monto is None
+    assert "montos_multiples_en_fila" in s.motivos_revision
 
 
 def test_matriz_de_riesgos_no_es_un_hallazgo():
@@ -429,14 +441,17 @@ def test_tabla_deteriorada_sin_hallazgos_y_con_hallazgos():
     )
     s = una(con)
     # Fila con distinto número de columnas: se lee la celda sola, sin apoyarse en el encabezado.
-    assert s.en_tabla and s.monto.texto == "S/ 2,500" and s.entidad.texto == "SUNAT"
+    assert s.en_tabla
+    assert s.monto.texto == "S/ 2,500"
+    assert s.entidad.texto == "SUNAT"
     assert s.cita == "La SUNAT impuso una multa de S/ 2,500"
 
 
 def test_los_montos_de_otras_celdas_de_una_fila_deteriorada_no_se_vinculan():
     texto = "| A | B | C |\n|---|---|---|\n| Multas pagadas | S/ 700 |\n"
     s = una(texto)  # el hallazgo viene de la celda; el monto de otra celda no se toma
-    assert s.monto is None and s.cita == "Multas pagadas"
+    assert s.monto is None
+    assert s.cita == "Multas pagadas"
 
 
 # --- Estructura y posiciones ------------------------------------------------------------------------------------------
@@ -454,7 +469,8 @@ def test_citas_y_offsets_exactos_con_crlf_acentos_y_parrafos_multilinea():
     assert s.seccion == "Informe ñandú"
     assert s.cita.startswith("En 2023, la SUNAT impuso\r\nuna multa")
     assert s.cita.endswith("«por infracciones».")
-    assert "Párrafo previo" not in s.cita and "Otra línea" not in s.cita
+    assert "Párrafo previo" not in s.cita
+    assert "Otra línea" not in s.cita
 
 
 def test_cita_muy_larga_es_una_ventana_exacta():
@@ -482,12 +498,14 @@ def test_las_abreviaturas_y_numeros_no_parten_oraciones():
 def test_listas_cada_elemento_es_un_parrafo_independiente():
     texto = "- Se impuso una multa de S/ 1,000\n- El gasto en capacitación fue de S/ 2,000\n"
     s = una(texto)
-    assert s.monto.texto == "S/ 1,000" and "capacitación" not in s.cita
+    assert s.monto.texto == "S/ 1,000"
+    assert "capacitación" not in s.cita
 
 
 def test_resultado_vacio_sin_menciones():
     resultado = detectar_sanciones("Texto sin ningún tema de cumplimiento.")
-    assert resultado.sanciones == () and resultado.descartes == ()
+    assert resultado.sanciones == ()
+    assert resultado.descartes == ()
 
 
 def test_muchos_blancos_tras_el_termino_no_vuelven_cuadratica_la_deteccion():
@@ -497,7 +515,8 @@ def test_muchos_blancos_tras_el_termino_no_vuelven_cuadratica_la_deteccion():
     resultado = detectar_sanciones(texto)
     assert time.perf_counter() - inicio < 2
     verificar(texto, resultado)
-    assert len(resultado.sanciones) == 1 and resultado.sanciones[0].referencia_original == "multa"
+    assert len(resultado.sanciones) == 1
+    assert resultado.sanciones[0].referencia_original == "multa"
 
 
 def test_determinismo_y_tipo_de_entrada():
@@ -531,7 +550,8 @@ def test_el_modulo_es_local_sin_llm_ni_red():
 def test_negar_el_pago_o_el_recurso_no_niega_la_multa(texto):
     s = una(texto)
     assert s.entidad.texto == "OEFA"
-    assert s.monto.texto == "S/ 1000" and s.monto.vinculo == "termino_y_conector"
+    assert s.monto.texto == "S/ 1000"
+    assert s.monto.vinculo == "termino_y_conector"
     assert s.cita == texto
     # Lo negado no se registra como calificador: ni pagada ni impugnada.
     assert {c.codigo for c in s.calificadores}.isdisjoint({"pagada", "impugnada"})
@@ -596,7 +616,8 @@ def test_las_hipotesis_siguen_excluidas_aunque_hablen_de_pagar(texto):
 def test_la_multa_real_se_conserva_y_la_hipotetica_de_la_misma_oracion_no():
     texto = "La empresa no pagó la multa, por lo que podría recibir nuevas multas."
     s = una(texto)
-    assert texto[s.inicio - 3:s.fin] == "la multa" and s.inicio < texto.index(",")
+    assert texto[s.inicio - 3:s.fin] == "la multa"
+    assert s.inicio < texto.index(",")
     assert detectar_sanciones(texto).descartes_por_motivo == {"hipotetica_o_normativa": 1}
 
 
@@ -676,7 +697,8 @@ TABLA_SALDO = (
 
 def test_saldo_cero_no_descarta_la_multa_explicitamente_impuesta():
     s = una(TABLA_SALDO)
-    assert s.en_tabla and s.referencia_original == "Multa"
+    assert s.en_tabla
+    assert s.referencia_original == "Multa"
     assert s.entidad.texto == "OEFA"
     assert s.base_deteccion == ("verbo_de_imposicion_o_pago",)
     # No se puede asociar con seguridad el monto ni su unidad: monto nulo y advertencia.
@@ -695,7 +717,8 @@ def test_un_total_agregado_en_cero_no_genera_hallazgo_por_si_solo():
 def test_un_cero_de_otra_columna_no_descarta_la_fila_si_hay_un_monto_con_unidad():
     texto = "| Concepto | Monto | Saldo |\n|---|---|---|\n| Multa impuesta por OEFA | S/ 1,000 | S/ 0 |\n"
     s = una(texto)
-    assert s.monto.texto == "S/ 1,000" and s.monto.vinculo == "fila_de_tabla"
+    assert s.monto.texto == "S/ 1,000"
+    assert s.monto.vinculo == "fila_de_tabla"
     assert s.entidad.texto == "OEFA"
     assert "monto_no_asociado_con_seguridad" not in s.motivos_revision
 
@@ -703,7 +726,8 @@ def test_un_cero_de_otra_columna_no_descarta_la_fila_si_hay_un_monto_con_unidad(
 def test_un_cero_sin_unidad_no_descarta_una_multa_con_evidencia_propia():
     texto = "| Concepto | Valor | Año |\n|---|---|---|\n| Multa pagada | 0 | 2024 |\n"
     s = una(texto)
-    assert s.monto is None and s.motivos_revision == ("monto_no_asociado_con_seguridad",)
+    assert s.monto is None
+    assert s.motivos_revision == ("monto_no_asociado_con_seguridad",)
     assert [c.codigo for c in s.calificadores] == ["pagada"]
 
 
@@ -721,13 +745,15 @@ def test_cifras_sueltas_sin_evidencia_de_imposicion_no_son_hallazgo():
 def test_los_anios_se_ignoran_y_las_cifras_en_columnas_de_monto_cuentan():
     texto = "| Concepto | Año | Monto impuesto |\n|---|---|---|\n| Multa impuesta por OEFA | 2024 | 2000 |\n"
     s = una(texto)
-    assert s.monto is None and s.motivos_revision == ("monto_no_asociado_con_seguridad",)
+    assert s.monto is None
+    assert s.motivos_revision == ("monto_no_asociado_con_seguridad",)
 
 
 def test_varios_montos_con_unidad_en_la_fila_no_se_eligen():
     texto = "| Concepto | Monto | Saldo |\n|---|---|---|\n| Multa impuesta por OEFA | S/ 1,000 | S/ 400 |\n"
     s = una(texto)
-    assert s.monto is None and "montos_multiples_en_fila" in s.motivos_revision
+    assert s.monto is None
+    assert "montos_multiples_en_fila" in s.motivos_revision
 
 
 def test_fila_deteriorada_con_cero_conserva_la_multa_de_su_celda():
@@ -736,7 +762,8 @@ def test_fila_deteriorada_con_cero_conserva_la_multa_de_su_celda():
         "| Multa impuesta por OEFA | 1000 |\n"  # una columna menos: no se interpreta por columnas
     )
     s = una(texto)
-    assert s.monto is None and s.entidad.texto == "OEFA"
+    assert s.monto is None
+    assert s.entidad.texto == "OEFA"
     assert s.cita == "Multa impuesta por OEFA"
 
 
@@ -753,10 +780,12 @@ def test_muestra_local_parrafo_oefa_conserva_pago_e_impugnacion():
     oefa = [s for s in resultado.sanciones if s.monto is not None and "59.078" in s.monto.texto]
     assert len(oefa) == 1
     s = oefa[0]
-    assert s.monto.texto == "59.078 UIT" and s.monto.separador_ambiguo
+    assert s.monto.texto == "59.078 UIT"
+    assert s.monto.separador_ambiguo
     assert s.entidad.texto == "OEFA"
     assert {"pagada", "impugnada"} <= {c.codigo for c in s.calificadores}
     assert "pendiente_de_pago" not in {c.codigo for c in s.calificadores}
-    assert "pagada íntegramente" in s.cita and "impugnación" in s.cita
+    assert "pagada íntegramente" in s.cita
+    assert "impugnación" in s.cita
     # Las menciones disciplinarias, de riesgo y de monto cero del reporte no son hallazgos.
     assert all(s.referencia_original.lower() not in ("sanciones",) for s in resultado.sanciones)

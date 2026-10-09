@@ -65,23 +65,30 @@ async def publicacion_pendiente(entorno, **kwargs):
 
 async def test_fallo_al_publicar_deja_el_documento_completado_pero_pendiente_no_exitoso(entorno):
     error = await publicacion_pendiente(entorno)
-    assert error.code == "VECTOR_PUBLICATION_PENDING" and error.details["causa"] == "VECTOR_PUBLICATION_FAILED"
+    assert error.code == "VECTOR_PUBLICATION_PENDING"
+    assert error.details["causa"] == "VECTOR_PUBLICATION_FAILED"
 
     documento = await entorno.documento(error.documento_id)
-    assert documento.estado_procesamiento is EstadoProcesamiento.COMPLETADO and documento.resultado_analisis is not None
-    assert documento.vector_publicado_en is None and documento.publicacion_vectorial_pendiente
-    assert documento.vector_publicacion_intentos == 1 and documento.vector_ultimo_error == "VECTOR_PUBLICATION_FAILED"
+    assert documento.estado_procesamiento is EstadoProcesamiento.COMPLETADO
+    assert documento.resultado_analisis is not None
+    assert documento.vector_publicado_en is None
+    assert documento.publicacion_vectorial_pendiente
+    assert documento.vector_publicacion_intentos == 1
+    assert documento.vector_ultimo_error == "VECTOR_PUBLICATION_FAILED"
     assert documento.etapa_actual == "PUBLICANDO"  # NUNCA FINALIZADO mientras esté pendiente
     # Los fragmentos existen pero siguen invisibles para la recuperación.
     conteo = await entorno.conteo_vectorial(documento.id)
-    assert conteo.total == documento.fragmentos_total and conteo.publicados == 0
+    assert conteo.total == documento.fragmentos_total
+    assert conteo.publicados == 0
     assert await entorno.sql_vectorial("SELECT 1 FROM fragmentos_consultables") == []
     # El progreso no anuncia éxito ni resultado.
     async with entorno.fabrica_pg() as db:
         progreso = await servicio.obtener_progreso(db, documento.id)
     assert progreso.estado is servicio.EstadoProgreso.PUBLICACION_PENDIENTE
-    assert not progreso.finalizado and progreso.resultado_analisis is None
-    assert progreso.codigo_error == "VECTOR_PUBLICATION_FAILED" and progreso.etapa == "PUBLICANDO"
+    assert not progreso.finalizado
+    assert progreso.resultado_analisis is None
+    assert progreso.codigo_error == "VECTOR_PUBLICATION_FAILED"
+    assert progreso.etapa == "PUBLICANDO"
     # La reserva se conserva: un COMPLETADO sigue bloqueando duplicados.
     with pytest.raises(ConflictError) as duplicado:
         await ingerir(entorno)
@@ -97,11 +104,14 @@ async def test_reintentar_la_publicacion_es_idempotente_y_no_regenera_embeddings
 
     assert await coordinador.reintentar_publicacion(entorno.deps, error.documento_id) is True
     documento = await entorno.documento(error.documento_id)
-    assert documento.vector_publicado_en is not None and documento.etapa_actual == "FINALIZADO"
-    assert documento.vector_ultimo_error is None and not documento.publicacion_vectorial_pendiente
+    assert documento.vector_publicado_en is not None
+    assert documento.etapa_actual == "FINALIZADO"
+    assert documento.vector_ultimo_error is None
+    assert not documento.publicacion_vectorial_pendiente
     conteo = await entorno.conteo_vectorial(documento.id)
     assert conteo.total == conteo.publicados == documento.fragmentos_total
-    assert entorno.proveedor.llamadas == llamadas_proveedor and reanalisis == []
+    assert entorno.proveedor.llamadas == llamadas_proveedor
+    assert reanalisis == []
     assert entorno.almacen.llamadas == original_sube  # ni siquiera tocó MinIO
 
     publicado_en = documento.vector_publicado_en
@@ -109,7 +119,8 @@ async def test_reintentar_la_publicacion_es_idempotente_y_no_regenera_embeddings
     assert (await entorno.documento(error.documento_id)).vector_publicado_en == publicado_en
     async with entorno.fabrica_pg() as db:
         progreso = await servicio.obtener_progreso(db, documento.id)
-    assert progreso.finalizado and progreso.estado is servicio.EstadoProgreso.COMPLETADO
+    assert progreso.finalizado
+    assert progreso.estado is servicio.EstadoProgreso.COMPLETADO
     # Recuperable ahora (COMPLETADO + publicado) y con auditoría de la publicación confirmada.
     assert len(await entorno.sql_vectorial("SELECT 1 FROM fragmentos_consultables")) == documento.fragmentos_total
     detalles = [e.detalle for e in await entorno.auditoria()]
@@ -134,7 +145,8 @@ async def test_si_la_publicacion_sigue_fallando_el_documento_sigue_recuperable(e
     resumen = await coordinador.ejecutar_recuperacion(entorno.deps)
     assert (resumen.publicados, resumen.publicaciones_pendientes) == (0, 1)
     documento = await entorno.documento(error.documento_id)
-    assert documento.vector_publicacion_intentos == 3 and documento.publicacion_vectorial_pendiente
+    assert documento.vector_publicacion_intentos == 3
+    assert documento.publicacion_vectorial_pendiente
     entorno.vectorial.quitar()
     assert await coordinador.reintentar_publicacion(entorno.deps, error.documento_id) is True
 
@@ -149,7 +161,8 @@ async def test_publicar_sin_poder_confirmar_el_conteo_no_registra_la_publicacion
         await coordinador.reintentar_publicacion(entorno.deps, error.documento_id)
     assert capturado.value.details["causa"] == "VECTOR_PUBLICATION_NOT_CONFIRMED"
     documento = await entorno.documento(error.documento_id)
-    assert documento.vector_publicado_en is None and documento.vector_ultimo_error == "VECTOR_PUBLICATION_NOT_CONFIRMED"
+    assert documento.vector_publicado_en is None
+    assert documento.vector_ultimo_error == "VECTOR_PUBLICATION_NOT_CONFIRMED"
 
 
 async def test_cancelar_durante_la_publicacion_deja_el_documento_completado_y_recuperable(entorno):
@@ -162,8 +175,10 @@ async def test_cancelar_durante_la_publicacion_deja_el_documento_completado_y_re
         await tarea
     entorno.vectorial.quitar()
     documento = (await entorno.documentos())[0]
-    assert documento.estado_procesamiento is EstadoProcesamiento.COMPLETADO and documento.publicacion_vectorial_pendiente
-    assert documento.reserva_activa and documento.motivo_fallo is None  # cancelar NO lo marca fallido
+    assert documento.estado_procesamiento is EstadoProcesamiento.COMPLETADO
+    assert documento.publicacion_vectorial_pendiente
+    assert documento.reserva_activa
+    assert documento.motivo_fallo is None  # cancelar NO lo marca fallido
     assert (await entorno.conteo_vectorial(documento.id)).publicados == 0
     llamadas = entorno.proveedor.llamadas
     assert (await coordinador.ejecutar_recuperacion(entorno.deps)).publicados == 1
@@ -184,7 +199,8 @@ async def test_cancelar_durante_los_embeddings_no_toca_la_bd_y_la_recuperacion_l
 
     documento = (await entorno.documentos())[0]
     assert documento.estado_procesamiento is EstadoProcesamiento.EN_PROCESO  # la cancelación no la marca
-    assert documento.reserva_activa and documento.vector_escritura_intentada_en is not None
+    assert documento.reserva_activa
+    assert documento.vector_escritura_intentada_en is not None
     assert (await entorno.conteo_vectorial(documento.id)).total == 2  # un lote ya guardado, sin publicar
 
     # El latido se detuvo con la cancelación: la vigencia ya no se renueva (con latido vivo cambiaría cada 100 ms).
@@ -200,20 +216,24 @@ async def test_cancelar_durante_los_embeddings_no_toca_la_bd_y_la_recuperacion_l
     resumen = await coordinador.ejecutar_recuperacion(entorno.deps, ahora=futuro())
     assert (resumen.abandonados, resumen.compensados, resumen.pendientes) == (1, 1, 0)
     documento = await entorno.documento(documento.id)
-    assert documento.motivo_fallo == "RESERVA_ABANDONADA" and documento.analisis is None
-    assert documento.estado_compensacion is EstadoCompensacion.COMPLETADA and documento.reserva_activa is False
+    assert documento.motivo_fallo == "RESERVA_ABANDONADA"
+    assert documento.analisis is None
+    assert documento.estado_compensacion is EstadoCompensacion.COMPLETADA
+    assert documento.reserva_activa is False
     assert (await entorno.conteo_vectorial(documento.id)).total == 0
     assert (documento.clave_original, None) not in entorno.almacen.objetos
     # El fallo detectado por la recuperación se audita una vez, con el dueño de la ingesta como actor.
     (evento,) = [e for e in await entorno.auditoria() if "Ingesta fallida" in e.detalle]
-    assert "motivo=RESERVA_ABANDONADA" in evento.detalle and "origen=recuperacion" in evento.detalle
+    assert "motivo=RESERVA_ABANDONADA" in evento.detalle
+    assert "origen=recuperacion" in evento.detalle
     assert evento.usuario_id == entorno.usuario.id
     # Escritura tardía de un ejecutor anterior tras la limpieza: rechazada, no reintroduce contenido.
     async with entorno.fabrica_vectorial() as v:
+        valor_lote_sintetico = lote_sintetico(2, desde=2)
         with pytest.raises(ConflictError) as tardia:
             await fv.guardar_lote(
                 v, ambiente="development", documento_id=documento.id, empresa_id=entorno.empresa.id,
-                anio=2025, tipo="MEMORIA_ANUAL", sector="MINERIA", lote=lote_sintetico(2, desde=2),
+                anio=2025, tipo="MEMORIA_ANUAL", sector="MINERIA", lote=valor_lote_sintetico,
             )
     assert tardia.value.code == "FRAGMENTS_DOCUMENT_CLOSED"
     assert (await entorno.conteo_vectorial(documento.id)).total == 0
@@ -237,10 +257,13 @@ async def test_ejecutor_anterior_con_la_limpieza_ya_terminada_no_puede_reinserta
     assert capturado.value.code == "INGESTION_OWNERSHIP_LOST"
     documento = (await entorno.documentos())[0]
     # El ejecutor no tocó el estado: lo decidió quien recuperó. Y su escritura tardía no dejó nada.
-    assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO and documento.motivo_fallo == "RESERVA_ABANDONADA"
-    assert documento.estado_compensacion is EstadoCompensacion.COMPLETADA and documento.reserva_activa is False
+    assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO
+    assert documento.motivo_fallo == "RESERVA_ABANDONADA"
+    assert documento.estado_compensacion is EstadoCompensacion.COMPLETADA
+    assert documento.reserva_activa is False
     assert (await entorno.conteo_vectorial(documento.id)).total == 0
-    assert documento.vector_publicado_en is None and documento.resultado_analisis is None
+    assert documento.vector_publicado_en is None
+    assert documento.resultado_analisis is None
     assert entorno.proveedor.llamadas == 2  # no pidió más embeddings tras perder la propiedad
 
 
@@ -251,7 +274,8 @@ async def test_ejecutor_anterior_con_la_limpieza_aun_pendiente_la_deja_para_la_r
     assert capturado.value.code == "INGESTION_OWNERSHIP_LOST"
     documento = (await entorno.documentos())[0]
     # El lote tardío pudo insertarse ANTES de la limpieza; esta lo elimina y cierra el documento.
-    assert documento.estado_compensacion is EstadoCompensacion.PENDIENTE and documento.reserva_activa is True
+    assert documento.estado_compensacion is EstadoCompensacion.PENDIENTE
+    assert documento.reserva_activa is True
     resumen = await coordinador.ejecutar_recuperacion(entorno.deps)
     assert resumen.compensados == 1
     assert (await entorno.conteo_vectorial(documento.id)).total == 0
@@ -273,7 +297,8 @@ async def test_el_latido_detecta_la_perdida_de_propiedad_y_detiene_el_trabajo_si
     # Solo el lote 0 llegó a guardarse antes de perder la propiedad: el 1 NO se insertó (detenido por el latido).
     assert (await entorno.conteo_vectorial(documento.id)).total == 2
     assert entorno.proveedor.llamadas == 2
-    assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO and documento.motivo_fallo == "RESERVA_ABANDONADA"
+    assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO
+    assert documento.motivo_fallo == "RESERVA_ABANDONADA"
 
 
 async def test_si_el_latido_no_puede_renovar_durante_una_vigencia_entera_se_detiene(entorno):
@@ -329,8 +354,10 @@ async def test_la_vigencia_no_es_una_duracion_maxima_un_trabajo_largo_que_renuev
     finally:
         detener.set()
         totales = await vigilante
-    assert asyncio.get_running_loop().time() - inicio > 1.2 and resultado.progreso.finalizado
-    assert totales["barridos"] >= 10 and totales["abandonados"] == 0  # la recuperación nunca la tomó
+    assert asyncio.get_running_loop().time() - inicio > 1.2
+    assert resultado.progreso.finalizado
+    assert totales["barridos"] >= 10
+    assert totales["abandonados"] == 0  # la recuperación nunca la tomó
     assert entorno.transaccional.aperturas_del_latido >= 5  # renovó repetidamente, en sesiones propias del latido
 
 
@@ -349,9 +376,11 @@ async def test_sin_latido_la_misma_operacion_larga_pierde_la_vigencia_y_la_recup
     finally:
         detener.set()
         totales = await vigilante
-    assert capturado.value.code == "INGESTION_OWNERSHIP_LOST" and totales["abandonados"] == 1
+    assert capturado.value.code == "INGESTION_OWNERSHIP_LOST"
+    assert totales["abandonados"] == 1
     documento = (await entorno.documentos())[0]
-    assert documento.motivo_fallo == "RESERVA_ABANDONADA" and documento.vector_publicado_en is None
+    assert documento.motivo_fallo == "RESERVA_ABANDONADA"
+    assert documento.vector_publicado_en is None
     assert documento.resultado_analisis is None  # la operación perdida jamás se completó
 
 
@@ -365,7 +394,8 @@ async def test_una_operacion_cancelada_pierde_su_vigencia_y_la_recuperacion_la_t
         await tarea
     await asyncio.sleep(0.6)  # vence la vigencia (el latido ya no existe)
     resumen = await coordinador.ejecutar_recuperacion(entorno.deps)
-    assert resumen.abandonados == 1 and resumen.compensados == 1
+    assert resumen.abandonados == 1
+    assert resumen.compensados == 1
 
 
 # ============================================ Compensación conjunta ============================================
@@ -379,8 +409,10 @@ async def fallido_con_vectores(entorno):
     entorno.vectorial.quitar()
     entorno.proveedor.fallar_en_lote = None
     documento = (await entorno.documentos())[0]
-    assert documento.estado_compensacion is EstadoCompensacion.PENDIENTE and documento.reserva_activa
-    assert (await entorno.conteo_vectorial(documento.id)).total == 2 and (documento.clave_original, None) in entorno.almacen.objetos
+    assert documento.estado_compensacion is EstadoCompensacion.PENDIENTE
+    assert documento.reserva_activa
+    assert (await entorno.conteo_vectorial(documento.id)).total == 2
+    assert (documento.clave_original, None) in entorno.almacen.objetos
     return documento.id
 
 
@@ -396,8 +428,10 @@ async def test_compensacion_conjunta_exitosa_limpia_ambas_y_libera_la_reserva(en
     documento_id = await fallido_con_vectores(entorno)
     assert await compensar(entorno, documento_id) is EstadoCompensacion.COMPLETADA
     documento = await entorno.documento(documento_id)
-    assert documento.reserva_activa is False and documento.estado_compensacion is EstadoCompensacion.COMPLETADA
-    assert documento.compensada_en is not None and documento.ultimo_error_compensacion is None
+    assert documento.reserva_activa is False
+    assert documento.estado_compensacion is EstadoCompensacion.COMPLETADA
+    assert documento.compensada_en is not None
+    assert documento.ultimo_error_compensacion is None
     assert (await entorno.conteo_vectorial(documento_id)).total == 0
     assert (documento.clave_original, None) not in entorno.almacen.objetos
     assert await compensar(entorno, documento_id) is EstadoCompensacion.COMPLETADA  # idempotente
@@ -407,7 +441,8 @@ async def test_sin_la_base_vectorial_la_compensacion_no_puede_darse_por_terminad
     documento_id = await fallido_con_vectores(entorno)
     assert await compensar(entorno, documento_id, con_vectorial=False) is EstadoCompensacion.PENDIENTE
     documento = await entorno.documento(documento_id)
-    assert documento.ultimo_error_compensacion == "VECTOR_CLEANUP_UNAVAILABLE" and documento.reserva_activa
+    assert documento.ultimo_error_compensacion == "VECTOR_CLEANUP_UNAVAILABLE"
+    assert documento.reserva_activa
     assert (await entorno.conteo_vectorial(documento_id)).total == 2  # nada se limpió a medias sin poder confirmarlo
     assert (documento.clave_original, None) in entorno.almacen.objetos
 
@@ -417,8 +452,10 @@ async def test_si_la_limpieza_vectorial_falla_la_reserva_se_conserva_y_minio_no_
     entorno.vectorial.inyectar("DELETE FROM fragmentos_documento")
     assert await compensar(entorno, documento_id, fabrica=entorno.vectorial) is EstadoCompensacion.PENDIENTE
     documento = await entorno.documento(documento_id)
-    assert documento.ultimo_error_compensacion == "VECTOR_CLEANUP_FAILED" and documento.reserva_activa
-    assert documento.compensacion_intentos >= 2 and (documento.clave_original, None) in entorno.almacen.objetos
+    assert documento.ultimo_error_compensacion == "VECTOR_CLEANUP_FAILED"
+    assert documento.reserva_activa
+    assert documento.compensacion_intentos >= 2
+    assert (documento.clave_original, None) in entorno.almacen.objetos
     assert [c for c in entorno.almacen.llamadas if c[0] == "eliminar"] == []
 
 
@@ -427,7 +464,8 @@ async def test_si_la_limpieza_vectorial_no_borra_nada_no_se_confirma(entorno):
     entorno.vectorial.inyectar("DELETE FROM fragmentos_documento", accion="omitir")
     assert await compensar(entorno, documento_id, fabrica=entorno.vectorial) is EstadoCompensacion.PENDIENTE
     documento = await entorno.documento(documento_id)
-    assert documento.ultimo_error_compensacion == "VECTOR_CLEANUP_NOT_CONFIRMED" and documento.reserva_activa
+    assert documento.ultimo_error_compensacion == "VECTOR_CLEANUP_NOT_CONFIRMED"
+    assert documento.reserva_activa
     assert (await entorno.conteo_vectorial(documento_id)).total == 2
 
 
@@ -444,7 +482,8 @@ async def test_vectorial_limpio_pero_minio_incierto_conserva_pendiente_y_reserva
     entorno.almacen.fallos["eliminar"] = [ExternalServiceError("STORAGE_ERROR", "no disponible")]
     assert await compensar(entorno, documento_id) is EstadoCompensacion.PENDIENTE
     documento = await entorno.documento(documento_id)
-    assert documento.reserva_activa and documento.estado_compensacion is EstadoCompensacion.PENDIENTE
+    assert documento.reserva_activa
+    assert documento.estado_compensacion is EstadoCompensacion.PENDIENTE
     assert (await entorno.conteo_vectorial(documento_id)).total == 0  # lo vectorial sí quedó limpio y cerrado
     assert (documento.clave_original, None) in entorno.almacen.objetos  # el original sigue: nada declarado limpio
     # Reintento: ahora sí.
@@ -460,7 +499,8 @@ async def test_subida_incierta_respeta_las_garantias_de_minio_al_compensar_en_co
     entorno.almacen.subidas[clave] = SubidaConocida(EstadoSubida.EN_CURSO)  # el objeto aún puede aparecer
     assert await compensar(entorno, documento_id) is EstadoCompensacion.PENDIENTE
     documento = await entorno.documento(documento_id)
-    assert documento.ultimo_error_compensacion == "STORAGE_UPLOAD_IN_FLIGHT" and documento.reserva_activa
+    assert documento.ultimo_error_compensacion == "STORAGE_UPLOAD_IN_FLIGHT"
+    assert documento.reserva_activa
 
 
 async def test_la_recuperacion_aplica_la_misma_regla_conjunta(entorno):
@@ -483,7 +523,8 @@ async def test_un_documento_que_nunca_escribio_vectores_no_necesita_la_base_vect
         await ingerir(entorno)
     documento = (await entorno.documentos())[0]
     assert documento.vector_escritura_intentada_en is None
-    assert documento.estado_compensacion is EstadoCompensacion.PENDIENTE and documento.reserva_activa
+    assert documento.estado_compensacion is EstadoCompensacion.PENDIENTE
+    assert documento.reserva_activa
     async with entorno.fabrica_pg() as db:
         resumen = await servicio.recuperar_documentos_pendientes(db, entorno.almacen, limite=10)  # SIN vectorial
     assert (resumen.compensados, resumen.pendientes) == (1, 0)
@@ -497,7 +538,8 @@ async def test_el_reintento_se_permite_solo_despues_de_confirmar_la_limpieza_con
     assert bloqueado.value.code == "DOCUMENT_CLEANUP_PENDING"
     assert await compensar(entorno, documento_id) is EstadoCompensacion.COMPLETADA
     resultado = await ingerir(entorno)
-    assert resultado.documento_id != documento_id and resultado.progreso.finalizado
+    assert resultado.documento_id != documento_id
+    assert resultado.progreso.finalizado
     # El documento nuevo es independiente del cerrado: sus fragmentos se publicaron.
     assert (await entorno.conteo_vectorial(resultado.documento_id)).publicados == resultado.fragmentos
     assert (await entorno.conteo_vectorial(documento_id)).total == 0
@@ -513,8 +555,9 @@ async def test_guardar_tras_cerrar_se_rechaza_y_el_cierre_es_idempotente_y_por_a
         await fv.guardar_lote(v, ambiente="qa", lote=lote_sintetico(2), **argumentos)
         assert await fv.cerrar_y_eliminar_fragmentos(v, ambiente="development", documento_id=documento) == 2
         assert await fv.cerrar_y_eliminar_fragmentos(v, ambiente="development", documento_id=documento) == 0
+        valor_lote_sintetico_2 = lote_sintetico(2, desde=2)
         with pytest.raises(ConflictError) as capturado:
-            await fv.guardar_lote(v, ambiente="development", lote=lote_sintetico(2, desde=2), **argumentos)
+            await fv.guardar_lote(v, ambiente="development", lote=valor_lote_sintetico_2, **argumentos)
         assert capturado.value.code == "FRAGMENTS_DOCUMENT_CLOSED"
         # El cierre es por ambiente: «qa» no se ve afectado y puede seguir escribiendo.
         assert (await fv.contar_fragmentos(v, ambiente="qa", documento_id=documento)).total == 2
@@ -553,7 +596,8 @@ async def test_la_insercion_y_la_limpieza_concurrentes_nunca_dejan_filas_tardias
                 return_exceptions=True,
             )
         insercion, limpieza = resultados
-        assert limpieza == (limpieza if isinstance(limpieza, int) else None) and not isinstance(limpieza, Exception)
+        assert limpieza == (limpieza if isinstance(limpieza, int) else None)
+        assert not isinstance(limpieza, Exception)
         if isinstance(insercion, ConflictError):
             assert insercion.code == "FRAGMENTS_DOCUMENT_CLOSED"
             rechazadas += 1
@@ -563,8 +607,9 @@ async def test_la_insercion_y_la_limpieza_concurrentes_nunca_dejan_filas_tardias
         async with entorno.fabrica_vectorial() as v:
             assert (await fv.contar_fragmentos(v, ambiente="development", documento_id=documento)).total == 0
             # Y nada puede reintroducirse después.
+            valor_lote_sintetico_3 = lote_sintetico(1)
             with pytest.raises(ConflictError):
-                await fv.guardar_lote(v, lote=lote_sintetico(1), **argumentos)
+                await fv.guardar_lote(v, lote=valor_lote_sintetico_3, **argumentos)
     assert rechazadas + aceptadas == 30
 
 
@@ -576,4 +621,5 @@ async def test_el_latido_renueva_con_sesiones_propias_y_la_ingesta_termina(entor
     aperturas = entorno.transaccional.aperturas
     # Cada renovación abre y cierra SU sesión dentro de la tarea del latido; el ejecutor usa la suya.
     assert aperturas.count("latido-ingesta") >= 3
-    assert aperturas.count("latido-ingesta") < len(aperturas) and aperturas[0] != "latido-ingesta"
+    assert aperturas.count("latido-ingesta") < len(aperturas)
+    assert aperturas[0] != "latido-ingesta"

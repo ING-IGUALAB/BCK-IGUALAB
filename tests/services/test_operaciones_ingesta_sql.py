@@ -57,7 +57,8 @@ async def esquema(url_pg_aislado):
 def test_el_sql_versionado_coincide_con_el_generador_y_documenta_el_orden():
     texto = leer(SQL_003).replace("\r\n", "\n")
     assert texto == generar_ddl_operaciones()
-    assert "Requiere las tablas `usuarios` y `documentos`" in texto and "no se ejecuta a mano" in texto
+    assert "Requiere las tablas `usuarios` y `documentos`" in texto
+    assert "no se ejecuta a mano" in texto
     assert "CREATE TYPE" not in texto  # sin enumerados nuevos
     # El DDL de referencia del modelo sigue siendo generable (lo usan las pruebas de instalación nueva).
     assert "CREATE TABLE documentos" in generar_ddl()
@@ -65,8 +66,9 @@ def test_el_sql_versionado_coincide_con_el_generador_y_documenta_el_orden():
 
 async def test_sin_la_tabla_documentos_el_003_falla_y_no_deja_nada(url_pg_aislado):
     esquema = await _crear_base_con_prerequisitos(url_pg_aislado)
+    valor_leer = leer(SQL_003)
     with pytest.raises(asyncpg.UndefinedTableError):
-        await ejecutar(esquema, leer(SQL_003))
+        await ejecutar(esquema, valor_leer)
     assert await consultar(esquema, "SELECT 1 FROM pg_tables WHERE tablename = 'operaciones_ingesta'") == []
 
 
@@ -96,8 +98,9 @@ async def test_instalacion_nueva_001_003_y_actualizacion_4a_002_003_dejan_el_mis
 
 
 async def test_el_003_no_se_puede_aplicar_dos_veces(esquema):
+    valor_leer_2 = leer(SQL_003)
     with pytest.raises(asyncpg.DuplicateTableError):
-        await ejecutar(esquema, leer(SQL_003))
+        await ejecutar(esquema, valor_leer_2)
 
 
 async def insertar(esquema, **valores):
@@ -145,10 +148,12 @@ async def test_estados_validos_se_aceptan_y_un_documento_solo_se_enlaza_una_vez(
     # CON_DOCUMENTO exige un documento real (clave foránea) y es único por documento.
     conexion = await esquema.conectar()
     try:
+        valor_uuid_uuid4 = uuid.uuid4()
+        valor_uuid_uuid4_2 = uuid.uuid4()
         with pytest.raises(asyncpg.ForeignKeyViolationError):
             await conexion.execute(
                 "INSERT INTO operaciones_ingesta (id, ambiente, usuario_id, estado, documento_id, carga_iniciada_en, carga_vigente_hasta) "
-                "VALUES ($1, 'development', $2, 'CON_DOCUMENTO', $3, now(), now())", uuid.uuid4(), esquema.usuario, uuid.uuid4())
+                "VALUES ($1, 'development', $2, 'CON_DOCUMENTO', $3, now(), now())", valor_uuid_uuid4, esquema.usuario, valor_uuid_uuid4_2)
     finally:
         await conexion.close()
 

@@ -114,8 +114,11 @@ def test_con_versionado_la_subida_confirmada_elimina_y_verifica_solo_esa_version
     informe, _ = ejecutar(cliente, tmp_path)
 
     assert informe.codigo_salida == script.EXIT_OK
-    assert informe.subida_verificada and informe.limpieza_remota_confirmada and informe.limpieza_local_confirmada
-    assert informe.clave.startswith("development/pruebas/") and informe.clave.endswith("/prueba_50000000_bytes.md")
+    assert informe.subida_verificada
+    assert informe.limpieza_remota_confirmada
+    assert informe.limpieza_local_confirmada
+    assert informe.clave.startswith("development/pruebas/")
+    assert informe.clave.endswith("/prueba_50000000_bytes.md")
     assert len(informe.clave.split("/")[2]) == 36  # UUID
     assert informe.version is not None
     assert [kw["VersionId"] for kw in borrados(cliente)] == [informe.version]  # esa versión, sin marca de borrado
@@ -124,14 +127,16 @@ def test_con_versionado_la_subida_confirmada_elimina_y_verifica_solo_esa_version
     assert [e["VersionId"] for e in cliente.versiones_de("qa/documentos/x/original.md")] == [ajeno_qa]
     assert all(kw.get("VersionId") == informe.version for m, kw in cliente.llamadas if m in {"get_object", "head_object"})
     assert lectura_ajena(cliente, informe.clave)
-    assert not Path(informe.ruta_local).exists() and not list(tmp_path.iterdir())
+    assert not Path(informe.ruta_local).exists()
+    assert not list(tmp_path.iterdir())
     assert not hasattr(cliente, "create_bucket")
 
 
 def test_sin_versionado_se_elimina_la_clave_y_se_comprueba_que_no_queda_nada(tmp_path):
     cliente = ClienteConBloque(versionado=False)
     informe, _ = ejecutar(cliente, tmp_path)
-    assert informe.codigo_salida == script.EXIT_OK and informe.version is None
+    assert informe.codigo_salida == script.EXIT_OK
+    assert informe.version is None
     assert borrados(cliente) == [{"Bucket": "bucket-prueba", "Key": informe.clave}]
     assert cliente.versiones_de(informe.clave) == []
 
@@ -154,7 +159,8 @@ def test_si_tras_eliminar_la_clave_sin_version_quedan_restos_se_informa_pendient
     cliente.delete_object = deja_resto
     cliente.head_object = lambda **kw: (_ for _ in ()).throw(error_cliente("404", 404))  # HEAD «prueba» ausencia
     informe, _ = ejecutar(cliente, tmp_path)
-    assert informe.codigo_salida == script.EXIT_LIMPIEZA_PENDIENTE and "quedan versiones" in informe.pendientes[0]
+    assert informe.codigo_salida == script.EXIT_LIMPIEZA_PENDIENTE
+    assert "quedan versiones" in informe.pendientes[0]
 
 
 # --- Resultado incierto ------------------------------------------------------------------------------------------
@@ -164,9 +170,11 @@ def test_resultado_incierto_con_el_objeto_creado_se_reconcilia_listando_y_borran
     cliente.error_tras_crear = ReadTimeoutError(endpoint_url="https://x.invalid")  # el servidor guardó
     informe, _ = ejecutar(cliente, tmp_path)
 
-    assert informe.estado_subida == "incierta" and informe.version is None  # la versión se desconoce
+    assert informe.estado_subida == "incierta"
+    assert informe.version is None  # la versión se desconoce
     assert informe.codigo_salida == script.EXIT_FALLO  # la prueba falló, pero quedó limpio
-    assert informe.limpieza_remota_confirmada and informe.pendientes == []
+    assert informe.limpieza_remota_confirmada
+    assert informe.pendientes == []
     assert cliente.versiones_de(informe.clave) == []
     assert all("VersionId" in kw for kw in borrados(cliente))  # nunca DELETE sin versión
     assert "head_object" not in cliente.metodos()  # un HEAD 404 no habría probado nada
@@ -187,7 +195,8 @@ def test_resultado_incierto_con_marca_de_borrado_encima_elimina_version_y_marca(
 
     cliente.put_object = crea_y_oculta
     informe, _ = ejecutar(cliente, tmp_path)
-    assert informe.limpieza_remota_confirmada and cliente.versiones_de(informe.clave) == []
+    assert informe.limpieza_remota_confirmada
+    assert cliente.versiones_de(informe.clave) == []
 
 
 def test_resultado_incierto_sin_permiso_de_listado_deja_la_limpieza_pendiente_con_codigo_2_aunque_la_prueba_fallo(tmp_path):
@@ -198,9 +207,11 @@ def test_resultado_incierto_sin_permiso_de_listado_deja_la_limpieza_pendiente_co
     assert informe.fallos  # la prueba falló...
     assert informe.codigo_salida == script.EXIT_LIMPIEZA_PENDIENTE  # ...pero lo pendiente prevalece
     [pendiente] = informe.pendientes
-    assert "LIMPIEZA REMOTA PENDIENTE" in pendiente and informe.clave in pendiente
+    assert "LIMPIEZA REMOTA PENDIENTE" in pendiente
+    assert informe.clave in pendiente
     assert "s3:ListBucketVersions" in pendiente
-    assert borrados(cliente) == [] and len(cliente.versiones_de(informe.clave)) == 1  # no se borró a ciegas
+    assert borrados(cliente) == []
+    assert len(cliente.versiones_de(informe.clave)) == 1  # no se borró a ciegas
 
 
 def test_resultado_incierto_sin_hallazgos_no_se_da_por_limpio(tmp_path):
@@ -209,7 +220,8 @@ def test_resultado_incierto_sin_hallazgos_no_se_da_por_limpio(tmp_path):
     informe, _ = ejecutar(cliente, tmp_path)
     assert informe.codigo_salida == script.EXIT_LIMPIEZA_PENDIENTE
     assert "no prueba" in informe.pendientes[0]
-    assert "head_object" not in cliente.metodos() and borrados(cliente) == []
+    assert "head_object" not in cliente.metodos()
+    assert borrados(cliente) == []
 
 
 def test_un_objeto_hallado_de_otro_tamano_o_mas_de_uno_no_se_borra(tmp_path):
@@ -223,8 +235,10 @@ def test_un_objeto_hallado_de_otro_tamano_o_mas_de_uno_no_se_borra(tmp_path):
 
     cliente.put_object = aparece_algo
     informe, _ = ejecutar(cliente, tmp_path)
-    assert informe.codigo_salida == script.EXIT_LIMPIEZA_PENDIENTE and "no es el de la prueba" in informe.pendientes[0]
-    assert borrados(cliente) == [] and len(cliente.versiones_de(informe.clave)) == 1
+    assert informe.codigo_salida == script.EXIT_LIMPIEZA_PENDIENTE
+    assert "no es el de la prueba" in informe.pendientes[0]
+    assert borrados(cliente) == []
+    assert len(cliente.versiones_de(informe.clave)) == 1
 
 
 def test_el_listado_nunca_toca_claves_vecinas(tmp_path):
@@ -241,8 +255,10 @@ def test_un_rechazo_definitivo_no_necesita_borrar_nada_y_queda_limpio(tmp_path):
         cliente = ClienteConBloque()
         cliente.errores["put_object"] = error
         informe, _ = ejecutar(cliente, tmp_path)
-        assert informe.estado_subida == "rechazada" and informe.codigo_salida == script.EXIT_FALLO
-        assert informe.limpieza_remota_confirmada and borrados(cliente) == []
+        assert informe.estado_subida == "rechazada"
+        assert informe.codigo_salida == script.EXIT_FALLO
+        assert informe.limpieza_remota_confirmada
+        assert borrados(cliente) == []
 
 
 def test_un_objeto_inesperado_tras_un_rechazo_definitivo_queda_pendiente_sin_borrarse(tmp_path):
@@ -256,7 +272,8 @@ def test_un_objeto_inesperado_tras_un_rechazo_definitivo_queda_pendiente_sin_bor
 
     cliente.put_object = con_objeto
     informe, _ = ejecutar(cliente, tmp_path)
-    assert informe.codigo_salida == script.EXIT_LIMPIEZA_PENDIENTE and borrados(cliente) == []
+    assert informe.codigo_salida == script.EXIT_LIMPIEZA_PENDIENTE
+    assert borrados(cliente) == []
 
 
 def test_si_falla_el_open_local_antes_de_enviar_no_hay_nada_que_limpiar_en_remoto(tmp_path, monkeypatch):
@@ -271,7 +288,9 @@ def test_si_falla_el_open_local_antes_de_enviar_no_hay_nada_que_limpiar_en_remot
     monkeypatch.setattr(Path, "open", falla_al_leer)
     informe, _ = ejecutar(cliente, tmp_path)
     monkeypatch.undo()
-    assert informe.fallos and cliente.llamadas == [] and informe.codigo_salida == script.EXIT_FALLO
+    assert informe.fallos
+    assert cliente.llamadas == []
+    assert informe.codigo_salida == script.EXIT_FALLO
 
 
 def test_una_interrupcion_del_teclado_se_registra_limpia_y_devuelve_el_informe(tmp_path):
@@ -279,8 +298,10 @@ def test_una_interrupcion_del_teclado_se_registra_limpia_y_devuelve_el_informe(t
     cliente.error_tras_crear = KeyboardInterrupt()
     informe, _ = ejecutar(cliente, tmp_path)  # ya no se propaga: el informe se conserva
     assert any("interrumpida" in f for f in informe.fallos)
-    assert informe.limpieza_remota_confirmada and informe.codigo_salida == script.EXIT_FALLO
-    assert cliente.entradas == [] and not list(tmp_path.iterdir())
+    assert informe.limpieza_remota_confirmada
+    assert informe.codigo_salida == script.EXIT_FALLO
+    assert cliente.entradas == []
+    assert not list(tmp_path.iterdir())
 
 
 def test_un_segundo_ctrl_c_durante_la_limpieza_no_pierde_el_informe(tmp_path):
@@ -288,7 +309,8 @@ def test_un_segundo_ctrl_c_durante_la_limpieza_no_pierde_el_informe(tmp_path):
     cliente.error_tras_crear = KeyboardInterrupt()
     cliente.errores["list_object_versions"] = KeyboardInterrupt()
     informe, _ = ejecutar(cliente, tmp_path)
-    assert informe.codigo_salida == script.EXIT_LIMPIEZA_PENDIENTE and informe.pendientes
+    assert informe.codigo_salida == script.EXIT_LIMPIEZA_PENDIENTE
+    assert informe.pendientes
 
 
 # --- Códigos de salida -----------------------------------------------------------------------------------------------
@@ -311,17 +333,22 @@ def test_1_si_falla_la_prueba_pero_queda_limpio(tmp_path):
     cliente.put_object = corrompe
     informe, _ = ejecutar(cliente, tmp_path)
     assert informe.codigo_salida == 1
-    assert not informe.subida_verificada and any("no coincide" in f for f in informe.fallos)
-    assert informe.limpieza_remota_confirmada and informe.limpieza_local_confirmada
+    assert not informe.subida_verificada
+    assert any("no coincide" in f for f in informe.fallos)
+    assert informe.limpieza_remota_confirmada
+    assert informe.limpieza_local_confirmada
 
 
 def test_2_si_la_prueba_pasa_pero_la_limpieza_remota_falla(tmp_path):
     cliente = ClienteConBloque(versionado=True)
     cliente.errores["delete_object"] = error_cliente("AccessDenied", 403, f"detalle con {SECRETO}")
     informe, salida = ejecutar(cliente, tmp_path)
-    assert informe.codigo_salida == 2 and informe.subida_verificada and not informe.limpieza_remota_confirmada
+    assert informe.codigo_salida == 2
+    assert informe.subida_verificada
+    assert not informe.limpieza_remota_confirmada
     assert informe.limpieza_local_confirmada  # se informa por separado
-    assert informe.version in informe.pendientes[0] and informe.clave in informe.pendientes[0]
+    assert informe.version in informe.pendientes[0]
+    assert informe.clave in informe.pendientes[0]
     assert SECRETO not in "\n".join(salida + informe.pendientes)
 
 
@@ -329,7 +356,8 @@ def test_2_si_el_objeto_sigue_existiendo_tras_eliminar(tmp_path):
     cliente = ClienteConBloque()
     cliente.delete_object = lambda **kw: cliente.llamadas.append(("delete_object", kw)) or {}
     informe, _ = ejecutar(cliente, tmp_path)
-    assert informe.codigo_salida == 2 and not informe.limpieza_remota_confirmada
+    assert informe.codigo_salida == 2
+    assert not informe.limpieza_remota_confirmada
 
 
 def test_2_si_falla_la_prueba_y_tambien_la_limpieza_remota(tmp_path):
@@ -337,7 +365,8 @@ def test_2_si_falla_la_prueba_y_tambien_la_limpieza_remota(tmp_path):
     cliente.error_tras_crear = ReadTimeoutError(endpoint_url="https://x.invalid")
     cliente.errores["delete_object"] = error_cliente("InternalError", 500)
     informe, _ = ejecutar(cliente, tmp_path)
-    assert informe.fallos and informe.codigo_salida == 2
+    assert informe.fallos
+    assert informe.codigo_salida == 2
 
 
 def test_2_si_no_se_pudo_borrar_el_archivo_local_aunque_la_prueba_haya_fallado(tmp_path, monkeypatch):
@@ -352,7 +381,9 @@ def test_2_si_no_se_pudo_borrar_el_archivo_local_aunque_la_prueba_haya_fallado(t
     informe, salida = ejecutar(cliente, tmp_path)
     monkeypatch.setattr(Path, "unlink", original)
 
-    assert informe.fallos and informe.codigo_salida == 2 and not informe.limpieza_local_confirmada
+    assert informe.fallos
+    assert informe.codigo_salida == 2
+    assert not informe.limpieza_local_confirmada
     assert any("LIMPIEZA LOCAL PENDIENTE" in p and informe.ruta_local in p for p in informe.pendientes)
     assert SECRETO not in "\n".join(salida)
     Path(informe.ruta_local).unlink()  # limpieza de la propia prueba
@@ -361,8 +392,10 @@ def test_2_si_no_se_pudo_borrar_el_archivo_local_aunque_la_prueba_haya_fallado(t
 def test_1_si_la_generacion_local_falla_no_se_crea_nada_remoto(tmp_path):
     cliente = ClienteConBloque()
     informe, _ = ejecutar(cliente, tmp_path, tamano=1)  # tamaño inválido
-    assert informe.codigo_salida == 1 and cliente.llamadas == []
-    assert informe.estado_subida is None and informe.limpieza_local_confirmada
+    assert informe.codigo_salida == 1
+    assert cliente.llamadas == []
+    assert informe.estado_subida is None
+    assert informe.limpieza_local_confirmada
 
 
 # --- main: ejecución explícita, credenciales privadas, cliente cerrado y plazos --------------------------------
@@ -389,13 +422,16 @@ def principal(argv, entorno, cliente=None, secretos=None):
 
 def test_sin_ejecutar_no_hace_nada_y_no_crea_cliente_ni_pide_credenciales():
     codigo, salida, pedidos, creados, _ = principal([], ENTORNO)
-    assert codigo == script.EXIT_FALLO and creados == [] and pedidos == []
+    assert codigo == script.EXIT_FALLO
+    assert creados == []
+    assert pedidos == []
     assert any("NO ejecutada" in linea for linea in salida)
 
 
 def test_faltan_endpoint_o_bucket():
     codigo, salida, _, creados, _ = principal(["--ejecutar"], {"MINIO_ACCESS_KEY": ACCESO, "MINIO_SECRET_KEY": SECRETO})
-    assert codigo == script.EXIT_FALLO and creados == []
+    assert codigo == script.EXIT_FALLO
+    assert creados == []
 
 
 def test_las_credenciales_se_leen_del_entorno_y_nunca_se_imprimen(tmp_path, monkeypatch):
@@ -403,13 +439,18 @@ def test_las_credenciales_se_leen_del_entorno_y_nunca_se_imprimen(tmp_path, monk
     monkeypatch.setattr(script, "TAMANO_OBJETIVO", TAMANO)
     monkeypatch.setattr(script, "ejecutar_prueba", lambda c, b, imprimir: ejecutar_chico(c, b, imprimir))
     codigo, salida, pedidos, creados, _ = principal(["--ejecutar"], ENTORNO)
-    assert codigo == script.EXIT_OK and pedidos == []
+    assert codigo == script.EXIT_OK
+    assert pedidos == []
     [config] = creados
     assert (config.access_key, config.secret_key, config.ambiente) == (ACCESO, SECRETO, "development")
-    assert config.endpoint_url == ENTORNO["MINIO_ENDPOINT_URL"] and config.bucket == "bucket-prueba"
+    assert config.endpoint_url == ENTORNO["MINIO_ENDPOINT_URL"]
+    assert config.bucket == "bucket-prueba"
     texto = "\n".join(salida)
-    assert ACCESO not in texto and SECRETO not in texto and "ejemplo.invalid" not in texto
-    assert ACCESO not in repr(config) and SECRETO not in repr(config)
+    assert ACCESO not in texto
+    assert SECRETO not in texto
+    assert "ejemplo.invalid" not in texto
+    assert ACCESO not in repr(config)
+    assert SECRETO not in repr(config)
 
 
 _ejecutar_real = script.ejecutar_prueba
@@ -428,9 +469,11 @@ def prueba_chica(monkeypatch, tmp_path):
 def test_sin_credenciales_en_el_entorno_se_piden_sin_eco(prueba_chica):
     entorno = {k: v for k, v in ENTORNO.items() if not k.endswith("_KEY")}
     codigo, salida, pedidos, creados, _ = principal(["--ejecutar"], entorno, secretos={1: ACCESO, 2: SECRETO})
-    assert codigo == script.EXIT_OK and len(pedidos) == 2
+    assert codigo == script.EXIT_OK
+    assert len(pedidos) == 2
     assert (creados[0].access_key, creados[0].secret_key) == (ACCESO, SECRETO)
-    assert ACCESO not in "\n".join(salida + pedidos) and SECRETO not in "\n".join(salida + pedidos)
+    assert ACCESO not in "\n".join(salida + pedidos)
+    assert SECRETO not in "\n".join(salida + pedidos)
 
 
 def test_no_acepta_credenciales_como_argumentos():
@@ -441,7 +484,8 @@ def test_no_acepta_credenciales_como_argumentos():
 def test_endpoint_http_o_con_credenciales_se_rechaza_sin_repetir_el_valor():
     entorno = {**ENTORNO, "MINIO_ENDPOINT_URL": "http://usuario:clave-privada@almacen.invalid"}
     codigo, salida, _, creados, _ = principal(["--ejecutar"], entorno)
-    assert codigo == script.EXIT_FALLO and creados == []
+    assert codigo == script.EXIT_FALLO
+    assert creados == []
     assert "clave-privada" not in "\n".join(salida)
 
 
@@ -458,7 +502,8 @@ def test_los_argumentos_tienen_prioridad_sobre_el_entorno_y_la_region_es_opciona
 
 def test_el_cliente_se_cierra_siempre_incluso_si_la_prueba_lanza(prueba_chica, monkeypatch):
     codigo, _, _, _, clientes = principal(["--ejecutar"], ENTORNO)
-    assert codigo == script.EXIT_OK and clientes[0].cerrado == 1
+    assert codigo == script.EXIT_OK
+    assert clientes[0].cerrado == 1
 
     def explota(cliente, bucket, imprimir):
         raise RuntimeError("fallo inesperado")
@@ -476,7 +521,8 @@ def test_un_error_al_cerrar_el_cliente_se_informa_sin_cambiar_el_codigo_ni_filtr
     codigo, salida, _, _, _ = principal(["--ejecutar"], ENTORNO, cliente=cliente)
     assert codigo == script.EXIT_OK
     texto = "\n".join(salida)
-    assert "No se pudo cerrar el cliente S3: OSError" in texto and SECRETO not in texto
+    assert "No se pudo cerrar el cliente S3: OSError" in texto
+    assert SECRETO not in texto
 
 
 def test_el_cliente_sin_close_no_rompe_el_cierre(prueba_chica):
@@ -491,9 +537,11 @@ def test_los_plazos_se_describen_con_precision_y_no_se_presenta_un_plazo_total(p
     config = creados[0]
     assert (config.connect_timeout, config.read_timeout) == (script.CONNECT_TIMEOUT_SEGUNDOS, script.READ_TIMEOUT_SEGUNDOS)
     descripcion = next(linea for linea in salida if linea.startswith("Plazos efectivos"))
-    assert "NO hay plazo total" in descripcion and "sin reintentos" in descripcion
+    assert "NO hay plazo total" in descripcion
+    assert "sin reintentos" in descripcion
     assert "minio_operation_timeout_segundos" not in "\n".join(salida)
-    assert "NO existe un plazo total" in script.__doc__ and "NO se aplica aquí" in script.__doc__
+    assert "NO existe un plazo total" in script.__doc__
+    assert "NO se aplica aquí" in script.__doc__
 
 
 def test_el_codigo_de_salida_de_main_es_el_del_informe(prueba_chica):
@@ -515,9 +563,13 @@ def test_main_ctrl_c_con_limpieza_exitosa_devuelve_1_muestra_el_resumen_y_cierra
     cliente.error_tras_crear = KeyboardInterrupt()
     codigo, salida, _, _, _ = principal(["--ejecutar"], ENTORNO, cliente=cliente)
     texto = "\n".join(salida)
-    assert codigo == 1 and "=== Resultado ===" in texto and "interrumpida por el usuario" in texto
-    assert "Limpieza remota confirmada:                      SÍ" in texto and "Código de salida: 1" in texto
-    assert cliente.cerrado == 1 and cliente.entradas == []
+    assert codigo == 1
+    assert "=== Resultado ===" in texto
+    assert "interrumpida por el usuario" in texto
+    assert "Limpieza remota confirmada:                      SÍ" in texto
+    assert "Código de salida: 1" in texto
+    assert cliente.cerrado == 1
+    assert cliente.entradas == []
 
 
 def test_main_ctrl_c_con_listado_denegado_devuelve_2_con_clave_version_e_instrucciones(prueba_chica):
@@ -525,12 +577,16 @@ def test_main_ctrl_c_con_listado_denegado_devuelve_2_con_clave_version_e_instruc
     cliente.error_tras_crear = KeyboardInterrupt()
     codigo, salida, _, _, _ = principal(["--ejecutar"], ENTORNO, cliente=cliente)
     texto = "\n".join(salida)
-    assert codigo == 2 and "=== Resultado ===" in texto and "Código de salida: 2" in texto
+    assert codigo == 2
+    assert "=== Resultado ===" in texto
+    assert "Código de salida: 2" in texto
     [objeto] = cliente.entradas  # el objeto sigue ahí: no se borró a ciegas
     assert objeto["Key"] in texto  # la clave
-    assert "LIMPIEZA REMOTA PENDIENTE" in texto and "s3:ListBucketVersions" in texto
+    assert "LIMPIEZA REMOTA PENDIENTE" in texto
+    assert "s3:ListBucketVersions" in texto
     assert "Compruebe a mano TODAS las versiones" in texto
-    assert borrados(cliente) == [] and cliente.cerrado == 1
+    assert borrados(cliente) == []
+    assert cliente.cerrado == 1
 
 
 def test_main_ctrl_c_con_version_conocida_la_informa_en_las_instrucciones(prueba_chica):
@@ -544,4 +600,6 @@ def test_main_ctrl_c_con_version_conocida_la_informa_en_las_instrucciones(prueba
     codigo, salida, _, _, _ = principal(["--ejecutar"], ENTORNO, cliente=cliente)
     texto = "\n".join(salida)
     [objeto] = cliente.entradas
-    assert codigo == 2 and f"(versión {objeto['VersionId']})" in texto and "interrumpida" in texto
+    assert codigo == 2
+    assert f"(versión {objeto['VersionId']})" in texto
+    assert "interrumpida" in texto

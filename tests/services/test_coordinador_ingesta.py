@@ -56,15 +56,20 @@ async def test_documento_con_hallazgos_completa_publica_y_persiste_el_analisis(e
     documento = await entorno.documento(resultado.documento_id)
     assert documento.estado_procesamiento is EstadoProcesamiento.COMPLETADO
     assert documento.resultado_analisis is ResultadoAnalisis.CON_HALLAZGOS
-    assert documento.etapa_actual == "FINALIZADO" and documento.vector_publicado_en is not None
-    assert documento.reserva_activa and documento.estado_compensacion is EstadoCompensacion.NINGUNA
-    assert documento.vector_escritura_intentada_en is not None and documento.vector_publicacion_intentos == 0
-    assert documento.disponible_para_rag and not documento.publicacion_vectorial_pendiente
+    assert documento.etapa_actual == "FINALIZADO"
+    assert documento.vector_publicado_en is not None
+    assert documento.reserva_activa
+    assert documento.estado_compensacion is EstadoCompensacion.NINGUNA
+    assert documento.vector_escritura_intentada_en is not None
+    assert documento.vector_publicacion_intentos == 0
+    assert documento.disponible_para_rag
+    assert not documento.publicacion_vectorial_pendiente
 
     # Original conservado en el almacén (bytes exactos).
     assert entorno.almacen.objetos[(documento.clave_original, None)] == TEXTO_CON_HALLAZGOS.encode("utf-8")
     # Fragmentos: todos persistidos y PUBLICADOS en la base vectorial.
-    assert documento.fragmentos_total and documento.fragmentos_total >= 3
+    assert documento.fragmentos_total
+    assert documento.fragmentos_total >= 3
     conteo = await entorno.conteo_vectorial(documento.id)
     assert (conteo.total, conteo.publicados) == (documento.fragmentos_total, documento.fragmentos_total)
     assert documento.fragmentos_procesados == documento.fragmentos_total == resultado.fragmentos
@@ -74,7 +79,8 @@ async def test_documento_con_hallazgos_completa_publica_y_persiste_el_analisis(e
     assert analisis["version_catalogo"] == "2026-10-07.2"
     assert {g["codigo"] for g in analisis["gri"]} == {"305"}
     (sancion,) = analisis["sanciones"]
-    assert sancion["monto"]["texto"] == "S/ 12,500" and sancion["entidad"]["texto"] == "OEFA"
+    assert sancion["monto"]["texto"] == "S/ 12,500"
+    assert sancion["entidad"]["texto"] == "OEFA"
     assert TEXTO_CON_HALLAZGOS[sancion["cita_inicio"]:sancion["cita_fin"]] == sancion["cita"]
     assert [a["codigo"] for a in documento.advertencias] == [a["codigo"] for a in analisis["advertencias"]]
     # Recuperable: COMPLETADO + empresa activa (transaccional) y publicado (vectorial).
@@ -89,9 +95,12 @@ async def test_documento_observado_es_una_ingesta_valida_disponible_para_rag(ent
     assert resultado.motivos == ("sin_referencias_gri_catalogadas_ni_sanciones_economicas",)
     documento = await entorno.documento(resultado.documento_id)
     assert documento.estado_procesamiento is EstadoProcesamiento.COMPLETADO
-    assert documento.resultado_analisis is ResultadoAnalisis.OBSERVADO and documento.disponible_para_rag
-    assert documento.analisis["resultado"] == "OBSERVADO" and documento.analisis["gri"] == [] == documento.analisis["sanciones"]
-    assert documento.clave_original and (documento.clave_original, None) in entorno.almacen.objetos
+    assert documento.resultado_analisis is ResultadoAnalisis.OBSERVADO
+    assert documento.disponible_para_rag
+    assert documento.analisis["resultado"] == "OBSERVADO"
+    assert documento.analisis["gri"] == [] == documento.analisis["sanciones"]
+    assert documento.clave_original
+    assert (documento.clave_original, None) in entorno.almacen.objetos
     conteo = await entorno.conteo_vectorial(documento.id)
     assert conteo.total == conteo.publicados == documento.fragmentos_total > 0
     async with entorno.fabrica_pg() as db:
@@ -128,7 +137,8 @@ async def test_bom_y_bytes_originales_se_conservan_y_los_offsets_son_sobre_el_te
     resultado = await ingerir(entorno, datos)
     documento = await entorno.documento(resultado.documento_id)
     assert entorno.almacen.objetos[(documento.clave_original, None)] == datos
-    assert documento.sha256 == sha256_de(datos) and documento.tamano_bytes == len(datos)
+    assert documento.sha256 == sha256_de(datos)
+    assert documento.tamano_bytes == len(datos)
     filas = await entorno.sql_vectorial("SELECT texto_literal FROM fragmentos_documento WHERE documento_id = :d ORDER BY indice", d=documento.id)
     assert "".join(f.texto_literal for f in filas) == TEXTO_OBSERVADO
 
@@ -169,7 +179,8 @@ async def test_el_orden_de_las_etapas_es_el_acordado(entorno, monkeypatch):
     assert nombres == ["analisis", "antes_de_completar", "antes_de_publicar_vectores"]
     _, estado, original, total, publicados = eventos[1]
     # Al completar: documento aún EN_PROCESO, original ya guardado, todos los fragmentos presentes y NO publicados.
-    assert (estado, original, publicados) == ("EN_PROCESO", True, 0) and total > 0
+    assert (estado, original, publicados) == ("EN_PROCESO", True, 0)
+    assert total > 0
     _, estado, original, total2, publicados = eventos[2]
     # Al publicar vectores: el documento YA está COMPLETADO y los fragmentos siguen sin publicar.
     assert (estado, publicados, total2) == ("COMPLETADO", 0, total)
@@ -193,11 +204,13 @@ async def test_un_rechazo_no_deja_reserva_original_ni_fragmentos_y_se_audita(ent
         await ingerir(entorno, datos, nombre)
     assert capturado.value.code == codigo
     assert await entorno.documentos() == []
-    assert entorno.almacen.objetos == {} and entorno.proveedor.llamadas == 0
+    assert entorno.almacen.objetos == {}
+    assert entorno.proveedor.llamadas == 0
     assert (await entorno.sql_vectorial("SELECT count(*) AS n FROM fragmentos_documento"))[0].n == 0
     (evento,) = await entorno.auditoria()
     assert evento.tipo_evento == "RECHAZO_DOCUMENTO" or "Rechazo" in str(evento.tipo_evento)
-    assert f"codigo={codigo}" in evento.detalle and evento.usuario_id == entorno.usuario.id
+    assert f"codigo={codigo}" in evento.detalle
+    assert evento.usuario_id == entorno.usuario.id
     assert evento.fecha_hora_utc.utcoffset() == timedelta(0)  # UTC
 
 
@@ -208,7 +221,8 @@ async def test_empresa_inactiva_antes_de_empezar_se_rechaza_y_se_audita(entorno)
     with pytest.raises(BusinessValidationError) as capturado:
         await ingerir(entorno)
     assert capturado.value.code == "COMPANY_INACTIVE"
-    assert await entorno.documentos() == [] and entorno.almacen.objetos == {}
+    assert await entorno.documentos() == []
+    assert entorno.almacen.objetos == {}
     (evento,) = await entorno.auditoria()
     assert "codigo=COMPANY_INACTIVE" in evento.detalle
 
@@ -222,8 +236,9 @@ async def test_sector_declarado_distinto_al_de_la_empresa_se_rechaza(entorno):
 
 
 async def test_el_actor_viene_de_la_sesion_y_debe_ser_un_superadmin_habilitado(entorno):
+    valor_uuid_uuid4 = uuid.uuid4()
     with pytest.raises(AuthorizationError) as capturado:
-        await ingerir(entorno, usuario_id=uuid.uuid4())
+        await ingerir(entorno, usuario_id=valor_uuid_uuid4)
     assert capturado.value.code == "INGESTION_FORBIDDEN"
     assert await entorno.documentos() == []
 
@@ -261,11 +276,13 @@ async def test_dos_cargas_identicas_concurrentes_dejan_una_sola_ingesta_valida(e
     resultados = await asyncio.gather(ingerir(entorno), ingerir(entorno), return_exceptions=True)
     exitos = [r for r in resultados if not isinstance(r, Exception)]
     fallos = [r for r in resultados if isinstance(r, Exception)]
-    assert len(exitos) == 1 and len(fallos) == 1
+    assert len(exitos) == 1
+    assert len(fallos) == 1
     assert isinstance(fallos[0], ConflictError)
     assert fallos[0].code in ("DOCUMENT_UPLOAD_IN_PROGRESS", "DOCUMENT_ALREADY_INGESTED", "DOCUMENT_RESERVATION_CONFLICT")
     documentos = await entorno.documentos()
-    assert len(documentos) == 1 and documentos[0].estado_procesamiento is EstadoProcesamiento.COMPLETADO
+    assert len(documentos) == 1
+    assert documentos[0].estado_procesamiento is EstadoProcesamiento.COMPLETADO
     conteo = await entorno.conteo_vectorial(documentos[0].id)
     assert conteo.total == conteo.publicados == documentos[0].fragmentos_total
 
@@ -288,7 +305,8 @@ async def verificar_intento_limpio(entorno, documento, *, motivo: str, con_vecto
     assert documento.motivo_fallo == motivo
     assert documento.estado_compensacion in (EstadoCompensacion.COMPLETADA, EstadoCompensacion.NINGUNA)
     assert documento.reserva_activa is False
-    assert documento.analisis is None and documento.resultado_analisis is None
+    assert documento.analisis is None
+    assert documento.resultado_analisis is None
     conteo = await entorno.conteo_vectorial(documento.id)
     assert conteo.total == 0
     assert (documento.clave_original, None) not in entorno.almacen.objetos
@@ -305,7 +323,8 @@ async def test_fallo_en_minio_marca_fallido_no_toca_la_base_vectorial_y_libera_l
     assert capturado.value.code == "STORAGE_ERROR"
     (documento,) = await entorno.documentos()
     await verificar_intento_limpio(entorno, documento, motivo="STORAGE_ERROR", con_vectores=False)
-    assert documento.vector_escritura_intentada_en is None and entorno.proveedor.llamadas == 0
+    assert documento.vector_escritura_intentada_en is None
+    assert entorno.proveedor.llamadas == 0
     assert (await entorno.sql_vectorial("SELECT count(*) AS n FROM cierres_documento"))[0].n == 0
     # Reintento permitido tras confirmar la limpieza.
     resultado = await ingerir(entorno)
@@ -319,9 +338,11 @@ async def test_fallo_de_embeddings_en_un_lote_posterior_elimina_los_lotes_anteri
     assert capturado.value.code == "EMBEDDING_PROVIDER_ERROR"
     (documento,) = await entorno.documentos()
     await verificar_intento_limpio(entorno, documento, motivo="EMBEDDING_PROVIDER_ERROR", con_vectores=True)
-    assert documento.vector_escritura_intentada_en is not None and entorno.proveedor.llamadas == 2
+    assert documento.vector_escritura_intentada_en is not None
+    assert entorno.proveedor.llamadas == 2
     # Sin texto del proveedor ni del documento en el error ni en la fila.
-    assert "texto del documento" not in str(capturado.value.details) and "texto del documento" not in capturado.value.message
+    assert "texto del documento" not in str(capturado.value.details)
+    assert "texto del documento" not in capturado.value.message
 
 
 async def test_fallo_al_guardar_un_lote_vectorial_deja_el_intento_limpio(entorno):
@@ -367,7 +388,8 @@ async def test_fallo_de_un_detector_de_sanciones_tampoco_es_observado(entorno, m
         await ingerir(entorno)
     assert capturado.value.details["detector"] == "sanciones"
     (documento,) = await entorno.documentos()
-    assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO and documento.resultado_analisis is None
+    assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO
+    assert documento.resultado_analisis is None
 
 
 async def test_fallo_al_persistir_el_analisis_compensa_y_retira_resultados_parciales(entorno, monkeypatch):
@@ -396,7 +418,8 @@ async def test_un_analisis_con_estructura_invalida_no_se_persiste(entorno, monke
         await ingerir(entorno)
     assert capturado.value.code == "INVALID_ANALYSIS"
     (documento,) = await entorno.documentos()
-    assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO and documento.analisis is None
+    assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO
+    assert documento.analisis is None
 
 
 async def test_empresa_desactivada_durante_el_proceso_no_completa_y_compensa(entorno):
@@ -411,7 +434,8 @@ async def test_empresa_desactivada_durante_el_proceso_no_completa_y_compensa(ent
     assert capturado.value.code == "COMPANY_INACTIVE"
     (documento,) = await entorno.documentos()
     await verificar_intento_limpio(entorno, documento, motivo="COMPANY_INACTIVE", con_vectores=True)
-    assert documento.completado_en is None and documento.vector_publicado_en is None
+    assert documento.completado_en is None
+    assert documento.vector_publicado_en is None
 
 
 async def test_dimension_del_proveedor_distinta_de_la_base_vectorial_se_rechaza_antes_de_reservar(entorno):
@@ -429,7 +453,8 @@ async def test_reintento_tras_fallo_con_limpieza_pendiente_se_bloquea_hasta_conf
         await ingerir(entorno)
     (documento,) = await entorno.documentos()
     assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO
-    assert documento.estado_compensacion is EstadoCompensacion.PENDIENTE and documento.reserva_activa is True
+    assert documento.estado_compensacion is EstadoCompensacion.PENDIENTE
+    assert documento.reserva_activa is True
     assert documento.ultimo_error_compensacion == "VECTOR_CLEANUP_FAILED"
 
     entorno.proveedor.fallar_en_lote = None
@@ -439,9 +464,11 @@ async def test_reintento_tras_fallo_con_limpieza_pendiente_se_bloquea_hasta_conf
 
     entorno.vectorial.quitar()
     resumen = await coordinador.ejecutar_recuperacion(entorno.deps)
-    assert resumen.compensados == 1 and resumen.pendientes == 0
+    assert resumen.compensados == 1
+    assert resumen.pendientes == 0
     documento = await entorno.documento(documento.id)
-    assert documento.estado_compensacion is EstadoCompensacion.COMPLETADA and documento.reserva_activa is False
+    assert documento.estado_compensacion is EstadoCompensacion.COMPLETADA
+    assert documento.reserva_activa is False
     resultado = await ingerir(entorno)  # ahora sí
     assert resultado.documento_id != documento.id
 
@@ -471,7 +498,8 @@ async def test_si_el_conteo_vectorial_no_coincide_la_indexacion_no_se_confirma_y
     assert capturado.value.code == "VECTOR_INDEX_NOT_CONFIRMED"
     (documento,) = await entorno.documentos()
     await verificar_intento_limpio(entorno, documento, motivo="VECTOR_INDEX_NOT_CONFIRMED", con_vectores=True)
-    assert documento.completado_en is None and documento.resultado_analisis is None
+    assert documento.completado_en is None
+    assert documento.resultado_analisis is None
 
 
 # ============================================ Progreso y auditoría ============================================
@@ -491,14 +519,20 @@ async def test_el_progreso_es_persistente_real_y_sin_porcentajes(entorno, monkey
     resultado = await ingerir(entorno)
 
     etapas = [c[1] for c in capturas]
-    assert etapas[0] == "ALMACENANDO_ORIGINAL" and "INDEXANDO" in etapas and "ANALIZANDO" in etapas and "COMPLETANDO" in etapas
+    assert etapas[0] == "ALMACENANDO_ORIGINAL"
+    assert "INDEXANDO" in etapas
+    assert "ANALIZANDO" in etapas
+    assert "COMPLETANDO" in etapas
     assert all(c[0] == "EN_PROCESO" and c[4] is False for c in capturas)  # nada es "final" antes de publicar
     contadores = [c[2] for c in capturas if c[1] == "INDEXANDO"]
-    assert contadores == sorted(contadores) and contadores[-1] == resultado.fragmentos  # sube con cada lote
-    assert capturas[0][3] is None and all(c[3] == resultado.fragmentos for c in capturas if c[1] == "INDEXANDO")
+    assert contadores == sorted(contadores)
+    assert contadores[-1] == resultado.fragmentos  # sube con cada lote
+    assert capturas[0][3] is None
+    assert all(c[3] == resultado.fragmentos for c in capturas if c[1] == "INDEXANDO")
     final = resultado.progreso
     assert (final.estado.value, final.etapa, final.finalizado) == ("COMPLETADO", "FINALIZADO", True)
-    assert final.resultado_analisis == "CON_HALLAZGOS" and final.codigo_error is None
+    assert final.resultado_analisis == "CON_HALLAZGOS"
+    assert final.codigo_error is None
     assert not any("porcentaje" in campo or "percent" in campo for campo in final.__dataclass_fields__)
 
 
@@ -509,27 +543,34 @@ async def test_progreso_de_un_fallo_expone_un_codigo_seguro_y_no_finaliza(entorn
     (documento,) = await entorno.documentos()
     async with entorno.fabrica_pg() as db:
         progreso = await servicio.obtener_progreso(db, documento.id)
-    assert progreso.estado is servicio.EstadoProgreso.FALLIDO and not progreso.finalizado
-    assert progreso.codigo_error == "EMBEDDING_PROVIDER_ERROR" and progreso.resultado_analisis is None
-    assert progreso.etapa == "INDEXANDO" and "texto" not in json.dumps(progreso.advertencias)
+    assert progreso.estado is servicio.EstadoProgreso.FALLIDO
+    assert not progreso.finalizado
+    assert progreso.codigo_error == "EMBEDDING_PROVIDER_ERROR"
+    assert progreso.resultado_analisis is None
+    assert progreso.etapa == "INDEXANDO"
+    assert "texto" not in json.dumps(progreso.advertencias)
 
 
 async def test_progreso_de_una_operacion_inexistente(entorno):
     from app.exceptions import NotFoundError
 
     async with entorno.fabrica_pg() as db:
+        valor_uuid_uuid4_2 = uuid.uuid4()
         with pytest.raises(NotFoundError):
-            await servicio.obtener_progreso(db, uuid.uuid4())
+            await servicio.obtener_progreso(db, valor_uuid_uuid4_2)
 
 
 async def test_auditoria_de_exito_con_actor_y_fecha_utc_sin_contenido(entorno):
     resultado = await ingerir(entorno)
     eventos = await entorno.auditoria()
     (exito,) = [e for e in eventos if "Ingesta completada" in e.detalle]
-    assert exito.usuario_id == entorno.usuario.id and exito.fecha_hora_utc.utcoffset() == timedelta(0)
-    assert str(resultado.documento_id) in exito.detalle and "resultado=CON_HALLAZGOS" in exito.detalle
+    assert exito.usuario_id == entorno.usuario.id
+    assert exito.fecha_hora_utc.utcoffset() == timedelta(0)
+    assert str(resultado.documento_id) in exito.detalle
+    assert "resultado=CON_HALLAZGOS" in exito.detalle
     for evento in eventos:
-        assert "alcance 1" not in evento.detalle and "S/ 12,500" not in evento.detalle  # nada del contenido
+        assert "alcance 1" not in evento.detalle
+        assert "S/ 12,500" not in evento.detalle  # nada del contenido
         assert len(evento.detalle) <= 500
 
 
@@ -539,7 +580,8 @@ async def test_auditoria_de_fallo_una_sola_vez_con_actor_y_motivo(entorno):
         await ingerir(entorno)
     eventos = [e for e in await entorno.auditoria() if "Ingesta fallida" in e.detalle]
     assert len(eventos) == 1
-    assert "motivo=EMBEDDING_PROVIDER_ERROR" in eventos[0].detalle and "origen=ejecutor" in eventos[0].detalle
+    assert "motivo=EMBEDDING_PROVIDER_ERROR" in eventos[0].detalle
+    assert "origen=ejecutor" in eventos[0].detalle
     assert eventos[0].usuario_id == entorno.usuario.id
     assert "texto del documento" not in eventos[0].detalle
 
@@ -553,7 +595,8 @@ async def test_si_la_auditoria_no_puede_escribirse_el_fallo_igual_queda_registra
     with pytest.raises(ExternalServiceError):
         await ingerir(entorno)
     (documento,) = await entorno.documentos()
-    assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO and documento.reserva_activa is False
+    assert documento.estado_procesamiento is EstadoProcesamiento.FALLIDO
+    assert documento.reserva_activa is False
 
 
 # ============================================ Aislamiento por ambiente ============================================
@@ -614,5 +657,6 @@ def test_solo_los_codigos_propios_y_bien_formados_se_usan_como_motivo_de_fallo()
 def test_publicacion_pendiente_no_es_un_exito_y_lleva_solo_identificadores():
     documento_id = uuid.uuid4()
     error = PublicacionVectorialPendiente(documento_id, "VECTOR_PUBLICATION_FAILED")
-    assert isinstance(error, ExternalServiceError) and error.code == "VECTOR_PUBLICATION_PENDING"
+    assert isinstance(error, ExternalServiceError)
+    assert error.code == "VECTOR_PUBLICATION_PENDING"
     assert error.details == {"documento_id": str(documento_id), "causa": "VECTOR_PUBLICATION_FAILED"}

@@ -62,16 +62,22 @@ def e(entorno, monkeypatch):
 def test_sin_ejecutar_no_hace_nada():
     creados = []
     codigo, texto = ejecutar([], crear=lambda: creados.append(1))
-    assert codigo == 2 and creados == [] and "NO ejecutada" in texto
+    assert codigo == 2
+    assert creados == []
+    assert "NO ejecutada" in texto
 
 
 def test_pasa_con_recuperacion_correcta_muestra_la_tabla_y_cuenta_las_llamadas(e):
     preparar(e, ClienteTemas())
     codigo, texto = ejecutar()
-    assert codigo == 0 and "OK:" in texto and "llamadas a OCI=4" in texto
-    assert "documentos=3 consultas=3" in texto and "dimensiones] recibidas=[1536]" in texto
+    assert codigo == 0
+    assert "OK:" in texto
+    assert "llamadas a OCI=4" in texto
+    assert "documentos=3 consultas=3" in texto
+    assert "dimensiones] recibidas=[1536]" in texto
     filas = [l for l in texto.splitlines() if l.startswith("P")]
-    assert len(filas) == 3 and filas[0].split()[-2:] == ["agua", "agua"]
+    assert len(filas) == 3
+    assert filas[0].split()[-2:] == ["agua", "agua"]
     assert "0.0010" not in texto.split("Similitud")[0]  # el resumen previo no imprime vectores
     tipos = [p.input_type for p in e.cliente.peticiones]
     assert tipos == ["SEARCH_DOCUMENT", "SEARCH_QUERY", "SEARCH_QUERY", "SEARCH_QUERY"]
@@ -88,7 +94,9 @@ def test_una_pregunta_que_recupera_otro_documento_falla(e):
 
     preparar(e, ClienteTemas(cruza))
     codigo, texto = ejecutar()
-    assert codigo == 1 and "encontró primero «personal»" in texto and "OK:" not in texto
+    assert codigo == 1
+    assert "encontró primero «personal»" in texto
+    assert "OK:" not in texto
     assert e.cierres == 1
 
 
@@ -102,7 +110,8 @@ def test_un_empate_en_el_primer_puesto_falla(e):
 
     preparar(e, ClienteTemas(empata))
     codigo, texto = ejecutar()
-    assert codigo == 1 and "empate" in texto
+    assert codigo == 1
+    assert "empate" in texto
 
 
 def test_documentos_iguales_norma_cero_o_dimension_incorrecta_fallan(e):
@@ -115,7 +124,8 @@ def test_documentos_iguales_norma_cero_o_dimension_incorrecta_fallan(e):
         e.cierres = 0
         preparar(e, ClienteTemas(modificar))
         codigo, texto = ejecutar()
-        assert codigo == 1 and "OK:" not in texto, nombre
+        assert codigo == 1, nombre
+        assert "OK:" not in texto, nombre
         assert e.cierres == 1, nombre
 
 
@@ -130,14 +140,17 @@ def test_una_peticion_sin_la_configuracion_acordada_falla(e, monkeypatch):
     monkeypatch.setattr(proveedor_oci.ProveedorEmbeddingsOCI, "_detalles", sin_truncate_none)
     preparar(e, ClienteTemas())
     codigo, texto = ejecutar()
-    assert codigo == 1 and "truncate=NONE" in texto
+    assert codigo == 1
+    assert "truncate=NONE" in texto
 
 
 def test_una_identidad_distinta_no_hace_llamadas(e, monkeypatch):
     monkeypatch.setattr(proveedor_oci, "settings", ajustes(OCI_EMBED_DIMENSIONS=1024))
     preparar(e, ClienteTemas())
     codigo, texto = ejecutar()
-    assert codigo == 1 and "la identidad debe ser" in texto and e.cliente.peticiones == []
+    assert codigo == 1
+    assert "la identidad debe ser" in texto
+    assert e.cliente.peticiones == []
 
 
 def test_un_error_remoto_no_filtra_secretos_ni_textos(e):
@@ -147,7 +160,10 @@ def test_un_error_remoto_no_filtra_secretos_ni_textos(e):
 
     preparar(e, Falla())
     codigo, texto = ejecutar()
-    assert codigo == 1 and SECRETO not in texto and "empresa" not in texto.lower() and e.cierres == 1
+    assert codigo == 1
+    assert SECRETO not in texto
+    assert "empresa" not in texto.lower()
+    assert e.cierres == 1
 
 
 def test_configuracion_invalida_devuelve_2_sin_filtrar():
@@ -155,7 +171,9 @@ def test_configuracion_invalida_devuelve_2_sin_filtrar():
         raise OSError(SECRETO)
 
     codigo, texto = ejecutar(crear=crear)
-    assert codigo == 2 and SECRETO not in texto and "OSError" in texto
+    assert codigo == 2
+    assert SECRETO not in texto
+    assert "OSError" in texto
 
 
 def test_coseno_y_clasificacion():

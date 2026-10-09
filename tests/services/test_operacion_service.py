@@ -108,10 +108,13 @@ async def test_solo_una_carga_toma_la_operacion(e):
     argumentos = dict(usuario_id=e.usuario.id, ambiente="development", vigencia=VIGENCIA)
     await ops.tomar_carga(e.db, creada.operacion_id, **argumentos)
     fila = (await e.db.execute(select(OperacionIngesta))).scalar_one()
-    assert fila.estado == "EN_CARGA" and fila.carga_iniciada_en and fila.carga_vigente_hasta > fila.carga_iniciada_en
+    assert fila.estado == "EN_CARGA"
+    assert fila.carga_iniciada_en
+    assert fila.carga_vigente_hasta > fila.carga_iniciada_en
     with pytest.raises(ConflictError) as segunda:
         await ops.tomar_carga(e.db, creada.operacion_id, **argumentos)
-    assert segunda.value.code == "OPERATION_ALREADY_STARTED" and segunda.value.details == {"estado": "EN_CARGA"}
+    assert segunda.value.code == "OPERATION_ALREADY_STARTED"
+    assert segunda.value.details == {"estado": "EN_CARGA"}
 
 
 async def test_tomar_la_carga_exige_ambiente_y_actor_propios(e):
@@ -124,8 +127,9 @@ async def test_tomar_la_carga_exige_ambiente_y_actor_propios(e):
         with pytest.raises(NotFoundError) as error:
             await ops.tomar_carga(e.db, creada.operacion_id, vigencia=VIGENCIA, **argumentos)
         assert error.value.code == "OPERATION_NOT_FOUND"
+    valor_uuid_uuid4 = uuid.uuid4()
     with pytest.raises(NotFoundError):
-        await ops.tomar_carga(e.db, uuid.uuid4(), usuario_id=e.usuario.id, ambiente="development", vigencia=VIGENCIA)
+        await ops.tomar_carga(e.db, valor_uuid_uuid4, usuario_id=e.usuario.id, ambiente="development", vigencia=VIGENCIA)
     assert (await e.db.execute(select(OperacionIngesta.estado))).scalar_one() == "CREADA"  # nada cambió
 
 
@@ -136,7 +140,8 @@ async def test_reservar_enlaza_la_operacion_en_la_misma_transaccion(e):
     fila = (await e.db.execute(select(OperacionIngesta))).scalar_one()
     assert (fila.estado, fila.documento_id) == ("CON_DOCUMENTO", documento.id)
     vista = await ops.obtener_vista(e.db, operacion_id, "development")
-    assert vista.estado is EstadoOperacionPublico.EN_PROCESO and vista.documento_id == documento.id
+    assert vista.estado is EstadoOperacionPublico.EN_PROCESO
+    assert vista.documento_id == documento.id
 
 
 @pytest.mark.parametrize("variante", ["sin_cargar", "otro_ambiente", "ya_enlazada", "otro_actor"])
@@ -152,9 +157,11 @@ async def test_si_la_operacion_no_esta_en_carga_no_se_reserva_ningun_documento(e
     else:
         operacion_id = (await ops.crear_operacion(e.db, usuario_id=e.usuario.id, ambiente="development")).operacion_id
     antes = len((await e.db.execute(select(Documento))).scalars().all())
+    valor_metadatos = metadatos(e.empresa, anio=2024)
+    valor_sha256_de = sha256_de(b"otro")
     with pytest.raises(ConflictError) as error:
         await servicio.reservar_documento(
-            e.db, metadatos=metadatos(e.empresa, anio=2024), nombre_archivo="otro.md", sha256=sha256_de(b"otro"),
+            e.db, metadatos=valor_metadatos, nombre_archivo="otro.md", sha256=valor_sha256_de,
             tamano_bytes=10, usuario_id=e.usuario.id, ambiente="development", operacion_id=operacion_id,
         )
     assert getattr(error.value, "code", "") == "OPERATION_STATE_CONFLICT"
@@ -164,9 +171,11 @@ async def test_si_la_operacion_no_esta_en_carga_no_se_reserva_ningun_documento(e
 async def test_un_duplicado_no_enlaza_la_operacion(e):
     await documento_con_operacion(e, 1)
     operacion_id = await operacion_en_carga(e)
+    valor_metadatos_2 = metadatos(e.empresa, anio=2025)
+    valor_sha256_de_2 = sha256_de(b"contenido 1")
     with pytest.raises(ConflictError) as error:
         await servicio.reservar_documento(
-            e.db, metadatos=metadatos(e.empresa, anio=2025), nombre_archivo="dup.md", sha256=sha256_de(b"contenido 1"),
+            e.db, metadatos=valor_metadatos_2, nombre_archivo="dup.md", sha256=valor_sha256_de_2,
             tamano_bytes=10, usuario_id=e.usuario.id, ambiente="development", operacion_id=operacion_id,
         )
     assert error.value.code == "DOCUMENT_ALREADY_INGESTED" or error.value.code == "DOCUMENT_UPLOAD_IN_PROGRESS"
@@ -187,7 +196,8 @@ async def test_marcar_rechazada_solo_aplica_a_una_carga_sin_documento(e):
     con_documento, _ = await documento_con_operacion(e, 2)
     assert await ops.marcar_rechazada(e.db, con_documento, "development", codigo="X", mensaje="m", estado_http=400) is False
     fila = (await e.db.execute(select(OperacionIngesta).where(OperacionIngesta.id == con_documento))).scalar_one()
-    assert fila.estado == "CON_DOCUMENTO" and fila.codigo_error is None
+    assert fila.estado == "CON_DOCUMENTO"
+    assert fila.codigo_error is None
 
     otra = await operacion_en_carga(e)
     assert await ops.marcar_rechazada(e.db, otra, "qa", codigo="X", mensaje="m", estado_http=400) is False  # otro ambiente
@@ -204,23 +214,30 @@ async def test_estados_sin_documento(e):
 
     en_carga = await operacion_en_carga(e)
     v = await ops.obtener_vista(e.db, en_carga, "development")
-    assert v.estado is EstadoOperacionPublico.VALIDANDO and v.terminal is False and v.error is None
+    assert v.estado is EstadoOperacionPublico.VALIDANDO
+    assert v.terminal is False
+    assert v.error is None
 
     await e.db.execute(update(OperacionIngesta).where(OperacionIngesta.id == en_carga).values(
         carga_vigente_hasta=datetime.now(timezone.utc) - timedelta(minutes=1)))
     await e.db.commit()
     v = await ops.obtener_vista(e.db, en_carga, "development")
-    assert v.estado is EstadoOperacionPublico.INTERRUMPIDA and v.error.code == "UPLOAD_INTERRUPTED" and not v.terminal
+    assert v.estado is EstadoOperacionPublico.INTERRUMPIDA
+    assert v.error.code == "UPLOAD_INTERRUPTED"
+    assert not v.terminal
 
     await ops.marcar_rechazada(e.db, en_carga, "development", codigo="COMPANY_INACTIVE", mensaje="La empresa está inactiva.", estado_http=400)
     v = await ops.obtener_vista(e.db, en_carga, "development")
-    assert v.estado is EstadoOperacionPublico.RECHAZADA and v.terminal and not v.exitosa
+    assert v.estado is EstadoOperacionPublico.RECHAZADA
+    assert v.terminal
+    assert not v.exitosa
     assert (v.error.code, v.error.message) == ("COMPANY_INACTIVE", "La empresa está inactiva.")
 
     with pytest.raises(NotFoundError):
         await ops.obtener_vista(e.db, en_carga, "qa")  # otro ambiente: inexistente
+    valor_uuid_uuid4_2 = uuid.uuid4()
     with pytest.raises(NotFoundError):
-        await ops.obtener_vista(e.db, uuid.uuid4(), "development")
+        await ops.obtener_vista(e.db, valor_uuid_uuid4_2, "development")
 
 
 async def test_estados_con_documento_y_su_exito(e):
@@ -252,8 +269,10 @@ async def test_estados_con_documento_y_su_exito(e):
         assert (v.error.code if v.error else None) == codigo, nombre
         assert (v.resultado_analisis.value if v.resultado_analisis else None) == (resultado.value if resultado else None), nombre
     # Un COMPLETADO transaccional con la publicación pendiente no anuncia resultado y es reintentable.
-    assert casos["pendiente"].publicacion_reintentable and casos["pendiente"].resultado_analisis is None
-    assert casos["pendiente"].etapa == "PUBLICANDO" and casos["completado"].etapa == "FINALIZADO"
+    assert casos["pendiente"].publicacion_reintentable
+    assert casos["pendiente"].resultado_analisis is None
+    assert casos["pendiente"].etapa == "PUBLICANDO"
+    assert casos["completado"].etapa == "FINALIZADO"
     assert casos["completado"].fragmentos_procesados == casos["completado"].fragmentos_total == 4
     assert [a["codigo"] for a in casos["completado"].advertencias] == ["A"]
     assert casos["fallido"].error.message.startswith("La ingesta no pudo completarse")
@@ -280,7 +299,9 @@ async def listar(e, **filtros):
 async def test_listado_ordenado_filtrado_y_paginado(e):
     datos = await poblar(e)
     todos = await listar(e)
-    assert todos.total == 4 and todos.paginas == 1 and [d.id for d in todos.items] == datos.ids[::-1]  # recientes primero
+    assert todos.total == 4
+    assert todos.paginas == 1
+    assert [d.id for d in todos.items] == datos.ids[::-1]  # recientes primero
     assert {d.id: d.estado for d in todos.items} == {
         datos.ids[0]: EstadoProgreso.COMPLETADO, datos.ids[1]: EstadoProgreso.PUBLICACION_PENDIENTE,
         datos.ids[2]: EstadoProgreso.FALLIDO, datos.ids[3]: EstadoProgreso.EN_PROCESO,
@@ -313,17 +334,26 @@ async def test_parametros_de_pagina_invalidos(e, argumentos):
 async def test_el_detalle_trae_el_analisis_y_respeta_el_ambiente(e):
     datos = await poblar(e)
     completo = await ops.obtener_detalle(e.db, datos.ids[0], "development")
-    assert completo.estado is EstadoProgreso.COMPLETADO and completo.analisis["gri"] == [{"codigo": "305"}]
-    assert completo.error is None and completo.disponible_para_rag and completo.empresa_nombre == e.empresa.nombre
+    assert completo.estado is EstadoProgreso.COMPLETADO
+    assert completo.analisis["gri"] == [{"codigo": "305"}]
+    assert completo.error is None
+    assert completo.disponible_para_rag
+    assert completo.empresa_nombre == e.empresa.nombre
     pendiente = await ops.obtener_detalle(e.db, datos.ids[1], "development")
-    assert pendiente.publicacion_reintentable and pendiente.error.code == "VECTOR_PUBLICATION_FAILED"
-    assert pendiente.resultado_analisis is None and not pendiente.disponible_para_rag
+    assert pendiente.publicacion_reintentable
+    assert pendiente.error.code == "VECTOR_PUBLICATION_FAILED"
+    assert pendiente.resultado_analisis is None
+    assert not pendiente.disponible_para_rag
     fallido = await ops.obtener_detalle(e.db, datos.ids[2], "development")
-    assert fallido.error.code == "EMBEDDING_PROVIDER_ERROR" and fallido.sector is SectorEmpresa.PETROLEO
+    assert fallido.error.code == "EMBEDDING_PROVIDER_ERROR"
+    assert fallido.sector is SectorEmpresa.PETROLEO
     en_proceso = await ops.obtener_detalle(e.db, datos.ids[3], "development")
-    assert en_proceso.estado is EstadoProgreso.EN_PROCESO and en_proceso.error is None and en_proceso.analisis is None
+    assert en_proceso.estado is EstadoProgreso.EN_PROCESO
+    assert en_proceso.error is None
+    assert en_proceso.analisis is None
     with pytest.raises(NotFoundError) as error:
         await ops.obtener_detalle(e.db, datos.ids[0], "qa")
     assert error.value.code == "DOCUMENT_NOT_FOUND"
+    valor_uuid_uuid4_3 = uuid.uuid4()
     with pytest.raises(NotFoundError):
-        await ops.obtener_detalle(e.db, uuid.uuid4(), "development")
+        await ops.obtener_detalle(e.db, valor_uuid_uuid4_3, "development")

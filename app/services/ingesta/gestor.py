@@ -508,7 +508,9 @@ async def iniciar_ingesta(app, parametros: ParametrosIngesta | None = None, prep
             f"La ingesta no está disponible: no se pudo preparar el esquema de la base {exc.base}. {exc.mensaje}",
             {"base": exc.base, "motivo": exc.codigo, **exc.detalles},
         )
-        logger.error("Ingesta no disponible: preparación del esquema de la base %s falló (%s).", exc.base, exc.codigo)
+        # `ErrorMigracion` se lanza siempre sin causa encadenada (`from None`) y con un mensaje saneado: la traza no
+        # contiene la excepción original del driver (host, usuario). Lo fija `test_el_log_de_esquema_no_revela_la_causa_original`.
+        logger.exception("Ingesta no disponible: preparación del esquema de la base %s falló (%s).", exc.base, exc.codigo)
     except Exception as exc:
         app.state.ingesta_error = (
             "INGESTION_NOT_CONFIGURED",

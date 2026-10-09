@@ -108,7 +108,8 @@ async def fallo_de(iterador) -> AppException:
 
 def sin_filtraciones(error: AppException):
     visible = f"{error} {error.message} {error.details!r} {error.code}"
-    assert SECRETO_DOCUMENTO not in visible and SECRETO_CLAVE not in visible
+    assert SECRETO_DOCUMENTO not in visible
+    assert SECRETO_CLAVE not in visible
     # Sin cadena de excepciones visible: ni causa explícita ni contexto sin suprimir.
     assert error.__cause__ is None
     assert error.__context__ is None or error.__suppress_context__ is True
@@ -145,7 +146,8 @@ def test_no_existe_un_proveedor_de_reserva_ni_configuracion_por_entorno_en_produ
     with pytest.raises(TypeError):
         ProveedorEmbeddings()  # un Protocol no se instancia: no hay implementación por defecto
     fuente = inspect.getsource(embeddings)
-    assert "environ" not in fuente and "getenv" not in fuente
+    assert "environ" not in fuente
+    assert "getenv" not in fuente
     nombres = [n.lower() for n in dir(embeddings)]
     assert not any(marca in n for n in nombres for marca in ("simulad", "fake", "mock", "dummy"))
 
@@ -220,7 +222,8 @@ async def test_consume_el_origen_lote_a_lote_sin_leer_por_adelantado():
 
     proveedor = ProveedorSimulado()
     iterador = embeber_fragmentos(origen(), proveedor, tamano_lote=3, timeout_segundos=5)
-    assert consumidos == [] and proveedor.lotes == []  # llamar no consume ni llama al proveedor
+    assert consumidos == []
+    assert proveedor.lotes == []  # llamar no consume ni llama al proveedor
 
     primero = await anext(iterador)
     assert (len(consumidos), len(proveedor.lotes), primero.numero) == (3, 1, 0)
@@ -228,7 +231,8 @@ async def test_consume_el_origen_lote_a_lote_sin_leer_por_adelantado():
     assert (len(consumidos), len(proveedor.lotes), segundo.numero) == (6, 2, 1)
     resto = [lote async for lote in iterador]
     assert [len(lote.elementos) for lote in resto] == [3, 1]
-    assert len(consumidos) == 10 and len(proveedor.lotes) == 4
+    assert len(consumidos) == 10
+    assert len(proveedor.lotes) == 4
 
 
 async def test_no_retiene_lotes_ya_entregados_ni_acumula_vectores_del_documento():
@@ -266,14 +270,16 @@ async def test_entrada_vacia_no_llama_al_proveedor(vacio):
 
 @pytest.mark.parametrize("valor", [0, -1, -100, True, False, 1.5, 3.0, "10", None])
 def test_tamano_de_lote_invalido(valor):
+    valor_proveedorsimulado = ProveedorSimulado()
     with pytest.raises(ValueError, match="tamano_lote"):
-        embeber_fragmentos([], ProveedorSimulado(), tamano_lote=valor, timeout_segundos=5)
+        embeber_fragmentos([], valor_proveedorsimulado, tamano_lote=valor, timeout_segundos=5)
 
 
 @pytest.mark.parametrize("valor", [0, 0.0, -1, -0.5, math.nan, math.inf, -math.inf, True, "5", None])
 def test_timeout_invalido(valor):
+    valor_proveedorsimulado_2 = ProveedorSimulado()
     with pytest.raises(ValueError, match="timeout_segundos"):
-        embeber_fragmentos([], ProveedorSimulado(), tamano_lote=1, timeout_segundos=valor)
+        embeber_fragmentos([], valor_proveedorsimulado_2, tamano_lote=1, timeout_segundos=valor)
 
 
 @pytest.mark.parametrize("plazo", [1, 0.001, 60.5])
@@ -282,12 +288,15 @@ def test_timeouts_validos(plazo):
 
 
 def test_los_parametros_son_obligatorios_y_se_validan_al_llamar_no_al_consumir():
+    valor_proveedorsimulado_3 = ProveedorSimulado()
     with pytest.raises(TypeError):
-        embeber_fragmentos([], ProveedorSimulado())
+        embeber_fragmentos([], valor_proveedorsimulado_3)
+    proveedor = ProveedorSimulado()
     with pytest.raises(TypeError):
-        embeber_fragmentos([], ProveedorSimulado(), 3, 5)  # solo por nombre
+        embeber_fragmentos([], proveedor, 3, 5)  # solo por nombre
+    dos_fragmentos = fragmentos(2)
     with pytest.raises(ValueError):  # sin necesidad de iterar
-        embeber_fragmentos(fragmentos(2), ProveedorSimulado(), tamano_lote=0, timeout_segundos=5)
+        embeber_fragmentos(dos_fragmentos, proveedor, tamano_lote=0, timeout_segundos=5)
 
 
 @pytest.mark.parametrize(
@@ -307,8 +316,9 @@ def test_proveedor_que_no_cumple_el_contrato(proveedor):
 
 @pytest.mark.parametrize("origen", ["texto", b"bytes", None, 5])
 def test_los_fragmentos_deben_ser_un_iterable(origen):
+    valor_proveedorsimulado_4 = ProveedorSimulado()
     with pytest.raises(TypeError, match="iterable"):
-        embeber_fragmentos(origen, ProveedorSimulado(), tamano_lote=1, timeout_segundos=5)
+        embeber_fragmentos(origen, valor_proveedorsimulado_4, tamano_lote=1, timeout_segundos=5)
 
 
 async def test_elementos_que_no_son_fragmentos_se_rechazan_sin_llamar_al_proveedor():
@@ -341,7 +351,8 @@ def vectores_buenos(n: int):
 )
 async def test_cantidad_de_vectores_incorrecta(respuesta, esperada, recibida):
     error = await fallo_de(await procesar_con(respuesta))
-    assert isinstance(error, ExternalServiceError) and not isinstance(error, ExternalServiceTimeoutError)
+    assert isinstance(error, ExternalServiceError)
+    assert not isinstance(error, ExternalServiceTimeoutError)
     assert error.code == "EMBEDDING_INVALID_RESPONSE"
     assert error.details == {
         "proveedor": "proveedor-SIMULADO", "modelo": "modelo-SIMULADO-de-prueba", "lote": 0,
@@ -387,7 +398,8 @@ async def test_componentes_invalidos_se_rechazan_con_su_posicion(valor, motivo):
     assert error.code == "EMBEDDING_INVALID_RESPONSE"
     assert error.details["motivo"] == motivo
     assert (error.details["vector"], error.details["componente"]) == (1, 2)
-    assert "nan" not in repr(error.details).lower() and "inf" not in repr(error.details).lower()
+    assert "nan" not in repr(error.details).lower()
+    assert "inf" not in repr(error.details).lower()
 
 
 @pytest.mark.parametrize(
@@ -480,7 +492,8 @@ async def test_fallo_del_proveedor_no_expone_contenido_ni_credenciales():
     excepcion = RuntimeError(f"401 clave {SECRETO_CLAVE} texto {SECRETO_DOCUMENTO}")
     proveedor = proveedor_con(AsyncMock(side_effect=excepcion))
     error = await fallo_de(embeber_fragmentos([f], proveedor, tamano_lote=1, timeout_segundos=5))
-    assert isinstance(error, ExternalServiceError) and not isinstance(error, ExternalServiceTimeoutError)
+    assert isinstance(error, ExternalServiceError)
+    assert not isinstance(error, ExternalServiceTimeoutError)
     assert error.code == "EMBEDDING_PROVIDER_ERROR"
     assert error.details == {
         "proveedor": "proveedor-SIMULADO", "modelo": "modelo-SIMULADO-de-prueba", "lote": 0, "tipo_error": "RuntimeError",
@@ -540,7 +553,8 @@ async def test_una_app_exception_del_proveedor_se_convierte_en_error_controlado_
 
     assert error is not original
     # El código lo fija este módulo: un proveedor no puede hacerse pasar por un error propio.
-    assert isinstance(error, ExternalServiceError) and not isinstance(error, ExternalServiceTimeoutError)
+    assert isinstance(error, ExternalServiceError)
+    assert not isinstance(error, ExternalServiceTimeoutError)
     assert error.code == "EMBEDDING_PROVIDER_ERROR"
     assert error.message == "El proveedor de embeddings devolvió un error."
     assert error.details == {
@@ -614,8 +628,9 @@ async def test_la_cancelacion_sigue_propagandose_aunque_el_proveedor_lance_app_e
         raise asyncio.CancelledError()
 
     proveedor = proveedor_con(AsyncMock(side_effect=generar))
+    valor_embeber_fragmentos = embeber_fragmentos(fragmentos(2), proveedor, tamano_lote=1, timeout_segundos=5)
     with pytest.raises(asyncio.CancelledError):
-        await recolectar(embeber_fragmentos(fragmentos(2), proveedor, tamano_lote=1, timeout_segundos=5))
+        await recolectar(valor_embeber_fragmentos)
     assert llamadas == 1  # no se convirtió en error ni se pasó al lote siguiente
 
 
@@ -642,13 +657,15 @@ async def test_la_cancelacion_se_propaga_y_cancela_la_llamada_al_proveedor():
     tarea.cancel()
     with pytest.raises(asyncio.CancelledError):
         await tarea
-    assert tarea.cancelled() and cancelada == [True]
+    assert tarea.cancelled()
+    assert cancelada == [True]
 
 
 async def test_una_cancelacion_lanzada_por_el_proveedor_no_se_convierte_en_exito_ni_en_error_de_servicio():
     proveedor = proveedor_con(AsyncMock(side_effect=asyncio.CancelledError()))
+    valor_embeber_fragmentos_2 = embeber_fragmentos(fragmentos(1), proveedor, tamano_lote=1, timeout_segundos=5)
     with pytest.raises(asyncio.CancelledError):
-        await recolectar(embeber_fragmentos(fragmentos(1), proveedor, tamano_lote=1, timeout_segundos=5))
+        await recolectar(valor_embeber_fragmentos_2)
 
 
 async def test_la_cancelacion_durante_el_consumo_no_deja_lotes_como_entregados_de_mas():
@@ -763,7 +780,8 @@ async def test_integracion_con_fragmentos_reales_y_contexto_enviado():
         if f.contexto:
             assert e.vector != tuple(vector_de(f.texto_literal))  # el vector sale del texto con contexto
     assert "".join(e.fragmento.texto_literal for e in elementos) == TEXTO_REAL
-    assert elementos[0].fragmento.inicio == 0 and elementos[-1].fragmento.fin == len(TEXTO_REAL)
+    assert elementos[0].fragmento.inicio == 0
+    assert elementos[-1].fragmento.fin == len(TEXTO_REAL)
 
 
 async def test_integracion_con_el_documento_validado_de_la_etapa_1_con_bom():
@@ -856,14 +874,16 @@ async def test_embeber_consulta_exige_proveedor_con_capacidad_de_consulta():
 
 @pytest.mark.parametrize("texto", ["", "   ", None, 5])
 async def test_embeber_consulta_exige_texto_no_vacio(texto):
+    valor_proveedorconsultasimulado = ProveedorConsultaSimulado()
     with pytest.raises(ValueError):
-        await embeber_consulta(texto, ProveedorConsultaSimulado(), timeout_segundos=5)
+        await embeber_consulta(texto, valor_proveedorconsultasimulado, timeout_segundos=5)
 
 
 @pytest.mark.parametrize("plazo", [0, -1, float("inf"), "5"])
 async def test_embeber_consulta_exige_plazo_valido(plazo):
+    valor_proveedorconsultasimulado_2 = ProveedorConsultaSimulado()
     with pytest.raises(ValueError):
-        await embeber_consulta("x", ProveedorConsultaSimulado(), timeout_segundos=plazo)
+        await embeber_consulta("x", valor_proveedorconsultasimulado_2, timeout_segundos=plazo)
 
 
 async def test_embeber_consulta_envuelve_error_del_proveedor_sin_filtrar():
@@ -896,5 +916,6 @@ async def test_embeber_consulta_exige_una_identidad_valida():
         async def generar_embeddings_consulta(self, textos):
             raise AssertionError("no debe llamarse")
 
+    valor_sinidentidad = SinIdentidad()
     with pytest.raises(TypeError, match="identidad"):
-        await embeber_consulta("x", SinIdentidad(), timeout_segundos=5)
+        await embeber_consulta("x", valor_sinidentidad, timeout_segundos=5)
