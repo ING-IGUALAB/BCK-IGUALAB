@@ -4,8 +4,10 @@ T03, T05–T08 y hash de T10. LTX:RF-012, RF-013, RN-018, RN-021, RN-022, RN-024
 RNF-007, RNF-011, RNF-015. Decisiones D07, D08, D09, D18, D19.
 Nivel: unidad, HTTP de prueba y SQLite aislado. No prueba persistencia.
 """
+import contextlib
 import hashlib
 import io
+import time
 import uuid
 from dataclasses import asdict
 from types import SimpleNamespace
@@ -638,10 +640,27 @@ async def test_pdf_ascii_renombrado_a_md_se_rechaza_por_formato_no_por_utf8():
         pytest.param(b"%PDF-1.7\n%%EOF\n", id="EOF-sin-objetos"),
         pytest.param(b"%PDF-2.0\n" + b"% relleno\n" * 20_000 + b"%%EOF\n", id="objetos-fuera-de-ventana"),
         pytest.param(b"%PDF-1.4\r\n7 0 obj\r\n<<>>\r\nendobj\r\n", id="crlf"),
+        # El detector no impone límites propios a los blancos ni a los dígitos del encabezado de objeto.
+        pytest.param(b"%PDF-1.4\n7" + b" " * 40 + b"0" + b"\n" * 40 + b"obj\n<<>>\n", id="blancos-largos"),
+        pytest.param(b"%PDF-1.4\n7 000000 obj\n<<>>\n", id="generacion-con-ceros-a-la-izquierda"),
+        pytest.param(b"%PDF-1.4\n12345678901234 0 obj\n<<>>\n", id="numero-de-objeto-largo"),
     ],
 )
 async def test_pdf_incompleto_o_con_distinta_estructura_tambien_se_reconoce(datos):
     assert (await rechazo(datos)).details == {"formato_detectado": "PDF"}
+
+
+@pytest.mark.parametrize(
+    "relleno",
+    [pytest.param(b"1" * 70_000, id="digitos"), pytest.param(b"1" * 30_000 + b" " * 30_000, id="digitos-y-blancos")],
+)
+async def test_la_busqueda_de_objetos_pdf_no_es_cuadratica(relleno):
+    """Antes `\\d+\\s+\\d+\\s+obj` tardaba decenas de segundos con 64 KiB de dígitos tras `%PDF-`."""
+    inicio = time.perf_counter()
+    # Rechazarlo o admitirlo es indiferente aquí: lo que se acota es el tiempo.
+    with contextlib.suppress(BusinessValidationError, PayloadTooLargeError):
+        await validar(b"%PDF-1.4\n" + relleno + b"\n")
+    assert time.perf_counter() - inicio < 5
 
 
 @pytest.mark.parametrize(

@@ -193,7 +193,7 @@ def _error_del_documento(estado: EstadoOperacionPublico, codigo: str | None) -> 
 
 def construir_vista(operacion: OperacionIngesta, documento: Documento | None, *, ahora: datetime | None = None) -> OperacionResponse:
     ahora = ahora or _ahora()
-    base = dict(operacion_id=operacion.id, creada_en=operacion.creada_en)
+    base = {"operacion_id": operacion.id, "creada_en": operacion.creada_en}
     if documento is None:
         estado = _estado_sin_documento(operacion, ahora)
         error = None
@@ -255,26 +255,26 @@ def _condicion_de_estado(estado: EstadoProgreso):
 
 def _resumen(documento: Documento, empresa_nombre: str, operacion_id: uuid.UUID | None) -> dict:
     estado, _, resultado = servicio.estado_de_documento(documento)
-    return dict(
-        id=documento.id,
-        operacion_id=operacion_id,
-        empresa_id=documento.empresa_id,
-        empresa_nombre=empresa_nombre,
-        sector=documento.sector,
-        anio=documento.anio,
-        tipo=documento.tipo,
-        nombre_archivo=documento.nombre_archivo,
-        sha256=documento.sha256,
-        tamano_bytes=documento.tamano_bytes,
-        estado=estado,
-        resultado_analisis=resultado,
-        disponible_para_rag=estado is EstadoProgreso.COMPLETADO and documento.resultado_analisis is not None,
-        fragmentos_total=documento.fragmentos_total,
-        cantidad_advertencias=len(documento.advertencias or ()),
-        cargado_por=documento.usuario_id,
-        creado_en=documento.creado_en,
-        completado_en=documento.completado_en,
-    )
+    return {
+        "id": documento.id,
+        "operacion_id": operacion_id,
+        "empresa_id": documento.empresa_id,
+        "empresa_nombre": empresa_nombre,
+        "sector": documento.sector,
+        "anio": documento.anio,
+        "tipo": documento.tipo,
+        "nombre_archivo": documento.nombre_archivo,
+        "sha256": documento.sha256,
+        "tamano_bytes": documento.tamano_bytes,
+        "estado": estado,
+        "resultado_analisis": resultado,
+        "disponible_para_rag": estado is EstadoProgreso.COMPLETADO and documento.resultado_analisis is not None,
+        "fragmentos_total": documento.fragmentos_total,
+        "cantidad_advertencias": len(documento.advertencias or ()),
+        "cargado_por": documento.usuario_id,
+        "creado_en": documento.creado_en,
+        "completado_en": documento.completado_en,
+    }
 
 
 async def listar_documentos(

@@ -128,15 +128,20 @@ def _argumentos_de_conexion(url: object, base: str) -> dict:
     return argumentos
 
 
-async def _conectar(url: object, base: str, timeout: float) -> asyncpg.Connection:
+def _base_no_disponible(base: str, exc: BaseException) -> ErrorMigracion:
+    # Solo la clase del error: el mensaje puede contener el host o el usuario.
+    return ErrorMigracion(
+        "MIGRATION_DB_UNAVAILABLE", f"No se pudo conectar a la base {base}.", base, {"causa": type(exc).__name__}
+    )
+
+
+async def _conectar(url: object, base: str) -> asyncpg.Connection:
+    """Abre la conexión. El plazo lo impone quien llama con `asyncio.timeout` (ver `migrar`)."""
     argumentos = _argumentos_de_conexion(url, base)
     try:
-        return await asyncpg.connect(**argumentos, timeout=timeout, command_timeout=300)
+        return await asyncpg.connect(**argumentos, command_timeout=300)
     except (OSError, asyncio.TimeoutError, asyncpg.PostgresError) as exc:
-        # Solo la clase del error: el mensaje puede contener el host o el usuario.
-        raise ErrorMigracion(
-            "MIGRATION_DB_UNAVAILABLE", f"No se pudo conectar a la base {base}.", base, {"causa": type(exc).__name__}
-        ) from None
+        raise _base_no_disponible(base, exc) from None
 
 
 def _clave_candado(base: str) -> int:
@@ -398,7 +403,11 @@ async def migrar(
         raise ValueError("Las migraciones deben tener versiones únicas y ordenadas.")
     base = esquema.nombre
     t0 = time.monotonic()
-    conn = await _conectar(url, base, timeout_conexion)
+    try:
+        async with asyncio.timeout(timeout_conexion):
+            conn = await _conectar(url, base)
+    except TimeoutError as exc:  # plazo propio agotado; los fallos de asyncpg ya los tradujo `_conectar`
+        raise _base_no_disponible(base, exc) from None
     logger.info("Base %s: conexión establecida en %.2f s.", base, time.monotonic() - t0)
     candado = None
     try:

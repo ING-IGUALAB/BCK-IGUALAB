@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from botocore.exceptions import ReadTimeoutError
+from botocore.exceptions import ClientError, ReadTimeoutError
 from sqlalchemy import text, update
 
 from app.exceptions import ConflictError, ExternalServiceError, ExternalServiceTimeoutError
@@ -214,8 +214,9 @@ async def test_con_version_desconocida_un_head_404_no_basta_hay_que_listar_y_bor
     clave = documento.clave_original
     version = e.cliente.poner(clave, datos)
     e.cliente.delete_object(Bucket="b", Key=clave)  # marca de borrado encima de la versión
-    with pytest.raises(Exception):
+    with pytest.raises(ClientError) as ausente:
         e.cliente.head_object(Bucket="b", Key=clave)  # 404 «prueba» ausencia, pero es falso
+    assert ausente.value.response["Error"]["Code"] == "404"
     assert len(e.cliente.versiones_de(clave)) == 2
     await fallido_con_intento(e, documento)
     e.cliente.llamadas.clear()

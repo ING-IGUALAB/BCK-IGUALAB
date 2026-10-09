@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from app.exceptions import BusinessValidationError, ConflictError, ExternalServiceError
+from app.exceptions import AuthorizationError, BusinessValidationError, ConflictError, ExternalServiceError
 from app.models import SectorEmpresa, TipoDocumento
 from app.models.documento_ingesta import (
     EstadoCompensacion,
@@ -222,9 +222,9 @@ async def test_sector_declarado_distinto_al_de_la_empresa_se_rechaza(entorno):
 
 
 async def test_el_actor_viene_de_la_sesion_y_debe_ser_un_superadmin_habilitado(entorno):
-    with pytest.raises(Exception) as capturado:
+    with pytest.raises(AuthorizationError) as capturado:
         await ingerir(entorno, usuario_id=uuid.uuid4())
-    assert getattr(capturado.value, "code", None) == "INGESTION_FORBIDDEN"
+    assert capturado.value.code == "INGESTION_FORBIDDEN"
     assert await entorno.documentos() == []
 
 

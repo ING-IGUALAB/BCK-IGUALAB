@@ -147,15 +147,15 @@ _NEGACION = re.compile(
     _I,
 )
 _NEGACION_POSTERIOR = re.compile(
-    r"^\s*(?:[:=]|\()?\s*(?:0(?:[.,]0+)?|cero|ninguna?|ning[uú]n)\b", _I
+    r"^\s*(?:[:=(]\s*)?(?:0(?:[.,]0+)?|cero|ninguna?|ning[uú]n)\b", _I
 )
 _HIPOTETICA_CLAUSULA = re.compile(
     r"\b(?:en\s+caso\s+de|de\s+(?:ser|incumplir|no\s+cumplir|infringir)|riesgos?|eventual(?:es)?|"
     r"potencial(?:es)?|posibles?|hasta|m[aá]xim[ao]s?|m[ií]nim[ao]s?|sujet[oa]s?\s+a|"
-    r"expuest[oa]s?|exposici[óo]n|prev[eé]n?|establece[n]?|contempla[n]?|tipifica[n]?|"
+    r"expuest[oa]s?|exposici[óo]n|prev[eé]n?|establecen?|contemplan?|tipifican?|"
     r"r[eé]gimen\s+sancionador|se\s+aplicar[aá]n?|ser[aá]n?\s+(?:multad|sancionad)\w+|"
     r"para\s+(?:evitar|prevenir)|con\s+el\s+fin\s+de\s+evitar|a\s+fin\s+de\s+evitar|"
-    r"evitar|prevenci[óo]n\s+de|reglamento\s+de\s+sanciones|puede[n]?\s+(?:ser\s+)?(?:multad|sancionad|imponer)\w*)\b",
+    r"evitar|prevenci[óo]n\s+de|reglamento\s+de\s+sanciones|pueden?\s+(?:ser\s+)?(?:multad|sancionad|imponer)\w*)\b",
     _I,
 )
 _HIPOTETICA_SI = re.compile(r"(?:^|\s)si\s+(?:se\s+|no\s+|la\s+|el\s+)?(?:incumpl|cumpl|infring|comet|produc|detect)", _I)
@@ -252,7 +252,7 @@ _CALIFICADORES: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 # Un calificador precedido de estas negaciones o hipótesis no se registra.
 _NEGA_CALIFICADOR = re.compile(
-    r"\b(?:no|nunca|jam[aá]s|ning[uú]n[ao]?s?|sin|ni|podr[ií]a[n]?|podr[aá]n?|pudiera|podr[ií]amos)\b(?:(?!\b(?:y|e|pero|aunque)\b)[^,.;]){0,40}$", _I
+    r"\b(?:no|nunca|jam[aá]s|ning[uú]n[ao]?s?|sin|ni|podr[ií]an?|podr[aá]n?|pudiera|podr[ií]amos)\b(?:(?!\b(?:y|e|pero|aunque)\b)[^,.;]){0,40}$", _I
 )
 
 # --- Montos -----------------------------------------------------------------------------------------
@@ -284,10 +284,12 @@ _MONTO_ANTES = re.compile(
     _I,
 )
 _SOLO_MONTO = (_MONTO_PREFIJO, _MONTO_SUFIJO)
-_CERO = re.compile(r"^\W*(?:0+(?:[.,]0+)?|cero|ninguna?|ning[uú]n|-+|—+|–+)\W*$", _I)
 _CERO_SUELTO = re.compile(r"[\W_]*(?:0+(?:[.,]0+)?|cero)[\W_]*", _I)
-_NUMERO_SUELTO = re.compile(r"[\W_]*\d[\d.,'’   ]*[\W_]*")
+_NUMERO_SUELTO = re.compile(r"[\W_]*+\d[\d.,'’   ]*+[\W_]*+")
 _ANIO_SUELTO = re.compile(r"(?:19|20)\d{2}")
+# Última palabra (letras) o último símbolo no blanco al final de una ventana. Solo se empieza al principio de
+# una racha de letras y el cuantificador es posesivo: sin retroceso cuadrático.
+_ULTIMA_PALABRA = re.compile(r"((?<![^\W\d_])[^\W\d_]++|\S)$")
 _ENCABEZADO_DE_MONTO = re.compile(r"monto|importe|valor|total|multa|sanci|s/|soles|uit|usd|us\$", _I)
 _SEPARADOR_FINAL = re.compile(r"[.,'’  ](\d+)$")
 
@@ -529,7 +531,7 @@ def _oraciones(texto: str, inicio: int, fin: int) -> list[tuple[int, int]]:
             continue
         puntuacion = texto[encontrado.start():encontrado.end()].strip()
         if puntuacion.startswith("."):
-            palabra = re.search(r"([^\W\d_]+|\S)$", texto[max(inicio, encontrado.start() - 12):encontrado.start()])
+            palabra = _ULTIMA_PALABRA.search(texto[max(inicio, encontrado.start() - 12):encontrado.start()])
             token = palabra.group(1) if palabra else ""
             if token and (
                 token.lower() in _ABREVIATURAS or (len(token) == 1 and (token.isalpha() or token == "/"))
@@ -849,6 +851,33 @@ class _Analizador:
             base.append(BASE_VERBO_TRAMITE)
         return base
 
+    def _limites_de_cita(self, b: _Borrador) -> tuple[int, int]:
+        """Rango de la cita: la fila de la tabla o las oraciones del hallazgo, acotado a `MAX_LONGITUD_CITA`
+        alrededor del término y sin blancos en los extremos (el término siempre queda dentro)."""
+        texto = self.texto
+        termino = b.termino
+        if b.en_tabla and b.unidad.tipo == "fila":
+            cita_inicio, cita_fin = b.unidad.inicio, b.unidad.fin
+        else:
+            cita_inicio, cita_fin = min(a for a, _ in b.oraciones), max(f for _, f in b.oraciones)
+        if cita_fin - cita_inicio > MAX_LONGITUD_CITA:
+            cita_inicio = max(cita_inicio, termino.inicio - MARGEN_CITA)
+            cita_fin = min(cita_fin, termino.fin + MARGEN_CITA)
+        while cita_inicio < termino.inicio and texto[cita_inicio].isspace():
+            cita_inicio += 1
+        while cita_fin > termino.fin and texto[cita_fin - 1].isspace():
+            cita_fin -= 1
+        return cita_inicio, cita_fin
+
+    def _fechas_en(self, inicio: int, fin: int) -> list[Dato]:
+        fechas = []
+        vistas = set()
+        for m in _FECHA.finditer(self.texto, inicio, fin):
+            if (m.start(), m.end()) not in vistas:
+                vistas.add((m.start(), m.end()))
+                fechas.append(Dato(m.group(), m.start(), m.end()))
+        return fechas
+
     def _finalizar(self, b: _Borrador) -> SancionDetectada:
         texto = self.texto
         termino = b.termino
@@ -862,23 +891,8 @@ class _Analizador:
         if b.base == [BASE_VERBO_TRAMITE]:
             motivos.append(MOTIVO_SOLO_TRAMITE)
         periodo = self._periodo(termino, b.monto, b.clausula, b.oraciones[0][0])
-        if b.en_tabla and b.unidad.tipo == "fila":
-            cita_inicio, cita_fin = b.unidad.inicio, b.unidad.fin
-        else:
-            cita_inicio, cita_fin = min(a for a, _ in b.oraciones), max(f for _, f in b.oraciones)
-        if cita_fin - cita_inicio > MAX_LONGITUD_CITA:
-            cita_inicio = max(cita_inicio, termino.inicio - MARGEN_CITA)
-            cita_fin = min(cita_fin, termino.fin + MARGEN_CITA)
-        while cita_inicio < termino.inicio and texto[cita_inicio].isspace():
-            cita_inicio += 1
-        while cita_fin > termino.fin and texto[cita_fin - 1].isspace():
-            cita_fin -= 1
-        fechas = []
-        vistas = set()
-        for m in _FECHA.finditer(texto, cita_inicio, cita_fin):
-            if (m.start(), m.end()) not in vistas:
-                vistas.add((m.start(), m.end()))
-                fechas.append(Dato(m.group(), m.start(), m.end()))
+        cita_inicio, cita_fin = self._limites_de_cita(b)
+        fechas = self._fechas_en(cita_inicio, cita_fin)
         return SancionDetectada(
             tipo_termino=termino.tipo if termino.tipo != TERMINO_SANCION_CON_MONTO else TERMINO_SANCION_ECONOMICA,
             referencia_original=texto[termino.inicio:termino.fin],

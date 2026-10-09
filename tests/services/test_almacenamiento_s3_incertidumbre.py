@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 from botocore.awsrequest import AWSResponse
-from botocore.exceptions import ConnectTimeoutError, EndpointConnectionError, ReadTimeoutError
+from botocore.exceptions import ClientError, ConnectTimeoutError, EndpointConnectionError, ReadTimeoutError
 
 from app.exceptions import ConflictError, ExternalServiceError, ExternalServiceTimeoutError
 from app.services.ingesta import almacenamiento_s3
@@ -80,8 +80,10 @@ def test_un_error_5xx_produce_exactamente_una_peticion_sin_reintentos_automatico
         return AWSResponse(request.url, 503, {"Content-Type": "application/xml"}, Crudo())
 
     cliente.meta.events.register("before-send.s3.PutObject", responder)
-    with pytest.raises(Exception):
+    with pytest.raises(ClientError) as capturado:
         cliente.put_object(Bucket=BUCKET, Key="k", Body=b"x")
+    assert capturado.value.response["ResponseMetadata"]["HTTPStatusCode"] == 503
+    assert capturado.value.response["Error"]["Code"] == "ServiceUnavailable"
     assert peticiones == ["PUT"]
 
 

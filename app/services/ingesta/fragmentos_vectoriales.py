@@ -73,7 +73,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.exceptions import ConflictError
 from app.services.ingesta.almacenamiento import validar_ambiente
 from app.services.ingesta.embeddings import IdentidadEmbeddings, LoteEmbebido
-from app.services.ingesta.fragmentacion import SEPARADOR_RUTA
+from app.services.ingesta.fragmentacion import SEPARADOR_RUTA, Fragmento
 
 DIMENSION_VECTORIAL = 1536
 MAXIMO_RESULTADOS = 1000
@@ -175,7 +175,7 @@ def _validar_vector(vector: object, nombre: str) -> str:
         if not math.isfinite(valor):
             raise ValueError(f"{nombre} contiene una componente no finita en float32.")
         convertido.append(valor)
-    if not any(valor != 0.0 for valor in convertido):
+    if not any(convertido):  # componentes ya finitas: 0.0 y -0.0 son las únicas falsas
         raise ValueError(f"{nombre} es el vector cero en float32 (p. ej. por componentes demasiado pequeñas).")
     norma_cuadrada = math.fsum(valor * valor for valor in convertido)
     if not _FLT_MIN <= norma_cuadrada <= _FLT_MAX:
@@ -202,6 +202,29 @@ def _exigir_uuid(nombre: str, valor: object) -> uuid.UUID:
     return valor
 
 
+def _validar_fragmento(f: Fragmento, vistos: set[int]) -> tuple:
+    """Comprueba un fragmento del lote y devuelve su ruta de encabezados. Registra su índice en `vistos`."""
+    if isinstance(f.indice, bool) or not isinstance(f.indice, int) or f.indice < 0 or f.indice in vistos:
+        raise ValueError("Los índices de fragmento deben ser enteros no negativos y únicos dentro del lote.")
+    vistos.add(f.indice)
+    if (
+        isinstance(f.inicio, bool) or isinstance(f.fin, bool)
+        or not isinstance(f.inicio, int) or not isinstance(f.fin, int)
+        or not 0 <= f.inicio < f.fin
+    ):
+        raise ValueError("Las posiciones del fragmento deben cumplir 0 <= inicio < fin.")
+    if not isinstance(f.texto_literal, str) or not isinstance(f.contexto, str) or len(f.texto_literal) != f.fin - f.inicio:
+        raise ValueError("El texto literal debe medir exactamente fin - inicio caracteres.")
+    if "\x00" in f.texto_literal or "\x00" in f.contexto:
+        raise ValueError("El texto del fragmento contiene caracteres NUL.")
+    if not isinstance(f.continuacion, bool):
+        raise ValueError("`continuacion` debe ser booleano.")
+    ruta = tuple(f.ruta_encabezados)
+    if not all(isinstance(t, str) and "\x00" not in t for t in ruta):
+        raise ValueError("La ruta de encabezados debe contener solo textos sin NUL.")
+    return ruta
+
+
 def _filas(
     ambiente: str, documento_id: uuid.UUID, empresa_id: uuid.UUID, anio: int, tipo: object, sector: object,
     lote: LoteEmbebido,
@@ -224,32 +247,15 @@ def _filas(
     filas, vistos = [], set()
     for elemento in lote.elementos:
         f = elemento.fragmento
-        if isinstance(f.indice, bool) or not isinstance(f.indice, int) or f.indice < 0 or f.indice in vistos:
-            raise ValueError("Los índices de fragmento deben ser enteros no negativos y únicos dentro del lote.")
-        vistos.add(f.indice)
-        if (
-            isinstance(f.inicio, bool) or isinstance(f.fin, bool)
-            or not isinstance(f.inicio, int) or not isinstance(f.fin, int)
-            or not 0 <= f.inicio < f.fin
-        ):
-            raise ValueError("Las posiciones del fragmento deben cumplir 0 <= inicio < fin.")
-        if not isinstance(f.texto_literal, str) or not isinstance(f.contexto, str) or len(f.texto_literal) != f.fin - f.inicio:
-            raise ValueError("El texto literal debe medir exactamente fin - inicio caracteres.")
-        if "\x00" in f.texto_literal or "\x00" in f.contexto:
-            raise ValueError("El texto del fragmento contiene caracteres NUL.")
-        if not isinstance(f.continuacion, bool):
-            raise ValueError("`continuacion` debe ser booleano.")
-        ruta = tuple(f.ruta_encabezados)
-        if not all(isinstance(t, str) and "\x00" not in t for t in ruta):
-            raise ValueError("La ruta de encabezados debe contener solo textos sin NUL.")
+        ruta = _validar_fragmento(f, vistos)
         filas.append(
-            dict(
-                ambiente=ambiente, documento_id=documento_id, indice=f.indice, empresa_id=empresa_id, anio=anio,
-                tipo=tipo, sector=sector, texto_literal=f.texto_literal, contexto=f.contexto, inicio=f.inicio,
-                fin=f.fin, continuacion=f.continuacion, ruta_encabezados=list(ruta),
-                embedding=_validar_vector(elemento.vector, "El vector"),
-                proveedor=identidad.proveedor, modelo=identidad.modelo, dimension=identidad.dimension,
-            )
+            {
+                "ambiente": ambiente, "documento_id": documento_id, "indice": f.indice, "empresa_id": empresa_id,
+                "anio": anio, "tipo": tipo, "sector": sector, "texto_literal": f.texto_literal,
+                "contexto": f.contexto, "inicio": f.inicio, "fin": f.fin, "continuacion": f.continuacion,
+                "ruta_encabezados": list(ruta), "embedding": _validar_vector(elemento.vector, "El vector"),
+                "proveedor": identidad.proveedor, "modelo": identidad.modelo, "dimension": identidad.dimension,
+            }
         )
     return filas
 

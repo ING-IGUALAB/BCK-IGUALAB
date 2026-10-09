@@ -1324,7 +1324,7 @@ async def documentos_recuperables(
     recupere debe descartar los fragmentos cuyo `documento_id` no esté en el resultado.
     """
     validar_ambiente(ambiente)
-    ids = [i for i in documento_ids]
+    ids = list(documento_ids)
     if not all(isinstance(i, uuid.UUID) for i in ids):
         raise ValueError("documento_ids debe contener solo UUID.")
     recuperables: set[uuid.UUID] = set()

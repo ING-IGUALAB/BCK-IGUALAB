@@ -110,7 +110,7 @@ class ConexionSimulada:
 @pytest.fixture
 def conectar(monkeypatch):
     def preparar(conexion: ConexionSimulada):
-        async def falsa(url, base, timeout):
+        async def falsa(url, base):
             return conexion
 
         monkeypatch.setattr(motor, "_conectar", falsa)
@@ -359,6 +359,21 @@ async def test_los_fallos_de_conexion_solo_informan_la_clase(monkeypatch, fallo)
     assert "SECRETA" not in texto and "servidor-secreto" not in texto and "clave incorrecta" not in texto
 
 
+async def test_una_conexion_que_excede_el_plazo_se_informa_sin_secretos(monkeypatch):
+    async def conectar_lenta(**kwargs):
+        assert "timeout" not in kwargs  # el plazo lo impone `migrar`, no asyncpg
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(motor.asyncpg, "connect", conectar_lenta)
+    with pytest.raises(ErrorMigracion) as error:
+        await migrar(
+            "postgresql+asyncpg://usuario:CLAVE-SECRETA@servidor-secreto:5432/base", ESQUEMA_TRANSACCIONAL,
+            timeout_conexion=0.05,
+        )
+    assert error.value.codigo == "MIGRATION_DB_UNAVAILABLE" and error.value.detalles == {"causa": "TimeoutError"}
+    assert "SECRETA" not in f"{error.value.mensaje} {error.value.detalles}"
+
+
 def test_los_argumentos_de_conexion_salen_de_la_url_explicita():
     assert motor._argumentos_de_conexion("postgresql+asyncpg://u:p%40ss@h:6543/bd?ssl=require", "t") == {
         "host": "h", "port": 6543, "user": "u", "password": "p@ss", "database": "bd", "ssl": "require"}
@@ -403,9 +418,10 @@ def test_la_version_del_objeto_es_la_mas_alta_que_coincide_exactamente():
 
 
 def test_el_candado_es_estable_y_distinto_por_base():
-    assert motor._clave_candado("transaccional") == motor._clave_candado("transaccional")
-    assert motor._clave_candado("transaccional") != motor._clave_candado("vectorial")
-    assert 0 <= motor._clave_candado("transaccional") < 2**63  # cabe en el bigint del bloqueo asesor
+    primera, segunda = motor._clave_candado("transaccional"), motor._clave_candado("transaccional")
+    assert primera == segunda
+    assert primera != motor._clave_candado("vectorial")
+    assert 0 <= primera < 2**63  # cabe en el bigint del bloqueo asesor
 
 
 # ============================================ Punto de entrada (sin bases) ============================================

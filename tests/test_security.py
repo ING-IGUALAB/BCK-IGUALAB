@@ -27,7 +27,11 @@ def test_hash_password_no_guarda_texto_plano_y_permite_verificarlo():
 def test_hash_password_usa_una_sal_distinta_en_cada_ejecucion():
     password = "ClaveSegura1!"
 
-    assert hash_password(password) != hash_password(password)
+    primero, segundo = hash_password(password), hash_password(password)
+
+    assert primero != segundo
+    assert verificar_password(password, primero) is True
+    assert verificar_password(password, segundo) is True
 
 
 @pytest.mark.parametrize(

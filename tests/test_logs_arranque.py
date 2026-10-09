@@ -198,7 +198,7 @@ async def test_migrar_registra_conexion_y_lectura_del_registro(monkeypatch, capl
 
     c = ConexionSimulada(catalogo.ESQUEMA_TRANSACCIONAL)
 
-    async def conectar(url, base, timeout):
+    async def conectar(url, base):
         return c
 
     monkeypatch.setattr(motor, "_conectar", conectar)

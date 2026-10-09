@@ -67,7 +67,8 @@ async def test_un_archivo_vacio_se_copia_como_vacio():
 @pytest.mark.parametrize(
     "cambios",
     [{"intervalo_recuperacion": 0}, {"intervalo_recuperacion": -1}, {"espera_cierre": -1}, {"retraso_primer_barrido": -0.1},
-     {"espera_cierre": True}, {"intervalo_recuperacion": "60"}, {"espera_cierre": None}],
+     {"espera_cierre": True}, {"intervalo_recuperacion": "60"}, {"espera_cierre": None},
+     {"espera_cierre": float("nan")}, {"intervalo_recuperacion": float("nan")}],
 )
 def test_opciones_invalidas_se_rechazan(cambios):
     with pytest.raises(ValueError):
