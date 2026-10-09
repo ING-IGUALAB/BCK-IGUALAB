@@ -42,10 +42,11 @@ def test_un_paso_correcto_registra_inicio_y_fin_con_duracion_en_info(caplog):
 
 def test_un_paso_que_falla_registra_solo_la_clase_y_relanza(caplog):
     logger = logging.getLogger("igualab.startup")
+    fallo = OSError("host-secreto:5432 usuario_secreto:CLAVE-SECRETA")
     with caplog.at_level(logging.INFO, logger="igualab.startup"):
         with pytest.raises(OSError):
             with paso_de_arranque(logger, "2/6 Falla"):
-                raise OSError("host-secreto:5432 usuario_secreto:CLAVE-SECRETA")
+                raise fallo
     assert [r.levelno for r in caplog.records] == [logging.INFO, logging.ERROR]
     assert "falló o se interrumpió tras" in caplog.records[1].getMessage()
     assert "(OSError)" in caplog.records[1].getMessage()

@@ -133,7 +133,7 @@ async def test_la_clave_usa_ambiente_y_uuid_del_servidor_nunca_el_nombre_recibid
     documento, _ = await reservar(e, nombre="../../x Memoria anual 2025.md".replace("../../", ""))
     assert documento.clave_original == generar_clave_original("development", documento.id)
     assert "Memoria" not in documento.clave_original
-    assert ".md" == documento.clave_original[-3:]
+    assert documento.clave_original[-3:] == ".md"
     assert documento.nombre_archivo.startswith("x Memoria")  # el nombre es solo metadata
     qa, _ = await reservar(e, datos_unicos(1), ambiente="qa")
     assert qa.clave_original.startswith("qa/")
@@ -459,8 +459,8 @@ async def test_fallo_de_subida_compensado_libera_la_reserva_y_permite_reintentar
 async def test_timeout_con_resultado_incierto_deja_el_objeto_y_la_compensacion_lo_elimina(e):
     e.almacen.guardar_y_fallar = True  # el objeto SÍ se creó aunque la llamada falló
     documento, datos = await reservar(e)
+    e.almacen.fallos["guardar"] = [ExternalServiceTimeoutError("STORAGE_TIMEOUT", "plazo", details={"resultado_incierto": True})]
     with pytest.raises(ExternalServiceTimeoutError):
-        e.almacen.fallos["guardar"] = [ExternalServiceTimeoutError("STORAGE_TIMEOUT", "plazo", details={"resultado_incierto": True})]
         await servicio.almacenar_original(e.db, e.almacen, documento.id, datos, token=documento.ejecucion_token)
     assert recargar(e, documento).motivo_fallo == "STORAGE_TIMEOUT"
     assert e.almacen.objetos == {}  # compensado

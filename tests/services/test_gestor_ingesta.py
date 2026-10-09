@@ -306,10 +306,11 @@ async def test_con_dos_instancias_solo_una_barre_a_la_vez_y_el_candado_se_suelta
     assert resumen is not None
     assert b.barridos == 1  # soltado: ahora sí
 
+    fallo = RuntimeError("falla dentro del barrido")
     with pytest.raises(RuntimeError):
         async with a._candado_de_barrido() as obtenido:
             assert obtenido
-            raise RuntimeError("falla dentro del barrido")
+            raise fallo
     assert await b.barrido() is not None  # el candado se soltó aunque el barrido fallara
 
 

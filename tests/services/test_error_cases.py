@@ -112,11 +112,12 @@ async def test_user_not_found_has_stable_code():
     db = MagicMock()
     db.get = AsyncMock(return_value=None)
 
+    actor = MagicMock()
+    actor.id = uuid.uuid4()
+    usuario_inexistente = uuid.uuid4()
+
     with pytest.raises(NotFoundError) as captured:
-        actor = MagicMock()
-        actor.id = uuid.uuid4()
-        
-        await cambiar_estado_usuario(db, uuid.uuid4(), True, actor)
+        await cambiar_estado_usuario(db, usuario_inexistente, True, actor)
 
     assert captured.value.code == "USER_NOT_FOUND"
 

@@ -133,10 +133,12 @@ async def test_las_claves_foraneas_se_aplican_y_no_se_traducen_a_409(mundo):
         # El texto del servidor depende de su idioma; el tipo de violación no.
         assert "ForeignKeyViolationError" in str(capturado.value.orig)
         assert not servicio._es_violacion_de_reserva(capturado.value)
+    metadatos_de_empresa_inexistente = MetadatosIngestaRequest(empresa_id=uuid.uuid4(), anio=2025, tipo=MEMORIA)
+    sesion = mundo.fabrica()
     with pytest.raises(NotFoundError):
-        async with mundo.fabrica() as db:
+        async with sesion as db:
             await servicio.reservar_documento(
-                db, metadatos=MetadatosIngestaRequest(empresa_id=uuid.uuid4(), anio=2025, tipo=MEMORIA),
+                db, metadatos=metadatos_de_empresa_inexistente,
                 nombre_archivo="a.md", sha256="a" * 64, tamano_bytes=3, usuario_id=mundo.usuario.id, ambiente="development")
 
 
