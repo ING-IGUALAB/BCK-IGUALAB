@@ -158,7 +158,7 @@ _HIPOTETICA_CLAUSULA = re.compile(
     r"evitar|prevenci[óo]n\s+de|reglamento\s+de\s+sanciones|pueden?\s+(?:ser\s+)?(?:multad|sancionad|imponer)\w*)\b",
     _I,
 )
-_HIPOTETICA_SI = re.compile(r"(?:^|\s)si\s+(?:se\s+|no\s+|la\s+|el\s+)?(?:incumpl|cumpl|infring|comet|produc|detect)", _I)
+_HIPOTETICA_SI = re.compile(r"(?:^|\s)si\s+(?:(?:se|no|la|el)\s+)?(?:(?:in)?cumpl|infring|comet|produc|detect)", _I)
 _MODAL_ANTES = re.compile(r"\b(?:podr\w*|pued\w+|pudier\w+)\b[^,.;]{0,40}$", _I)
 _MODAL_IMPOSICION = re.compile(
     r"\b(?:podr\w*|pued\w+|pudier\w+)\s+(?:\w+\s+){0,3}(?:imponer\w*|impuest\w+|aplic\w+|recib\w+|multar\w*|"
@@ -213,7 +213,7 @@ _EVIDENCIA_DESPUES = re.compile(
     rf"\b(?:{_PARTICIPIOS_FEMENINOS}|(?:que|se)\s+(?:se\s+)?(?:nos\s+|le\s+|les\s+)?(?:{_FINITOS_IMPOSICION}))\b", _I
 )
 _TRAMITE_VINCULADO = re.compile(
-    r"\b(?:impugn\w+|apel(?:ó|ación|adas?|aron|amos)|revoc\w+|anul\w+|confirm(?:ó|aron|adas?|ación))\b", _I
+    r"\b(?:(?:impugn|revoc|anul)\w+|apel(?:ó|ación|adas?|aron|amos)|confirm(?:ó|aron|adas?|ación))\b", _I
 )
 # Si entre el verbo y el término hay uno de estos objetos, el verbo se refiere a ellos, no a la multa
 # («pagó los impuestos asociados a la multa»).
@@ -236,7 +236,7 @@ PALABRAS_DESPUES_DEL_TERMINO = 12
 # --- Calificadores (literales) -------------------------------------------------------------------
 _CALIFICADORES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (CAL_PAGADA, re.compile(
-        r"\b(?:pagad[oa]s?|pag(?:ó|aron|amos)|cancelad[oa]s?|cancel(?:ó|aron)|abonad[oa]s?|abon(?:ó|aron)|honrad[oa]s?)\b", _I)),
+        r"\b(?:(?:pag|cancel|abon|honr)ad[oa]s?|pag(?:ó|aron|amos)|(?:cancel|abon)(?:ó|aron))\b", _I)),
     (CAL_PENDIENTE, re.compile(
         r"\b(?:impag[ao]s?|sin\s+pagar|por\s+pagar|pendientes?\s+de\s+pago|pago\s+pendiente|adeudad[ao]s?|"
         r"obligaciones?\s+de\s+pago\s+pendientes?)\b", _I)),
@@ -247,13 +247,20 @@ _CALIFICADORES: tuple[tuple[str, re.Pattern[str]], ...] = (
         r"\b(?:hist[óo]ric[ao]s?|(?:a[ñn]os|ejercicios|per[ií]odos|periodos)\s+anteriores|"
         r"de\s+(?:un\s+)?(?:a[ñn]o|ejercicio)\s+anterior|antigu[ao]s?)\b", _I)),
     (CAL_REVOCADA, re.compile(
-        r"\b(?:revoc(?:[óo]|aron|ad[ao]s?|aci[óo]n)|anul(?:[óo]|aron|ad[ao]s?|aci[óo]n)|dej(?:[óo]|ada|aron)\s+sin\s+efecto)\b", _I)),
+        r"\b(?:(?:revoc|anul)(?:[óo]|aron|ad[ao]s?|aci[óo]n)|dej(?:[óo]|ada|aron)\s+sin\s+efecto)\b", _I)),
     (CAL_CONFIRMADA, re.compile(r"\bconfirm(?:[óo]|aron|ad[oa]s?|aci[óo]n)\b", _I)),
 )
 # Un calificador precedido de estas negaciones o hipótesis no se registra.
-_NEGA_CALIFICADOR = re.compile(
-    r"\b(?:no|nunca|jam[aá]s|ning[uú]n[ao]?s?|sin|ni|podr[ií]an?|podr[aá]n?|pudiera|podr[ií]amos)\b(?:(?!\b(?:y|e|pero|aunque)\b)[^,.;]){0,40}$", _I
+_PALABRA_NEGADORA = re.compile(
+    r"\b(?:no|nunca|jam[aá]s|ning[uú]n[ao]?s?|sin|ni|podr[ií]a(?:n|mos)?|podr[aá]n?|pudiera)\b", _I
 )
+# Lo que sigue a la palabra hasta el final del texto: sin coma, punto ni «;», sin una conjunción que corte, y
+# a lo sumo 40 caracteres.
+_COLA_DE_NEGACION = re.compile(r"(?:(?!\b(?:y|e|pero|aunque)\b)[^,.;]){0,40}$", _I)
+
+
+def _niega_el_calificador(previo: str) -> bool:
+    return any(_COLA_DE_NEGACION.match(previo, m.end()) for m in _PALABRA_NEGADORA.finditer(previo))
 
 # --- Montos -----------------------------------------------------------------------------------------
 _PREFIJO_MONEDA = r"(?:S/\.?|US\$|U\$S|USD|\$|PEN|EUR|€)"
@@ -275,9 +282,23 @@ _CONECTOR_MONTO = (
     r"|\s+total(?:izando)?(?:\s+de)?)\s+"
 )
 _ENLACE_MONTO = re.compile(_CONECTOR_MONTO, _I)
-_VERBO_CON_MONTO = re.compile(
-    r"(?:\s+[^\s,.;:()|]+){0,8}?\s+(?:con|por)(?:\s+(?:un|el|la)(?:\s+(?:monto|importe)\s+de)?)?\s+", _I
-)
+_PALABRA_INTERMEDIA = re.compile(r"\s+[^\s,.;:()|]+")
+_CON_O_POR = re.compile(r"\s+(?:con|por)(?:\s+(?:un|el|la)(?:\s+(?:monto|importe)\s+de)?)?\s+", _I)
+
+
+def _fin_de_verbo_con_monto(texto: str, desde: int, limite: int) -> int | None:
+    """Fin de «[hasta 8 palabras] con|por [un|el|la [monto|importe de]]» a partir de `desde`, con el menor número
+    de palabras intermedias que permita el resto; None si no hay."""
+    posicion = desde
+    for _ in range(9):
+        encontrado = _CON_O_POR.match(texto, posicion, limite)
+        if encontrado is not None:
+            return encontrado.end()
+        palabra = _PALABRA_INTERMEDIA.match(texto, posicion, limite)
+        if palabra is None:
+            return None
+        posicion = palabra.end()
+    return None
 _MONTO_ANTES = re.compile(
     rf"(?:(?:{_PREFIJO_MONEDA})\s*{_NUMERO}{_ESCALA}|{_NUMERO}(?:\s*(?:mil|millones?(?:\s+de)?))?\s*{_UNIDAD_SUFIJO}\b)"
     r"\s+(?:de|en|por|como)\s+(?P<termino>multas?|sanci(?:[óo]n|ones)(?:\s+econ[óo]micas?)?)\b",
@@ -430,95 +451,115 @@ class _Unidad:
     encabezados: tuple[str, ...] = ()
 
 
+class _RecorridoDeUnidades:
+    """Estado del recorrido línea a línea de `_unidades`."""
+
+    def __init__(self, texto: str) -> None:
+        self.texto = texto
+        self.pila: list[tuple[int, str]] = []
+        self.cerca: str | None = None
+        self.parrafo: list[int] | None = None  # [inicio, fin]
+        self.n_columnas: int | None = None
+        self.encabezados: tuple[str, ...] = ()
+        self.delimitador_pendiente = False
+
+    def _seccion(self) -> str:
+        return SEPARADOR_RUTA.join(t for _, t in self.pila if t)
+
+    def _cerrar_parrafo(self) -> Iterator[_Unidad]:
+        if self.parrafo is not None:
+            unidad = _Unidad(self.parrafo[0], self.parrafo[1], self._seccion(), "parrafo")
+            self.parrafo = None
+            yield unidad
+
+    def recorrer(self) -> Iterator[_Unidad]:
+        texto = self.texto
+        longitud = len(texto)
+        posicion = 0
+        while posicion < longitud:
+            fin_linea, siguiente = markdown.limites_de_linea(texto, posicion)
+            yield from self._linea(posicion, fin_linea, siguiente)
+            posicion = siguiente
+        yield from self._cerrar_parrafo()
+
+    def _linea(self, posicion: int, fin_linea: int, siguiente: int) -> Iterator[_Unidad]:
+        texto = self.texto
+        self.cerca, es_codigo = markdown.actualizar_cerca(texto, self.cerca, posicion, fin_linea)
+        if es_codigo:
+            self.n_columnas = None
+            yield from self._cerrar_parrafo()
+            return
+        titulo = markdown.titulo_atx(texto, posicion, fin_linea)
+        if titulo is not None:
+            self.n_columnas = None
+            yield from self._cerrar_parrafo()  # con la sección anterior: el encabezado aún no la cambia
+            nivel, texto_titulo = titulo
+            while self.pila and self.pila[-1][0] >= nivel:
+                self.pila.pop()
+            self.pila.append((nivel, texto_titulo))
+            return
+        if self.delimitador_pendiente:
+            self.delimitador_pendiente = False
+            return
+        if self.n_columnas is not None:
+            if markdown.puede_ser_fila(texto, posicion, fin_linea):
+                yield from self._fila(posicion, fin_linea)
+                return
+            self.n_columnas = None
+        if markdown.es_blanca(texto, posicion, fin_linea):
+            yield from self._cerrar_parrafo()
+            return
+        if self._inicia_tabla(posicion, fin_linea, siguiente):
+            yield from self._cerrar_parrafo()
+            rangos = markdown.rangos_de_celdas(texto, posicion, fin_linea)
+            self.n_columnas = len(rangos)
+            self.encabezados = tuple(texto[a:b] for a, b in rangos)
+            self.delimitador_pendiente = True
+            return
+        yield from self._parrafo(posicion, fin_linea)
+
+    def _inicia_tabla(self, posicion: int, fin_linea: int, siguiente: int) -> bool:
+        texto = self.texto
+        if not (markdown.tiene_pipe(texto, posicion, fin_linea) and siguiente < len(texto)):
+            return False
+        fin_sig, _ = markdown.limites_de_linea(texto, siguiente)
+        return markdown.es_inicio_tabla(texto[posicion:fin_linea], texto[siguiente:fin_sig])
+
+    def _fila(self, posicion: int, fin_linea: int) -> Iterator[_Unidad]:
+        celdas = markdown.rangos_de_celdas(self.texto, posicion, fin_linea)
+        if len(celdas) == self.n_columnas:
+            yield _Unidad(posicion, fin_linea, self._seccion(), "fila", tuple(celdas), self.encabezados)
+            return
+        for a, b in celdas:
+            if b > a:
+                yield _Unidad(a, b, self._seccion(), "celda")
+
+    def _parrafo(self, posicion: int, fin_linea: int) -> Iterator[_Unidad]:
+        texto = self.texto
+        inicio_contenido = posicion + len(texto[posicion:fin_linea]) - len(texto[posicion:fin_linea].lstrip())
+        if self.parrafo is not None and _MARCA_DE_LISTA.match(texto, posicion, fin_linea):
+            yield from self._cerrar_parrafo()
+        if self.parrafo is None:
+            self.parrafo = [inicio_contenido, fin_linea]
+        else:
+            self.parrafo[1] = fin_linea
+
+
 def _unidades(texto: str) -> Iterator[_Unidad]:
     """Párrafos, filas de tabla (si tienen el número de columnas del encabezado) y
     celdas sueltas (si no). Omite encabezados, bloques de código y la cabecera de
     las tablas."""
-    longitud = len(texto)
-    pila: list[tuple[int, str]] = []
-    cerca: str | None = None
-    parrafo: list[int] | None = None  # [inicio, fin]
-    n_columnas: int | None = None
-    encabezados: tuple[str, ...] = ()
-    delimitador_pendiente = False
-    posicion = 0
+    return _RecorridoDeUnidades(texto).recorrer()
 
-    def seccion() -> str:
-        return SEPARADOR_RUTA.join(t for _, t in pila if t)
 
-    while posicion < longitud:
-        fin_linea, siguiente = markdown.limites_de_linea(texto, posicion)
-        cerca, es_codigo = markdown.actualizar_cerca(texto, cerca, posicion, fin_linea)
-        pendiente = None
-        if es_codigo:
-            n_columnas = None
-            pendiente = "cortar"
-        elif (titulo := markdown.titulo_atx(texto, posicion, fin_linea)) is not None:
-            n_columnas = None
-            pendiente = "cortar"
-            if parrafo is not None:
-                yield _Unidad(parrafo[0], parrafo[1], seccion(), "parrafo")
-                parrafo = None
-            nivel, texto_titulo = titulo
-            while pila and pila[-1][0] >= nivel:
-                pila.pop()
-            pila.append((nivel, texto_titulo))
-        if pendiente == "cortar":
-            if parrafo is not None:
-                yield _Unidad(parrafo[0], parrafo[1], seccion(), "parrafo")
-                parrafo = None
-            posicion = siguiente
-            continue
-
-        if delimitador_pendiente:
-            delimitador_pendiente = False
-            posicion = siguiente
-            continue
-
-        if n_columnas is not None:
-            if markdown.puede_ser_fila(texto, posicion, fin_linea):
-                celdas = markdown.rangos_de_celdas(texto, posicion, fin_linea)
-                if len(celdas) == n_columnas:
-                    yield _Unidad(posicion, fin_linea, seccion(), "fila", tuple(celdas), encabezados)
-                else:
-                    for a, b in celdas:
-                        if b > a:
-                            yield _Unidad(a, b, seccion(), "celda")
-                posicion = siguiente
-                continue
-            n_columnas = None
-
-        if markdown.es_blanca(texto, posicion, fin_linea):
-            if parrafo is not None:
-                yield _Unidad(parrafo[0], parrafo[1], seccion(), "parrafo")
-                parrafo = None
-            posicion = siguiente
-            continue
-
-        if markdown.tiene_pipe(texto, posicion, fin_linea) and siguiente < longitud:
-            fin_sig, _ = markdown.limites_de_linea(texto, siguiente)
-            if markdown.es_inicio_tabla(texto[posicion:fin_linea], texto[siguiente:fin_sig]):
-                if parrafo is not None:
-                    yield _Unidad(parrafo[0], parrafo[1], seccion(), "parrafo")
-                    parrafo = None
-                rangos = markdown.rangos_de_celdas(texto, posicion, fin_linea)
-                n_columnas = len(rangos)
-                encabezados = tuple(texto[a:b] for a, b in rangos)
-                delimitador_pendiente = True
-                posicion = siguiente
-                continue
-
-        inicio_contenido = posicion + len(texto[posicion:fin_linea]) - len(texto[posicion:fin_linea].lstrip())
-        if parrafo is not None and _MARCA_DE_LISTA.match(texto, posicion, fin_linea):
-            yield _Unidad(parrafo[0], parrafo[1], seccion(), "parrafo")
-            parrafo = None
-        if parrafo is None:
-            parrafo = [inicio_contenido, fin_linea]
-        else:
-            parrafo[1] = fin_linea
-        posicion = siguiente
-    if parrafo is not None:
-        yield _Unidad(parrafo[0], parrafo[1], seccion(), "parrafo")
+def _punto_cierra_oracion(texto: str, inicio: int, punto: re.Match[str]) -> bool:
+    """False si el «.» es de una abreviatura, una inicial («S.A.»), «S/.» o va seguido de minúscula;
+    un dígito o «)» antes del punto sí cierran la oración."""
+    palabra = _ULTIMA_PALABRA.search(texto[max(inicio, punto.start() - 12):punto.start()])
+    token = palabra.group(1) if palabra else ""
+    if token and (token.lower() in _ABREVIATURAS or (len(token) == 1 and (token.isalpha() or token == "/"))):
+        return False
+    return not texto[punto.end()].islower()
 
 
 def _oraciones(texto: str, inicio: int, fin: int) -> list[tuple[int, int]]:
@@ -530,15 +571,8 @@ def _oraciones(texto: str, inicio: int, fin: int) -> list[tuple[int, int]]:
         if siguiente >= fin:
             continue
         puntuacion = texto[encontrado.start():encontrado.end()].strip()
-        if puntuacion.startswith("."):
-            palabra = _ULTIMA_PALABRA.search(texto[max(inicio, encontrado.start() - 12):encontrado.start()])
-            token = palabra.group(1) if palabra else ""
-            if token and (
-                token.lower() in _ABREVIATURAS or (len(token) == 1 and (token.isalpha() or token == "/"))
-            ):  # abreviatura, inicial («S.A.») o «S/.»; un dígito o «»)» sí cierran la oración
-                continue
-            if texto[siguiente].islower():
-                continue
+        if puntuacion.startswith(".") and not _punto_cierra_oracion(texto, inicio, encontrado):
+            continue
         cortes.append(siguiente)
     cortes.append(fin)
     oraciones = []
@@ -701,29 +735,40 @@ class _Analizador:
         return None
 
     def _monto_vinculado(self, termino: _Termino, clausula: tuple[int, int]) -> MontoSancion | None:
+        # Se prueba en este orden y gana el primero que encuentra un monto.
+        for buscar in (self._monto_tras_conector, self._monto_tras_verbo, self._monto_antes_del_termino):
+            monto = buscar(termino, clausula)
+            if monto is not None:
+                return monto
+        return None
+
+    def _monto_tras_conector(self, termino: _Termino, clausula: tuple[int, int]) -> MontoSancion | None:
         texto = self.texto
         limite = clausula[1]
         enlace = _ENLACE_MONTO.match(texto, termino.fin, limite)
-        if enlace is not None:
-            monto = self._monto_en(enlace.end(), limite, "termino_y_conector")
-            if monto is not None:
-                return monto
+        if enlace is None:
+            return None
+        return self._monto_en(enlace.end(), limite, "termino_y_conector")
+
+    def _monto_tras_verbo(self, termino: _Termino, clausula: tuple[int, int]) -> MontoSancion | None:
         # «nos multó con S/ 10», «fuimos multados por 5 UIT»
-        if re.fullmatch(r"(?:mult|sancion)(?:[óo]|aron|amos|ad[oa]s?)", texto[termino.inicio:termino.fin], _I):
-            verbo = _VERBO_CON_MONTO.match(texto, termino.fin, limite)
-            if verbo is not None:
-                monto = self._monto_en(verbo.end(), limite, "verbo")
-                if monto is not None:
-                    return monto
+        texto = self.texto
+        limite = clausula[1]
+        if not re.fullmatch(r"(?:mult|sancion)(?:[óo]|aron|amos|ad[oa]s?)", texto[termino.inicio:termino.fin], _I):
+            return None
+        fin_verbo = _fin_de_verbo_con_monto(texto, termino.fin, limite)
+        if fin_verbo is None:
+            return None
+        return self._monto_en(fin_verbo, limite, "verbo")
+
+    def _monto_antes_del_termino(self, termino: _Termino, clausula: tuple[int, int]) -> MontoSancion | None:
         # «S/ 3,000 de multa»
-        for antes in _MONTO_ANTES.finditer(texto, clausula[0], limite):
-            if antes.start("termino") == termino.inicio:
-                monto = None
-                for patron in _SOLO_MONTO:
-                    encontrado = patron.match(texto, antes.start(), antes.end())
-                    if encontrado is not None:
-                        monto = self._monto_en(antes.start(), antes.end(), "monto_antes_del_termino")
-                        break
+        texto = self.texto
+        for antes in _MONTO_ANTES.finditer(texto, clausula[0], clausula[1]):
+            if antes.start("termino") != termino.inicio:
+                continue
+            if any(patron.match(texto, antes.start(), antes.end()) is not None for patron in _SOLO_MONTO):
+                monto = self._monto_en(antes.start(), antes.end(), "monto_antes_del_termino")
                 if monto is not None:
                     return monto
         return None
@@ -801,7 +846,7 @@ class _Analizador:
                 continue
             if limite_izquierdo is not None:
                 previo = texto[max(limite_izquierdo, m.start() - 60):m.start()]
-                if _NEGA_CALIFICADOR.search(previo):
+                if _niega_el_calificador(previo):
                     continue
             return m
         return None
@@ -914,6 +959,20 @@ class _Analizador:
 
     # Recorrido ----------------------------------------------------------------------------------------
 
+    def _monto_exacto(self, a: int, b: int) -> MontoSancion | None:
+        """El monto si [a, b) ES exactamente un monto (moneda o UIT)."""
+        for patron in _SOLO_MONTO:
+            if patron.fullmatch(self.texto, a, b) is not None:
+                return self._monto_en(a, b, BASE_FILA_DE_TABLA)
+        return None
+
+    @staticmethod
+    def _cifra_sin_unidad_relevante(unidad: _Unidad, indice: int, celda: str) -> bool:
+        """Un número suelto cuenta, salvo un año en una columna que no es de montos."""
+        encabezado = unidad.encabezados[indice] if indice < len(unidad.encabezados) else ""
+        es_anio = _ANIO_SUELTO.fullmatch(celda.strip()) is not None
+        return not es_anio or _ENCABEZADO_DE_MONTO.search(encabezado) is not None
+
     def _fila_montos(self, unidad: _Unidad, indice_celda: int) -> _NumerosDeFila:
         """Clasifica las demás celdas de la fila. Una celda cuenta como monto solo si ES un monto
         (moneda o UIT); un número suelto se cuenta aparte porque su unidad no consta. Un año en una
@@ -925,11 +984,7 @@ class _Analizador:
             if i == indice_celda or b <= a:
                 continue
             celda = texto[a:b]
-            monto = None
-            for patron in _SOLO_MONTO:
-                if patron.fullmatch(texto, a, b) is not None:
-                    monto = self._monto_en(a, b, BASE_FILA_DE_TABLA)
-                    break
+            monto = self._monto_exacto(a, b)
             if monto is not None:
                 if self._es_cero(monto.numero_texto):
                     ceros_con_unidad += 1
@@ -937,12 +992,70 @@ class _Analizador:
                     montos.append(monto)
             elif _CERO_SUELTO.fullmatch(celda):
                 ceros_sin_unidad += 1
-            elif _NUMERO_SUELTO.fullmatch(celda):
-                encabezado = unidad.encabezados[i] if i < len(unidad.encabezados) else ""
-                es_anio = _ANIO_SUELTO.fullmatch(celda.strip()) is not None
-                if not es_anio or _ENCABEZADO_DE_MONTO.search(encabezado):
-                    sin_unidad += 1
+            elif _NUMERO_SUELTO.fullmatch(celda) and self._cifra_sin_unidad_relevante(unidad, i, celda):
+                sin_unidad += 1
         return _NumerosDeFila(montos, sin_unidad, ceros_con_unidad, ceros_sin_unidad)
+
+    def _completar_con_fila(
+        self, unidad: _Unidad, indice_celda: int, base: list[str], monto: MontoSancion | None
+    ) -> tuple[MontoSancion | None, list[str], list[str]] | None:
+        """(monto, base, motivos) tras mirar las demás celdas de la fila; None si la fila descarta el hallazgo
+        (el descarte ya queda registrado)."""
+        numeros = self._fila_montos(unidad, indice_celda)
+        if len(numeros.montos) == 1:
+            return numeros.montos[0], [*base, BASE_FILA_DE_TABLA], []
+        if len(numeros.montos) > 1:
+            return monto, [*base, BASE_FILA_DE_TABLA], [MOTIVO_MONTOS_MULTIPLES]
+        if numeros.sin_unidad or numeros.ceros_sin_unidad:
+            # Hay cifras pero no se puede asociar con seguridad un monto con su unidad. Si el
+            # término ya tiene evidencia propia («Multa impuesta por OEFA») la sanción se conserva
+            # con monto nulo y advertencia: un cero (p. ej. un saldo) no la descarta. Sin
+            # evidencia propia, un total en cero («Monto total por multas | S/ | 0») no es hallazgo.
+            if base:
+                return monto, base, [MOTIVO_MONTO_NO_ASOCIADO]
+            if not numeros.sin_unidad:
+                self._descartar(DESCARTE_MONTO_CERO)
+                return None
+        elif numeros.ceros_con_unidad:
+            # Cero monetario explícito («S/ 0») y ninguna otra cifra: no hay multa.
+            self._descartar(DESCARTE_MONTO_CERO)
+            return None
+        return monto, base, []
+
+    def _anexar_anaforico(self, inicio: int, fin: int, borradores_unidad: list[_Borrador]) -> None:
+        """«Esta multa…» sin término propio: amplía la cita del hallazgo anterior de la unidad."""
+        if not borradores_unidad:
+            self._descartar(DESCARTE_ANAFORA)
+            return
+        anterior = borradores_unidad[-1]
+        if (inicio, fin) not in anterior.oraciones:
+            anterior.oraciones.append((inicio, fin))
+
+    def _candidato(
+        self, termino: _Termino, clausula: tuple[int, int], unidad: _Unidad, indice_celda: int
+    ) -> tuple[MontoSancion | None, list[str], list[str]] | None:
+        """(monto, base, motivos) del término, o None si se descarta (o no es hallazgo ni descarte)."""
+        if termino.tipo == TERMINO_SANCION_CON_MONTO and self._monto_vinculado(termino, clausula) is None:
+            return None  # «sanción» sin carácter económico explícito: no es un hallazgo ni un descarte
+        motivo = self._motivo_de_exclusion(termino, clausula)
+        if motivo is not None:
+            self._descartar(motivo)
+            return None
+        monto = self._monto_vinculado(termino, clausula)
+        if monto is not None and self._es_cero(monto.numero_texto):
+            self._descartar(DESCARTE_MONTO_CERO)
+            return None
+        base = self._evidencia(termino, clausula, monto)
+        motivos: list[str] = []
+        if unidad.tipo == "fila" and monto is None:
+            completado = self._completar_con_fila(unidad, indice_celda, base, monto)
+            if completado is None:
+                return None
+            monto, base, motivos = completado
+        if not base:
+            self._descartar(DESCARTE_SIN_EVIDENCIA)
+            return None
+        return monto, base, motivos
 
     def _procesar_oracion(
         self,
@@ -961,48 +1074,12 @@ class _Analizador:
         for termino in terminos:
             clausula = next(c for c in clausulas if c[0] <= termino.inicio <= c[1])
             if termino.anaforico:
-                if borradores_unidad:
-                    anterior = borradores_unidad[-1]
-                    if (inicio, fin) not in anterior.oraciones:
-                        anterior.oraciones.append((inicio, fin))
-                else:
-                    self._descartar(DESCARTE_ANAFORA)
+                self._anexar_anaforico(inicio, fin, borradores_unidad)
                 continue
-            if termino.tipo == TERMINO_SANCION_CON_MONTO and self._monto_vinculado(termino, clausula) is None:
-                continue  # «sanción» sin carácter económico explícito: no es un hallazgo ni un descarte
-            motivo = self._motivo_de_exclusion(termino, clausula)
-            if motivo is not None:
-                self._descartar(motivo)
+            candidato = self._candidato(termino, clausula, unidad, indice_celda)
+            if candidato is None:
                 continue
-            monto = self._monto_vinculado(termino, clausula)
-            if monto is not None and self._es_cero(monto.numero_texto):
-                self._descartar(DESCARTE_MONTO_CERO)
-                continue
-            base = self._evidencia(termino, clausula, monto)
-            motivos: list[str] = []
-            if unidad.tipo == "fila" and monto is None:
-                numeros = self._fila_montos(unidad, indice_celda)
-                if len(numeros.montos) == 1:
-                    monto, base = numeros.montos[0], [*base, BASE_FILA_DE_TABLA]
-                elif len(numeros.montos) > 1:
-                    base, motivos = [*base, BASE_FILA_DE_TABLA], [MOTIVO_MONTOS_MULTIPLES]
-                elif numeros.sin_unidad or numeros.ceros_sin_unidad:
-                    # Hay cifras pero no se puede asociar con seguridad un monto con su unidad. Si el
-                    # término ya tiene evidencia propia («Multa impuesta por OEFA») la sanción se conserva
-                    # con monto nulo y advertencia: un cero (p. ej. un saldo) no la descarta. Sin
-                    # evidencia propia, un total en cero («Monto total por multas | S/ | 0») no es hallazgo.
-                    if base:
-                        motivos = [MOTIVO_MONTO_NO_ASOCIADO]
-                    elif not numeros.sin_unidad:
-                        self._descartar(DESCARTE_MONTO_CERO)
-                        continue
-                elif numeros.ceros_con_unidad:
-                    # Cero monetario explícito («S/ 0») y ninguna otra cifra: no hay multa.
-                    self._descartar(DESCARTE_MONTO_CERO)
-                    continue
-            if not base:
-                self._descartar(DESCARTE_SIN_EVIDENCIA)
-                continue
+            monto, base, motivos = candidato
             if de_esta_oracion and monto is None:
                 # Segundo término de la misma oración sin monto propio: reitera al anterior.
                 de_esta_oracion[-1].adicionales.append(termino)

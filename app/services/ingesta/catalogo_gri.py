@@ -41,9 +41,9 @@ EN_VIGOR = ("vigente", "parcialmente_vigente")
 PREFIJO_URL_OFICIAL = "https://www.globalreporting.org/"
 PREFIJO_URL_OFICIAL_SIN_WWW = "https://globalreporting.org/"
 
-_CODIGO = re.compile(r"[1-9][0-9]{0,2}")
-_EDICION = re.compile(r"(?:19|20)[0-9]{2}")
-_FECHA = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_CODIGO = re.compile(r"[1-9]\d{0,2}", re.ASCII)
+_EDICION = re.compile(r"(?:19|20)\d{2}", re.ASCII)
+_FECHA = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)  # solo dígitos ASCII
 
 
 class CatalogoGriInvalido(ValueError):

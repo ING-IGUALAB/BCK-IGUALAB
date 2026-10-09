@@ -102,7 +102,7 @@ _TOKEN = re.compile(
     r"(?:[-.]\d+|[-.]?[A-Za-z](?![A-Za-z0-9])|\([A-Za-z]\))*"
 )
 _SEPARADOR_ENCADENADO = re.compile(
-    r"[ \t]*(?:,|;|/|&|\b(?:y|e|and|or|o)\b)[ \t]*(?P<prefijo>GRI[ \t ]*[-:–]?[ \t ]*)?"
+    r"[ \t]*(?:[,;/&]|\b(?:and|or|[yeo])\b)[ \t]*(?P<prefijo>GRI[ \t ]*[-:–]?[ \t ]*)?"
 )
 _EDICION_TRAS_NOMBRE = re.compile(
     r"[ \t]*:[ \t]*[^\d\n|:]{1,80}?[ \t]+((?:19|20)\d{2})(?!\d)"
@@ -114,9 +114,8 @@ _FORMA_REVELACION = re.compile(r"(\d{1,3})-(\d{1,2})")
 _FORMA_REVELACION_SUFIJO = re.compile(r"(\d{1,3})-(\d{1,2})(?:[-.]?([A-Za-z])|\(([A-Za-z])\))")
 _FORMA_SECTORIAL = re.compile(r"(\d{1,3})\.(\d{1,2})(?:\.(\d{1,2}))?")
 
-_TITULO_INDICE_GRI = re.compile(
-    r"(?i)\bGRI\b.*\b(?:[ií]ndice|index|contenidos?|content)\b|\b(?:[ií]ndice|index|contenidos?|content)\b.*\bGRI\b"
-)
+_GRI_Y_LUEGO_INDICE = re.compile(r"(?i)\bGRI\b.*\b(?:[ií]ndice|index|contenidos?|content)\b")
+_INDICE_Y_LUEGO_GRI = re.compile(r"(?i)\b(?:[ií]ndice|index|contenidos?|content)\b.*\bGRI\b")
 _ENCABEZADO_COLUMNA_GRI = re.compile(r"(?i)\bGRI\b")
 # Una columna que nombra otro marco no es una columna de códigos GRI.
 _OTRO_MARCO = re.compile(r"(?i)\b(?:SASB|TCFD|ISSB|ESRS|SDG|ODS|IFRS|CDP|UNGC|Pacto)\b")
@@ -290,7 +289,11 @@ class _Contexto:
 
     @property
     def en_seccion_indice_gri(self) -> bool:
-        return any(_TITULO_INDICE_GRI.search(titulo) for _, titulo in self.pila)
+        return any(_titulo_de_indice_gri(titulo) for _, titulo in self.pila)
+
+
+def _titulo_de_indice_gri(titulo: str) -> bool:
+    return _GRI_Y_LUEGO_INDICE.search(titulo) is not None or _INDICE_Y_LUEGO_GRI.search(titulo) is not None
 
 
 def _limites_de_cita(texto: str, inicio_linea: int, fin_linea: int, inicio: int, fin: int) -> tuple[int, int]:
@@ -388,44 +391,62 @@ class _Detector:
         for prefijo in _PREFIJO.finditer(linea):
             if prefijo.start() < consumido:
                 continue
-            posicion = prefijo.end()
-            primera = True
-            inicio_prefijo = prefijo.start()
-            while True:
-                encontrado = _TOKEN.match(linea, posicion)
-                if encontrado is None:
-                    break
-                token_texto = encontrado.group()
-                token = _clasificar(token_texto)
-                if not primera and not self._acepta_encadenada(token):
-                    break
-                inicio_ref = inicio_prefijo
-                fin_ref = encontrado.end()
-                # La edición escrita justo después de una referencia es de esa referencia.
-                edicion, fin_ref = self._edicion_tras(linea, fin_ref, token)
-                absoluto = inicio_linea + inicio_ref
-                en_columna = any(a <= absoluto < b for a, b in celdas_gri)
-                rol = ROL_INDICE if (contexto.en_seccion_indice_gri or en_columna) else ROL_CUERPO
-                self._registrar(
-                    contexto,
-                    (inicio_linea, fin_linea),
-                    absoluto,
-                    inicio_linea + fin_ref,
-                    token_texto,
-                    edicion,
-                    True,
-                    rol,
-                    en_codigo,
-                )
-                consumido = fin_ref
-                posicion = fin_ref
-                primera = False
-                separador = _SEPARADOR_ENCADENADO.match(linea, posicion)
-                if separador is None:
-                    break
-                posicion = separador.end()
-                # Si la lista repite «GRI», la referencia original lo incluye.
-                inicio_prefijo = separador.start("prefijo") if separador.group("prefijo") else posicion
+            consumido = self._registrar_cadena(
+                contexto, linea, inicio_linea, fin_linea, celdas_gri, en_codigo, prefijo, consumido
+            )
+
+    def _registrar_cadena(
+        self,
+        contexto: _Contexto,
+        linea: str,
+        inicio_linea: int,
+        fin_linea: int,
+        celdas_gri: list[tuple[int, int]],
+        en_codigo: bool,
+        prefijo: re.Match[str],
+        consumido: int,
+    ) -> int:
+        """Registra la referencia que sigue a `prefijo` y las encadenadas («GRI 305-1, 305-2 y 305-3»).
+        Devuelve hasta dónde llegó lo consumido de la línea (`consumido` si no hubo ninguna)."""
+        posicion = prefijo.end()
+        primera = True
+        inicio_prefijo = prefijo.start()
+        while True:
+            encontrado = _TOKEN.match(linea, posicion)
+            if encontrado is None:
+                break
+            token_texto = encontrado.group()
+            token = _clasificar(token_texto)
+            if not primera and not self._acepta_encadenada(token):
+                break
+            inicio_ref = inicio_prefijo
+            fin_ref = encontrado.end()
+            # La edición escrita justo después de una referencia es de esa referencia.
+            edicion, fin_ref = self._edicion_tras(linea, fin_ref, token)
+            absoluto = inicio_linea + inicio_ref
+            en_columna = any(a <= absoluto < b for a, b in celdas_gri)
+            rol = ROL_INDICE if (contexto.en_seccion_indice_gri or en_columna) else ROL_CUERPO
+            self._registrar(
+                contexto,
+                (inicio_linea, fin_linea),
+                absoluto,
+                inicio_linea + fin_ref,
+                token_texto,
+                edicion,
+                True,
+                rol,
+                en_codigo,
+            )
+            consumido = fin_ref
+            posicion = fin_ref
+            primera = False
+            separador = _SEPARADOR_ENCADENADO.match(linea, posicion)
+            if separador is None:
+                break
+            posicion = separador.end()
+            # Si la lista repite «GRI», la referencia original lo incluye.
+            inicio_prefijo = separador.start("prefijo") if separador.group("prefijo") else posicion
+        return consumido
 
     @staticmethod
     def _edicion_tras(linea: str, posicion: int, token: _Token) -> tuple[str | None, int]:
@@ -531,56 +552,66 @@ class _Detector:
         posicion = 0
         while posicion < longitud:
             fin_linea, siguiente = markdown.limites_de_linea(texto, posicion)
-            cerca, es_codigo = markdown.actualizar_cerca(texto, contexto.cerca, posicion, fin_linea)
-            contexto.cerca = cerca
-            if es_codigo:
-                contexto.columnas_gri = None
-                self._escanear_prefijadas(contexto, posicion, fin_linea, [], True)
-                posicion = siguiente
-                continue
-
-            titulo = markdown.titulo_atx(texto, posicion, fin_linea)
-            if titulo is not None:
-                nivel, texto_titulo = titulo
-                while contexto.pila and contexto.pila[-1][0] >= nivel:
-                    contexto.pila.pop()
-                contexto.pila.append((nivel, texto_titulo))
-                contexto.columnas_gri = None
-                self._escanear_prefijadas(contexto, posicion, fin_linea, [], False)
-                posicion = siguiente
-                continue
-
-            if contexto.delimitador_pendiente:
-                contexto.delimitador_pendiente = False
-                posicion = siguiente
-                continue
-
-            es_fila = (
-                contexto.columnas_gri is not None
-                and markdown.puede_ser_fila(texto, posicion, fin_linea)
-            )
-            if contexto.columnas_gri is not None and not es_fila:
-                contexto.columnas_gri = None
-
-            if es_fila:
-                celdas = markdown.rangos_de_celdas(texto, posicion, fin_linea)
-                # Una fila con distinto número de columnas que el encabezado (tabla
-                # deteriorada) no permite saber a qué columna pertenece cada celda:
-                # no se usa el encabezado para interpretarla.
-                columnas = contexto.columnas_gri if len(celdas) == contexto.n_celdas else frozenset()
-                celdas_gri = [celdas[i] for i in columnas]
-                self._escanear_prefijadas(contexto, posicion, fin_linea, celdas_gri, False)
-                self._escanear_sin_prefijo(contexto, posicion, fin_linea, celdas, columnas)
-            else:
-                if self._inicia_tabla(posicion, fin_linea, siguiente):
-                    contexto.columnas_gri, contexto.n_celdas = self._columnas_gri(posicion, fin_linea)
-                    contexto.delimitador_pendiente = True
-                    # El encabezado es texto de la tabla, no una fila de códigos.
-                    self._escanear_prefijadas(contexto, posicion, fin_linea, [], False)
-                else:
-                    self._escanear_prefijadas(contexto, posicion, fin_linea, [], False)
-                    self._escanear_sin_prefijo(contexto, posicion, fin_linea, None)
+            self._procesar_linea(contexto, posicion, fin_linea, siguiente)
             posicion = siguiente
+
+    def _procesar_linea(self, contexto: _Contexto, posicion: int, fin_linea: int, siguiente: int) -> None:
+        texto = self.texto
+        cerca, es_codigo = markdown.actualizar_cerca(texto, contexto.cerca, posicion, fin_linea)
+        contexto.cerca = cerca
+        if es_codigo:
+            contexto.columnas_gri = None
+            self._escanear_prefijadas(contexto, posicion, fin_linea, [], True)
+            return
+
+        titulo = markdown.titulo_atx(texto, posicion, fin_linea)
+        if titulo is not None:
+            self._procesar_titulo(contexto, posicion, fin_linea, titulo)
+            return
+
+        if contexto.delimitador_pendiente:
+            contexto.delimitador_pendiente = False
+            return
+
+        es_fila = (
+            contexto.columnas_gri is not None
+            and markdown.puede_ser_fila(texto, posicion, fin_linea)
+        )
+        if contexto.columnas_gri is not None and not es_fila:
+            contexto.columnas_gri = None
+
+        if es_fila:
+            self._procesar_fila(contexto, posicion, fin_linea)
+        else:
+            self._procesar_texto(contexto, posicion, fin_linea, siguiente)
+
+    def _procesar_titulo(self, contexto: _Contexto, posicion: int, fin_linea: int, titulo: tuple[int, str]) -> None:
+        nivel, texto_titulo = titulo
+        while contexto.pila and contexto.pila[-1][0] >= nivel:
+            contexto.pila.pop()
+        contexto.pila.append((nivel, texto_titulo))
+        contexto.columnas_gri = None
+        self._escanear_prefijadas(contexto, posicion, fin_linea, [], False)
+
+    def _procesar_fila(self, contexto: _Contexto, posicion: int, fin_linea: int) -> None:
+        celdas = markdown.rangos_de_celdas(self.texto, posicion, fin_linea)
+        # Una fila con distinto número de columnas que el encabezado (tabla
+        # deteriorada) no permite saber a qué columna pertenece cada celda:
+        # no se usa el encabezado para interpretarla.
+        columnas = contexto.columnas_gri if len(celdas) == contexto.n_celdas else frozenset()
+        celdas_gri = [celdas[i] for i in columnas]
+        self._escanear_prefijadas(contexto, posicion, fin_linea, celdas_gri, False)
+        self._escanear_sin_prefijo(contexto, posicion, fin_linea, celdas, columnas)
+
+    def _procesar_texto(self, contexto: _Contexto, posicion: int, fin_linea: int, siguiente: int) -> None:
+        if self._inicia_tabla(posicion, fin_linea, siguiente):
+            contexto.columnas_gri, contexto.n_celdas = self._columnas_gri(posicion, fin_linea)
+            contexto.delimitador_pendiente = True
+            # El encabezado es texto de la tabla, no una fila de códigos.
+            self._escanear_prefijadas(contexto, posicion, fin_linea, [], False)
+        else:
+            self._escanear_prefijadas(contexto, posicion, fin_linea, [], False)
+            self._escanear_sin_prefijo(contexto, posicion, fin_linea, None)
 
     def _inicia_tabla(self, inicio: int, fin: int, siguiente: int) -> bool:
         texto = self.texto

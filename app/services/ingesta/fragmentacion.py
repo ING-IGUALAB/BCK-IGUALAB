@@ -381,6 +381,17 @@ class _Empaquetador:
             posicion = siguiente
         return True
 
+    def _restante(self) -> int:
+        """Caracteres que aún caben en el fragmento abierto (o en uno nuevo si no hay ninguno)."""
+        return self._max - (self._fin - self._inicio) if self._activo else self._max
+
+    def _ocupar(self, inicio: int, fin: int, con_cuerpo: bool, tabla: _Tabla | None) -> None:
+        """Extiende el fragmento abierto hasta `fin` (lo abre en `inicio` si no hay ninguno)."""
+        if not self._activo:
+            self._abrir(inicio, tabla)
+        self._fin = fin
+        self._con_cuerpo = self._con_cuerpo or con_cuerpo
+
     def _agregar(
         self,
         inicio: int,
@@ -389,28 +400,19 @@ class _Empaquetador:
         tabla: _Tabla | None = None,
     ) -> Iterator[Fragmento]:
         while inicio < fin:
-            restante = self._max - (self._fin - self._inicio) if self._activo else self._max
+            restante = self._restante()
             longitud = fin - inicio
             if longitud <= restante:
-                if not self._activo:
-                    self._abrir(inicio, tabla)
-                self._fin = fin
-                self._con_cuerpo = self._con_cuerpo or con_cuerpo
+                self._ocupar(inicio, fin, con_cuerpo, tabla)
                 return
-            if longitud <= self._max:
-                # Cabe en un fragmento vacío, no en lo que queda del actual.
-                yield self._cerrar()
-                continue
-            # Bloque mayor que el límite: se divide. Solo se completa un
-            # fragmento que tenga únicamente encabezados, para no dejarlos solos.
-            if self._activo and (self._con_cuerpo or restante < self._max // 2):
+            # Cabe en un fragmento vacío, no en lo que queda del actual; o es un bloque mayor que el
+            # límite (se divide) y el actual ya tiene cuerpo o queda menos de media capacidad: solo se
+            # completa un fragmento que tenga únicamente encabezados, para no dejarlos solos.
+            if longitud <= self._max or (self._activo and (self._con_cuerpo or restante < self._max // 2)):
                 yield self._cerrar()
                 continue
             corte = _buscar_corte(self._texto, inicio, restante)
-            if not self._activo:
-                self._abrir(inicio, tabla)
-            self._fin = corte
-            self._con_cuerpo = self._con_cuerpo or con_cuerpo
+            self._ocupar(inicio, corte, con_cuerpo, tabla)
             yield self._cerrar()
             self._corte_pendiente = True
             inicio = corte
