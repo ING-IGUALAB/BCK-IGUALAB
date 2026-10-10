@@ -38,8 +38,9 @@ def _auth_db(usuario):
 
 @pytest.mark.asyncio
 async def test_invalid_credentials_have_stable_code():
+    valor_auth_db = _auth_db(None)
     with pytest.raises(AuthenticationError) as captured:
-        await autenticar(_auth_db(None), "nadie@igualab.org", "Clave1!")
+        await autenticar(valor_auth_db, "nadie@igualab.org", "Clave1!")
 
     assert captured.value.code == "INVALID_CREDENTIALS"
 
@@ -49,8 +50,9 @@ async def test_locked_account_has_stable_code():
     usuario = MagicMock()
     usuario.bloqueado_hasta = datetime.now(timezone.utc) + timedelta(minutes=5)
 
+    valor_auth_db_2 = _auth_db(usuario)
     with pytest.raises(AccountLockedError) as captured:
-        await autenticar(_auth_db(usuario), "usuario@igualab.org", "Clave1!")
+        await autenticar(valor_auth_db_2, "usuario@igualab.org", "Clave1!")
 
     assert captured.value.code == "ACCOUNT_LOCKED"
     assert captured.value.details["minutes_remaining"] >= 5
@@ -62,8 +64,9 @@ async def test_disabled_account_has_stable_code():
     usuario.bloqueado_hasta = None
     usuario.habilitado = False
 
+    valor_auth_db_3 = _auth_db(usuario)
     with pytest.raises(AccountDisabledError) as captured:
-        await autenticar(_auth_db(usuario), "usuario@igualab.org", "Clave1!")
+        await autenticar(valor_auth_db_3, "usuario@igualab.org", "Clave1!")
 
     assert captured.value.code == "ACCOUNT_DISABLED"
 
@@ -109,11 +112,12 @@ async def test_user_not_found_has_stable_code():
     db = MagicMock()
     db.get = AsyncMock(return_value=None)
 
+    actor = MagicMock()
+    actor.id = uuid.uuid4()
+    usuario_inexistente = uuid.uuid4()
+
     with pytest.raises(NotFoundError) as captured:
-        actor = MagicMock()
-        actor.id = uuid.uuid4()
-        
-        await cambiar_estado_usuario(db, uuid.uuid4(), True, actor)
+        await cambiar_estado_usuario(db, usuario_inexistente, True, actor)
 
     assert captured.value.code == "USER_NOT_FOUND"
 
@@ -123,16 +127,19 @@ async def test_only_superadmin_can_transfer_role():
     origen = MagicMock()
     origen.rol = RolUsuario.ADMINISTRADOR
 
+    valor_magicmock = MagicMock()
+    valor_uuid_uuid4 = uuid.uuid4()
     with pytest.raises(AuthorizationError) as captured:
-        await transferir_superadmin(MagicMock(), origen, uuid.uuid4())
+        await transferir_superadmin(valor_magicmock, origen, valor_uuid_uuid4)
 
     assert captured.value.code == "SUPERADMIN_REQUIRED"
 
 
 @pytest.mark.asyncio
 async def test_missing_credentials_keep_bearer_header():
+    valor_magicmock_2 = MagicMock()
     with pytest.raises(AuthenticationError) as captured:
-        await dependencies.get_current_user(None, MagicMock())
+        await dependencies.get_current_user(None, valor_magicmock_2)
 
     assert captured.value.code == "INVALID_SESSION"
     assert captured.value.headers == {"WWW-Authenticate": "Bearer"}

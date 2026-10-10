@@ -1,0 +1,814 @@
+{
+ "transaccional": {
+  "documentos": {
+   "1": {
+    "columnas": [
+     [
+      "almacenamiento_intentado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "clave_original",
+      "character varying(512)",
+      true
+     ],
+     [
+      "compensacion_intentos",
+      "integer",
+      true
+     ],
+     [
+      "compensada_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "completado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "ejecucion_token",
+      "uuid",
+      true
+     ],
+     [
+      "ejecucion_vigente_hasta",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "estado_compensacion",
+      "estado_compensacion",
+      true
+     ],
+     [
+      "estado_procesamiento",
+      "estado_procesamiento",
+      true
+     ],
+     [
+      "fallido_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "motivo_fallo",
+      "character varying(64)",
+      false
+     ],
+     [
+      "nombre_archivo",
+      "character varying(255)",
+      true
+     ],
+     [
+      "original_almacenado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "reserva_activa",
+      "boolean",
+      true
+     ],
+     [
+      "resultado_analisis",
+      "resultado_analisis",
+      false
+     ],
+     [
+      "sector",
+      "sector_empresa",
+      true
+     ],
+     [
+      "sha256",
+      "character varying(64)",
+      true
+     ],
+     [
+      "tamano_bytes",
+      "bigint",
+      true
+     ],
+     [
+      "tipo",
+      "tipo_documento",
+      true
+     ],
+     [
+      "ultimo_error_compensacion",
+      "character varying(64)",
+      false
+     ],
+     [
+      "usuario_id",
+      "uuid",
+      true
+     ],
+     [
+      "version_id_original",
+      "character varying(255)",
+      false
+     ]
+    ],
+    "indices": [
+     [
+      "documentos_clave_original_key",
+      true,
+      false
+     ],
+     [
+      "documentos_pkey",
+      true,
+      false
+     ],
+     [
+      "ix_documentos_empresa_id",
+      false,
+      false
+     ],
+     [
+      "ix_documentos_usuario_id",
+      false,
+      false
+     ],
+     [
+      "uq_documentos_empresa_anio_tipo_activo",
+      true,
+      true
+     ],
+     [
+      "uq_documentos_sha256_activo",
+      true,
+      true
+     ]
+    ],
+    "restricciones": [
+     "ck_documentos_anio_minimo",
+     "ck_documentos_compensacion_solo_si_fallido",
+     "ck_documentos_completado_con_original",
+     "ck_documentos_completado_en",
+     "ck_documentos_fallido_con_motivo",
+     "ck_documentos_intentos_no_negativos",
+     "ck_documentos_nombre_no_vacio",
+     "ck_documentos_reserva_solo_liberada_si_limpio",
+     "ck_documentos_resultado_solo_si_completado",
+     "ck_documentos_sha256_longitud",
+     "ck_documentos_tamano_positivo",
+     "documentos_clave_original_key",
+     "documentos_empresa_id_fkey",
+     "documentos_pkey",
+     "documentos_usuario_id_fkey"
+    ]
+   },
+   "2": {
+    "columnas": [
+     [
+      "advertencias",
+      "jsonb",
+      true
+     ],
+     [
+      "almacenamiento_intentado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "analisis",
+      "jsonb",
+      false
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "clave_original",
+      "character varying(512)",
+      true
+     ],
+     [
+      "compensacion_intentos",
+      "integer",
+      true
+     ],
+     [
+      "compensada_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "completado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "ejecucion_token",
+      "uuid",
+      true
+     ],
+     [
+      "ejecucion_vigente_hasta",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "estado_compensacion",
+      "estado_compensacion",
+      true
+     ],
+     [
+      "estado_procesamiento",
+      "estado_procesamiento",
+      true
+     ],
+     [
+      "etapa_actual",
+      "character varying(32)",
+      true
+     ],
+     [
+      "fallido_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "fragmentos_procesados",
+      "integer",
+      true
+     ],
+     [
+      "fragmentos_total",
+      "integer",
+      false
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "motivo_fallo",
+      "character varying(64)",
+      false
+     ],
+     [
+      "nombre_archivo",
+      "character varying(255)",
+      true
+     ],
+     [
+      "original_almacenado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "progreso_actualizado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "reserva_activa",
+      "boolean",
+      true
+     ],
+     [
+      "resultado_analisis",
+      "resultado_analisis",
+      false
+     ],
+     [
+      "sector",
+      "sector_empresa",
+      true
+     ],
+     [
+      "sha256",
+      "character varying(64)",
+      true
+     ],
+     [
+      "tamano_bytes",
+      "bigint",
+      true
+     ],
+     [
+      "tipo",
+      "tipo_documento",
+      true
+     ],
+     [
+      "ultimo_error_compensacion",
+      "character varying(64)",
+      false
+     ],
+     [
+      "usuario_id",
+      "uuid",
+      true
+     ],
+     [
+      "vector_escritura_intentada_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "vector_publicacion_intentos",
+      "integer",
+      true
+     ],
+     [
+      "vector_publicado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "vector_ultimo_error",
+      "character varying(64)",
+      false
+     ],
+     [
+      "version_id_original",
+      "character varying(255)",
+      false
+     ]
+    ],
+    "indices": [
+     [
+      "documentos_clave_original_key",
+      true,
+      false
+     ],
+     [
+      "documentos_pkey",
+      true,
+      false
+     ],
+     [
+      "ix_documentos_empresa_id",
+      false,
+      false
+     ],
+     [
+      "ix_documentos_usuario_id",
+      false,
+      false
+     ],
+     [
+      "uq_documentos_empresa_anio_tipo_activo",
+      true,
+      true
+     ],
+     [
+      "uq_documentos_sha256_activo",
+      true,
+      true
+     ]
+    ],
+    "restricciones": [
+     "ck_documentos_advertencias_arreglo",
+     "ck_documentos_analisis_consistente",
+     "ck_documentos_analisis_estructura",
+     "ck_documentos_anio_minimo",
+     "ck_documentos_compensacion_solo_si_fallido",
+     "ck_documentos_completado_con_original",
+     "ck_documentos_completado_en",
+     "ck_documentos_etapa_valida",
+     "ck_documentos_fallido_con_motivo",
+     "ck_documentos_fragmentos_progreso",
+     "ck_documentos_intentos_no_negativos",
+     "ck_documentos_nombre_no_vacio",
+     "ck_documentos_publicacion_intentos",
+     "ck_documentos_reserva_solo_liberada_si_limpio",
+     "ck_documentos_resultado_solo_si_completado",
+     "ck_documentos_sha256_longitud",
+     "ck_documentos_sin_analisis_si_fallido",
+     "ck_documentos_tamano_positivo",
+     "ck_documentos_vector_publicado_con_intento",
+     "ck_documentos_vector_publicado_solo_completado",
+     "documentos_clave_original_key",
+     "documentos_empresa_id_fkey",
+     "documentos_pkey",
+     "documentos_usuario_id_fkey"
+    ]
+   }
+  },
+  "operaciones_ingesta": {
+   "3": {
+    "columnas": [
+     [
+      "actualizada_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "carga_iniciada_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "carga_vigente_hasta",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "codigo_error",
+      "character varying(64)",
+      false
+     ],
+     [
+      "creada_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "documento_id",
+      "uuid",
+      false
+     ],
+     [
+      "estado",
+      "character varying(16)",
+      true
+     ],
+     [
+      "estado_http",
+      "integer",
+      false
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "mensaje_error",
+      "character varying(300)",
+      false
+     ],
+     [
+      "usuario_id",
+      "uuid",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "ix_operaciones_ingesta_usuario_id",
+      false,
+      false
+     ],
+     [
+      "operaciones_ingesta_pkey",
+      true,
+      false
+     ],
+     [
+      "uq_operaciones_documento",
+      true,
+      true
+     ]
+    ],
+    "restricciones": [
+     "ck_operaciones_carga_solo_si_iniciada",
+     "ck_operaciones_documento_solo_si_enlazada",
+     "ck_operaciones_error_solo_si_rechazada",
+     "ck_operaciones_estado_valido",
+     "ck_operaciones_vigencia_con_carga",
+     "operaciones_ingesta_documento_id_fkey",
+     "operaciones_ingesta_pkey",
+     "operaciones_ingesta_usuario_id_fkey"
+    ]
+   }
+  }
+ },
+ "vectorial": {
+  "cierres_documento": {
+   "2": {
+    "columnas": [
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "cerrado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "documento_id",
+      "uuid",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "pk_cierres_documento",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "ck_cierres_ambiente",
+     "pk_cierres_documento"
+    ]
+   }
+  },
+  "fragmentos_consultables": {
+   "1": {
+    "columnas": [
+     [
+      "ambiente",
+      "character varying(32)",
+      false
+     ],
+     [
+      "anio",
+      "integer",
+      false
+     ],
+     [
+      "contexto",
+      "text",
+      false
+     ],
+     [
+      "continuacion",
+      "boolean",
+      false
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "documento_id",
+      "uuid",
+      false
+     ],
+     [
+      "embedding",
+      "vector(1536)",
+      false
+     ],
+     [
+      "embedding_dimension",
+      "smallint",
+      false
+     ],
+     [
+      "embedding_modelo",
+      "text",
+      false
+     ],
+     [
+      "embedding_proveedor",
+      "text",
+      false
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      false
+     ],
+     [
+      "fin",
+      "integer",
+      false
+     ],
+     [
+      "id",
+      "uuid",
+      false
+     ],
+     [
+      "indice",
+      "integer",
+      false
+     ],
+     [
+      "inicio",
+      "integer",
+      false
+     ],
+     [
+      "publicado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "ruta_encabezados",
+      "text[]",
+      false
+     ],
+     [
+      "sector",
+      "character varying(64)",
+      false
+     ],
+     [
+      "texto_literal",
+      "text",
+      false
+     ],
+     [
+      "tipo",
+      "character varying(64)",
+      false
+     ]
+    ],
+    "indices": [],
+    "restricciones": []
+   }
+  },
+  "fragmentos_documento": {
+   "1": {
+    "columnas": [
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "contexto",
+      "text",
+      true
+     ],
+     [
+      "continuacion",
+      "boolean",
+      true
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "documento_id",
+      "uuid",
+      true
+     ],
+     [
+      "embedding",
+      "vector(1536)",
+      true
+     ],
+     [
+      "embedding_dimension",
+      "smallint",
+      true
+     ],
+     [
+      "embedding_modelo",
+      "text",
+      true
+     ],
+     [
+      "embedding_proveedor",
+      "text",
+      true
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "fin",
+      "integer",
+      true
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "indice",
+      "integer",
+      true
+     ],
+     [
+      "inicio",
+      "integer",
+      true
+     ],
+     [
+      "publicado",
+      "boolean",
+      true
+     ],
+     [
+      "publicado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "ruta_encabezados",
+      "text[]",
+      true
+     ],
+     [
+      "sector",
+      "character varying(64)",
+      true
+     ],
+     [
+      "texto_literal",
+      "text",
+      true
+     ],
+     [
+      "tipo",
+      "character varying(64)",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "fragmentos_documento_pkey",
+      true,
+      false
+     ],
+     [
+      "uq_fragmentos_ambiente_documento_indice",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "ck_fragmentos_ambiente",
+     "ck_fragmentos_anio_minimo",
+     "ck_fragmentos_dimension_1536",
+     "ck_fragmentos_indice_no_negativo",
+     "ck_fragmentos_literal_coincide_con_posiciones",
+     "ck_fragmentos_modelo_no_vacio",
+     "ck_fragmentos_posiciones",
+     "ck_fragmentos_publicado_con_fecha",
+     "ck_fragmentos_sector_no_vacio",
+     "ck_fragmentos_tipo_no_vacio",
+     "ck_fragmentos_vector_1536",
+     "fragmentos_documento_pkey",
+     "uq_fragmentos_ambiente_documento_indice"
+    ]
+   }
+  }
+ }
+}

@@ -24,8 +24,9 @@ async def test_get_db_rolls_back_and_propagates_exception(monkeypatch):
 
     assert await anext(dependency) is session
 
+    valor_runtimeerror = RuntimeError("fallo controlado")
     with pytest.raises(RuntimeError, match="fallo controlado"):
-        await dependency.athrow(RuntimeError("fallo controlado"))
+        await dependency.athrow(valor_runtimeerror)
 
     session.rollback.assert_awaited_once()
 

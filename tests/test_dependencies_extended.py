@@ -28,8 +28,9 @@ async def test_token_con_firma_invalida_es_rechazado(monkeypatch):
     db = MagicMock()
     db.get = AsyncMock()
 
+    valor_credenciales = _credenciales()
     with pytest.raises(AuthenticationError) as captured:
-        await dependencies.get_current_user(_credenciales(), db)
+        await dependencies.get_current_user(valor_credenciales, db)
 
     assert captured.value.code == "INVALID_SESSION"
     db.get.assert_not_awaited()
@@ -61,8 +62,9 @@ async def test_payload_jwt_incompleto_o_malformado_es_rechazado(
     db = MagicMock()
     db.get = AsyncMock()
 
+    valor_credenciales_2 = _credenciales()
     with pytest.raises(AuthenticationError) as captured:
-        await dependencies.get_current_user(_credenciales(), db)
+        await dependencies.get_current_user(valor_credenciales_2, db)
 
     assert captured.value.code == "INVALID_SESSION"
 
@@ -99,8 +101,9 @@ async def test_sesion_invalida_es_rechazada(monkeypatch, estado):
     db = MagicMock()
     db.get = AsyncMock(return_value=sesion)
 
+    valor_credenciales_3 = _credenciales()
     with pytest.raises(AuthenticationError) as captured:
-        await dependencies.get_current_user(_credenciales(), db)
+        await dependencies.get_current_user(valor_credenciales_3, db)
 
     assert captured.value.code == "INVALID_SESSION"
 
@@ -138,8 +141,9 @@ async def test_usuario_inexistente_o_deshabilitado_es_rechazado(
     db = MagicMock()
     db.get = AsyncMock(side_effect=[sesion, usuario])
 
+    valor_credenciales_4 = _credenciales()
     with pytest.raises(AuthenticationError) as captured:
-        await dependencies.get_current_user(_credenciales(), db)
+        await dependencies.get_current_user(valor_credenciales_4, db)
 
     assert captured.value.code == "INVALID_SESSION"
 
