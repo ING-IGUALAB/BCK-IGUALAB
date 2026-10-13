@@ -224,7 +224,10 @@ async def test_si_la_liberacion_se_cuelga_el_error_original_prevalece(monkeypatc
 def test_los_plazos_son_explicitos_y_el_del_servidor_cabe_en_el_del_cliente():
     assert 0 < modulo.PLAZO_BLOQUEO_S <= modulo.PLAZO_SENTENCIA_S < modulo.PLAZO_TABLA_S
     assert 0 < modulo.PLAZO_CONEXION_S < 60  # el valor por defecto de asyncpg
-    assert modulo.TABLAS_SIN_DDL_AUTOMATICO == {"documentos", "operaciones_ingesta"}
+    assert modulo.TABLAS_SIN_DDL_AUTOMATICO == {
+        "documentos", "operaciones_ingesta",
+        "analisis_gri_control", "analisis_gri_estados", "analisis_gri_historial", "analisis_gri_validaciones",
+    }
 
 
 # ============================================ Con PostgreSQL real y aislado ============================================

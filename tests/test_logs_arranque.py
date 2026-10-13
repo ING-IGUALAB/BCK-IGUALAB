@@ -100,6 +100,7 @@ async def test_el_lifespan_registra_los_seis_pasos_en_orden_con_su_duracion(monk
     esperado = [
         "Arranque | lifespan | inicio", "Arranque | 1/6 Creación de tablas existentes | inicio", "Arranque | 1/6 Creación de tablas existentes | fin en",
         "Arranque | 2/6 Inicialización del SuperAdmin | inicio", "Arranque | 2/6 Inicialización del SuperAdmin | fin en",
+        "Arranque | Esquema transaccional del análisis GRI | inicio", "Arranque | Esquema transaccional del análisis GRI | fin en",
         "Arranque | 3/6 Construcción de recursos de ingesta | inicio", "Arranque | 3/6 Construcción de recursos de ingesta | fin en",
         "Arranque | 4/6 Migraciones transaccionales | inicio", "Arranque | 4/6 Migraciones transaccionales | fin en",
         "Arranque | 5/6 Migraciones vectoriales | inicio", "Arranque | 5/6 Migraciones vectoriales | fin en",

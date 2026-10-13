@@ -196,4 +196,7 @@ async def test_el_arranque_no_crea_operaciones_ni_documentos_aunque_los_modelos_
 def test_el_conjunto_de_tablas_sin_ddl_automatico_incluye_ambas():
     from scripts.crear_tablas import TABLAS_SIN_DDL_AUTOMATICO
 
-    assert TABLAS_SIN_DDL_AUTOMATICO == {"documentos", "operaciones_ingesta"}
+    assert TABLAS_SIN_DDL_AUTOMATICO == {
+        "documentos", "operaciones_ingesta",
+        "analisis_gri_control", "analisis_gri_estados", "analisis_gri_historial", "analisis_gri_validaciones",
+    }
