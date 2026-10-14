@@ -17,7 +17,17 @@ logger = logging.getLogger("igualab.startup")
 # Tablas que el arranque NUNCA crea, aunque sus modelos estén cargados (D17): importar el coordinador de
 # ingesta registra `Documento` y `OperacionIngesta` en los metadatos, y un `create_all` generaría tablas y tipos enumerados en
 # ambientes compartidos sin una migración aprobada. Las crean las migraciones versionadas de `app/migraciones` (que corren después, solo para ingesta).
-TABLAS_SIN_DDL_AUTOMATICO = frozenset({"documentos", "operaciones_ingesta"})
+TABLAS_SIN_DDL_AUTOMATICO = frozenset(
+    {
+        "documentos",
+        "operaciones_ingesta",
+        # Módulo 5 (análisis GRI): las crea la migración 0004 de la base transaccional.
+        "analisis_gri_control",
+        "analisis_gri_estados",
+        "analisis_gri_historial",
+        "analisis_gri_validaciones",
+    }
+)
 
 # Plazos explícitos de esta inicialización (antes no había ninguno por sentencia: una espera dejaba el arranque, y con él toda la
 # API, colgado sin mensaje). Si uno se agota el arranque FALLA indicando el paso; no continúa como si hubiera terminado.
