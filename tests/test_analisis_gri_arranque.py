@@ -45,7 +45,8 @@ async def test_un_fallo_de_migracion_deja_el_modulo_no_disponible_sin_secretos_y
     with caplog.at_level(logging.INFO):
         await preparar_esquema_analisis(app)  # no lanza
     codigo, mensaje, detalles = app.state.analisis_error
-    assert codigo == "ANALYSIS_SCHEMA_NOT_READY" and detalles == {"base": "transaccional", "motivo": "MIGRATION_FAILED", "version": 4, "sqlstate": "42501"}
+    assert codigo == "ANALYSIS_SCHEMA_NOT_READY"
+    assert detalles == {"base": "transaccional", "motivo": "MIGRATION_FAILED", "version": 4, "sqlstate": "42501"}
     texto = " ".join([mensaje, str(detalles), *[r.getMessage() for r in caplog.records]])
     assert not any(secreto in texto for secreto in SECRETOS)
     assert any("Análisis GRI no disponible" in r.getMessage() for r in caplog.records)
@@ -59,7 +60,8 @@ async def test_un_error_inesperado_tampoco_tumba_el_arranque(monkeypatch, url_se
     app = SimpleNamespace(state=SimpleNamespace())
     await preparar_esquema_analisis(app)
     codigo, mensaje, detalles = app.state.analisis_error
-    assert codigo == "ANALYSIS_SCHEMA_NOT_READY" and detalles == {"motivo": "RuntimeError"}
+    assert codigo == "ANALYSIS_SCHEMA_NOT_READY"
+    assert detalles == {"motivo": "RuntimeError"}
     assert "host-secreto" not in mensaje
 
 
@@ -84,7 +86,8 @@ async def test_el_lifespan_prepara_el_esquema_del_modulo_aunque_la_ingesta_no_es
     monkeypatch.setattr(catalogo, "migrar", migrar_doble)
     monkeypatch.setattr(modulo_gestor, "construir_gestor", construir_sin_configuracion)
     async with main.app.router.lifespan_context(main.app):
-        assert main.app.state.ingesta is None and main.app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED"
+        assert main.app.state.ingesta is None
+        assert main.app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED"
         assert main.app.state.analisis_error is None  # el módulo 5 quedó listo
     assert migradas == ["transaccional"]  # solo la del módulo; la ingesta no llegó a migrar nada
 

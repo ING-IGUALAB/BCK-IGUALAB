@@ -137,9 +137,13 @@ async def test_consulta_sin_documentos_elegibles_es_documentacion_insuficiente(m
         a = await consultar(c, m5.empresa)
     assert (a["estado_flujo"], a["habilita_reporte"], a["filas"], a["documentos"], a["version"]) == (
         "DOCUMENTACION_INSUFICIENTE", False, [], [], 0)
-    assert a["puntaje"]["estado"] == "NO_DISPONIBLE" and a["puntaje"]["valor"] is None
-    assert a["pendientes"][0]["codigo"] == "DOCUMENTACION_INSUFICIENTE" and a["validacion"] is None
-    assert a["empresa"]["nombre"] == "Minera Andina" and a["ambiente"] == "development" and a["anio"] == 2025
+    assert a["puntaje"]["estado"] == "NO_DISPONIBLE"
+    assert a["puntaje"]["valor"] is None
+    assert a["pendientes"][0]["codigo"] == "DOCUMENTACION_INSUFICIENTE"
+    assert a["validacion"] is None
+    assert a["empresa"]["nombre"] == "Minera Andina"
+    assert a["ambiente"] == "development"
+    assert a["anio"] == 2025
     assert await sql(m5, "SELECT 1 FROM analisis_gri_control") == []  # consultar no escribe
 
 
@@ -147,18 +151,26 @@ async def test_consulta_devuelve_filas_con_evidencia_pendientes_y_version(m5):
     reporte, memoria = await con_documentos(m5, (MD_GRI_204_305, REPORTE), (MD_GRI_204_Y_302, TipoDocumento.MEMORIA_ANUAL))
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         a = await consultar(c, m5.empresa)
-    assert a["estado_flujo"] == "PENDIENTE_ESTADOS" and a["habilita_reporte"] is False
+    assert a["estado_flujo"] == "PENDIENTE_ESTADOS"
+    assert a["habilita_reporte"] is False
     assert [f["identidad"] for f in a["filas"]] == ["204:2016", "302:2016", "305:2016"]
     f204 = fila_de(a, "204:2016")
-    assert f204["estado"] is None and f204["estado_etiqueta"] is None and f204["version_fila"] == 0 and f204["asignado_por"] is None
-    assert f204["total_menciones"] == 3 and set(f204["documentos"]) == {str(reporte.id), str(memoria.id)}
+    assert f204["estado"] is None
+    assert f204["estado_etiqueta"] is None
+    assert f204["version_fila"] == 0
+    assert f204["asignado_por"] is None
+    assert f204["total_menciones"] == 3
+    assert set(f204["documentos"]) == {str(reporte.id), str(memoria.id)}
     assert {e["documento_nombre"] for e in f204["evidencias"]} == {reporte.nombre_archivo, memoria.nombre_archivo}
     assert all({"seccion", "rol", "referencia_original", "cita", "inicio", "fin", "cita_inicio", "cita_fin"} <= set(e) for e in f204["evidencias"])
     assert a["pendientes"] == [{
         "codigo": "ESTADOS_PENDIENTES", "mensaje": "Faltan estados por asignar en 3 de 3 filas.", "cantidad": 3,
         "identidades": ["204:2016", "302:2016", "305:2016"]}]
-    assert a["puntaje"]["estado"] == "PENDIENTE_ESTADOS" and a["puntaje"]["valor"] is None
-    assert len(a["huella_documentos"]) == 64 and a["version"] == 0 and len(a["documentos"]) == 2
+    assert a["puntaje"]["estado"] == "PENDIENTE_ESTADOS"
+    assert a["puntaje"]["valor"] is None
+    assert len(a["huella_documentos"]) == 64
+    assert a["version"] == 0
+    assert len(a["documentos"]) == 2
 
 
 async def test_la_consulta_no_modifica_documentos_ni_detecta_de_nuevo(m5):
@@ -185,7 +197,8 @@ async def test_asignar_estado_registra_historial_con_autor_de_la_sesion_y_fecha_
     fila = fila_de(a, "204:2016")
     assert (fila["estado"], fila["estado_etiqueta"], fila["version_fila"], fila["asignado_por"]["nombre"]) == (
         "BAJA_SUSTANCIA", "Baja sustancia", 1, "Ana Admin")
-    assert a["version"] == 1 and fila_de(a, "305:2016")["estado"] is None  # solo esa fila cambió
+    assert a["version"] == 1  # solo esa fila cambió
+    assert fila_de(a, "305:2016")["estado"] is None
     (h,) = await sql(m5, "SELECT estado_anterior, estado_nuevo, usuario_id, cambiado_en, identidad, version_analisis, codigo, edicion, "
                          "identidad_tipo FROM analisis_gri_historial")
     assert (h.estado_anterior, h.estado_nuevo, h.usuario_id, h.identidad, h.version_analisis, h.codigo, h.edicion, h.identidad_tipo) == (
@@ -198,14 +211,18 @@ async def test_cambiar_el_estado_conserva_estado_anterior_y_nuevo_y_un_cambio_po
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c, cliente_http(construir_app(m5.fabrica, m5.otro)) as c2:
         assert (await asignar(c, m5.empresa, "204:2016", "OK")).status_code == 200
         r = await asignar(c2, m5.empresa, "204:2016", "SUB_REPORTADO", version_fila=1)
-        assert r.status_code == 200 and r.json()["estado_anterior"] == "OK" and r.json()["version_fila"] == 2
+        assert r.status_code == 200
+        assert r.json()["estado_anterior"] == "OK"
+        assert r.json()["version_fila"] == 2
         assert r.json()["asignado_por"]["nombre"] == "Beto Admin"
         pagina = (await c.get(ruta(m5.empresa, sufijo="/historial"))).json()
     assert pagina["total"] == 2
     nuevo, viejo = pagina["items"]  # recientes primero
     assert (nuevo["estado_anterior"], nuevo["estado_nuevo"], nuevo["usuario"]["nombre"], nuevo["version_analisis"]) == ("OK", "SUB_REPORTADO", "Beto Admin", 2)
     assert (viejo["estado_anterior"], viejo["estado_nuevo"], viejo["usuario"]["nombre"], viejo["version_analisis"]) == (None, "OK", "Ana Admin", 1)
-    assert nuevo["identidad"] == "204:2016" and nuevo["codigo"] == "204" and nuevo["edicion"] == "2016"
+    assert nuevo["identidad"] == "204:2016"
+    assert nuevo["codigo"] == "204"
+    assert nuevo["edicion"] == "2016"
     assert nuevo["cambiado_en"] >= viejo["cambiado_en"]
 
 
@@ -214,8 +231,11 @@ async def test_reasignar_el_mismo_estado_no_cambia_nada_ni_invalida(m5):
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         await asignar(c, m5.empresa, "204:2016", "OK")
         r = await asignar(c, m5.empresa, "204:2016", "OK", version_fila=1)
-        assert r.status_code == 200 and r.json()["cambio"] is False and r.json()["version_fila"] == 1
-        assert r.json()["version_analisis"] == 1 and r.json()["estado_anterior"] == "OK"
+        assert r.status_code == 200
+        assert r.json()["cambio"] is False
+        assert r.json()["version_fila"] == 1
+        assert r.json()["version_analisis"] == 1
+        assert r.json()["estado_anterior"] == "OK"
         assert (await consultar(c, m5.empresa))["version"] == 1
     assert len(await sql(m5, "SELECT 1 FROM analisis_gri_historial")) == 1
 
@@ -230,10 +250,13 @@ async def test_el_historial_se_filtra_por_identidad_y_se_pagina(m5):
         solo = (await c.get(ruta(m5.empresa, sufijo="/historial?identidad=305:2016"))).json()
         pag = (await c.get(ruta(m5.empresa, sufijo="/historial?tamano=2&pagina=2"))).json()
         vacio = (await c.get(ruta(m5.empresa, 2024, "/historial"))).json()
-    assert todo["total"] == 3 and [i["version_analisis"] for i in todo["items"]] == [3, 2, 1]
-    assert solo["total"] == 1 and solo["items"][0]["identidad"] == "305:2016"
+    assert todo["total"] == 3
+    assert [i["version_analisis"] for i in todo["items"]] == [3, 2, 1]
+    assert solo["total"] == 1
+    assert solo["items"][0]["identidad"] == "305:2016"
     assert (pag["total"], pag["pagina"], pag["tamano"], len(pag["items"])) == (3, 2, 2, 1)
-    assert vacio["total"] == 0 and vacio["items"] == []
+    assert vacio["total"] == 0
+    assert vacio["items"] == []
 
 
 async def test_asignar_a_una_identidad_inexistente_es_404_y_no_escribe(m5):
@@ -244,7 +267,8 @@ async def test_asignar_a_una_identidad_inexistente_es_404_y_no_escribe(m5):
         # Una edición que el texto no menciona tampoco existe: el sistema no busca ausencias ni crea filas.
         comprobar_error(await asignar(c, m5.empresa, "204:2020", "OK"), 404, "ANALYSIS_ROW_NOT_FOUND")
         comprobar_error(await asignar(c, m5.empresa, "204:ambigua", "OK"), 404, "ANALYSIS_ROW_NOT_FOUND")
-    assert await sql(m5, "SELECT 1 FROM analisis_gri_estados") == [] and await sql(m5, "SELECT 1 FROM analisis_gri_control") == []
+    assert await sql(m5, "SELECT 1 FROM analisis_gri_estados") == []
+    assert await sql(m5, "SELECT 1 FROM analisis_gri_control") == []
 
 
 async def test_no_se_puede_asignar_a_una_fila_de_un_documento_no_elegible(m5):
@@ -259,11 +283,13 @@ async def test_ediciones_ambiguas_y_no_catalogadas_se_asignan_por_separado_de_la
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         a = await consultar(c, m5.empresa)
         assert [f["identidad"] for f in a["filas"]] == ["102:2025", "102:no-catalogada-2030", "102:ambigua"]  # ediciones primero; la ambigua al final
-        assert fila_de(a, "102:ambigua")["requiere_revision"] and fila_de(a, "102:ambigua")["advertencias"][0]["codigo"] == "GRI_EDICION_AMBIGUA"
+        assert fila_de(a, "102:ambigua")["requiere_revision"]
+        assert fila_de(a, "102:ambigua")["advertencias"][0]["codigo"] == "GRI_EDICION_AMBIGUA"
         assert (await asignar(c, m5.empresa, "102:ambigua", "SUB_REPORTADO")).status_code == 200
         a = await consultar(c, m5.empresa)
     assert fila_de(a, "102:ambigua")["estado"] == "SUB_REPORTADO"
-    assert fila_de(a, "102:2025")["estado"] is None and fila_de(a, "102:no-catalogada-2030")["estado"] is None
+    assert fila_de(a, "102:2025")["estado"] is None
+    assert fila_de(a, "102:no-catalogada-2030")["estado"] is None
 
 
 # ============================================ Validación ============================================
@@ -299,14 +325,23 @@ async def test_validar_persiste_quien_cuando_version_documentos_y_estados_y_habi
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         antes, respuesta = await completar_y_validar(
             c, m5, {"204:2016": "OK", "302:2016": "BAJA_SUSTANCIA", "305:2016": "SUB_REPORTADO"})
-        assert respuesta["estado_flujo"] == "VALIDADO" and respuesta["habilita_reporte"] is True
-        assert respuesta["puntaje"]["estado"] == "VALIDADO" and respuesta["puntaje"]["valor"] == 50.0
-        assert respuesta["puntaje"]["definitivo"] is True and respuesta["validacion"]["vigente"] is True
+        assert respuesta["estado_flujo"] == "VALIDADO"
+        assert respuesta["habilita_reporte"] is True
+        assert respuesta["puntaje"]["estado"] == "VALIDADO"
+        assert respuesta["puntaje"]["valor"] == 50.0
+        assert respuesta["puntaje"]["definitivo"] is True
+        assert respuesta["validacion"]["vigente"] is True
         a = await consultar(c, m5.empresa)
-    assert a["estado_flujo"] == "VALIDADO" and a["habilita_reporte"] is True and a["pendientes"] == []
-    assert a["puntaje"]["definitivo"] is True and a["puntaje"]["valor"] == 50.0 and a["validacion"]["vigente"] is True
-    assert a["validacion"]["validado_por"]["nombre"] == "Ana Admin" and a["validacion"]["numero"] == 1
-    assert a["version"] == 3 == a["validacion"]["version_estados"] and a["huella_documentos"] == antes["huella_documentos"]
+    assert a["estado_flujo"] == "VALIDADO"
+    assert a["habilita_reporte"] is True
+    assert a["pendientes"] == []
+    assert a["puntaje"]["definitivo"] is True
+    assert a["puntaje"]["valor"] == 50.0
+    assert a["validacion"]["vigente"] is True
+    assert a["validacion"]["validado_por"]["nombre"] == "Ana Admin"
+    assert a["validacion"]["numero"] == 1
+    assert a["version"] == 3 == a["validacion"]["version_estados"]
+    assert a["huella_documentos"] == antes["huella_documentos"]
     (v,) = await sql(m5, "SELECT * FROM analisis_gri_validaciones")
     assert (v.validado_por, v.numero, v.version_estados, v.huella_documentos, v.puntaje_suma, v.puntaje_filas) == (
         m5.admin.id, 1, 3, antes["huella_documentos"], 150, 3)
@@ -332,7 +367,8 @@ async def test_validar_con_datos_viejos_devuelve_409_y_no_valida(m5):
         consultado = await consultar(c, m5.empresa)  # el primer Administrador consulta...
         await asignar(c2, m5.empresa, "305:2016", "SUB_REPORTADO", version_fila=1)  # ...y otro cambia un estado
         error = comprobar_error(await validar(c, m5.empresa, consultado), 409, "ANALYSIS_VERSION_CONFLICT")
-        assert error["details"]["version_esperada"] == 2 and error["details"]["version_actual"] == 3
+        assert error["details"]["version_esperada"] == 2
+        assert error["details"]["version_actual"] == 3
         assert error["details"]["documentos_cambiaron"] is False
         # Con datos frescos sí procede.
         assert (await validar(c, m5.empresa, await consultar(c, m5.empresa))).status_code == 201
@@ -356,18 +392,24 @@ async def test_un_nuevo_documento_elegible_invalida_la_validacion_y_conserva_asi
         await completar_y_validar(c, m5, {"204:2016": "OK", "305:2016": "BAJA_SUSTANCIA"})
         await con_documentos(m5, (MD_GRI_204_Y_302, TipoDocumento.MEMORIA_ANUAL))  # otro documento elegible de la misma empresa/año
         a = await consultar(c, m5.empresa)
-        assert a["estado_flujo"] == "PENDIENTE_ESTADOS" and a["habilita_reporte"] is False
-        assert a["validacion"]["vigente"] is False and a["validacion"]["motivos_no_vigente"] == ["DOCUMENTOS_CAMBIARON"]
-        assert fila_de(a, "204:2016")["estado"] == "OK" and fila_de(a, "305:2016")["estado"] == "BAJA_SUSTANCIA"  # se conservan
+        assert a["estado_flujo"] == "PENDIENTE_ESTADOS"
+        assert a["habilita_reporte"] is False
+        assert a["validacion"]["vigente"] is False
+        assert a["validacion"]["motivos_no_vigente"] == ["DOCUMENTOS_CAMBIARON"]
+        assert fila_de(a, "204:2016")["estado"] == "OK"  # se conservan
+        assert fila_de(a, "305:2016")["estado"] == "BAJA_SUSTANCIA"
         assert fila_de(a, "302:2016")["estado"] is None  # la fila nueva comienza sin estado
-        assert a["puntaje"]["estado"] == "PENDIENTE_ESTADOS" and a["puntaje"]["valor"] is None
+        assert a["puntaje"]["estado"] == "PENDIENTE_ESTADOS"
+        assert a["puntaje"]["valor"] is None
         assert a["pendientes"][0]["identidades"] == ["302:2016"]
         # Al completar la fila nueva hay que volver a validar: la validación 1 no vuelve a ser vigente.
         await asignar(c, m5.empresa, "302:2016", "OK")
         a = await consultar(c, m5.empresa)
-        assert a["estado_flujo"] == "LISTO_PARA_VALIDAR" and a["pendientes"][0]["codigo"] == "VALIDACION_NO_VIGENTE"
+        assert a["estado_flujo"] == "LISTO_PARA_VALIDAR"
+        assert a["pendientes"][0]["codigo"] == "VALIDACION_NO_VIGENTE"
         r = await validar(c, m5.empresa, a)
-        assert r.status_code == 201 and r.json()["validacion"]["numero"] == 2
+        assert r.status_code == 201
+        assert r.json()["validacion"]["numero"] == 2
     assert len(await sql(m5, "SELECT 1 FROM analisis_gri_historial")) == 3  # el historial no se tocó
     assert len(await sql(m5, "SELECT 1 FROM analisis_gri_validaciones")) == 2  # la validación anterior se conserva
 
@@ -379,14 +421,18 @@ async def test_cualquier_cambio_de_estado_invalida_la_validacion_incluso_si_se_r
         r = await asignar(c, m5.empresa, "204:2016", "SUB_REPORTADO", version_fila=1)
         assert r.json()["validacion_previa_invalidada"] is True
         a = await consultar(c, m5.empresa)
-        assert a["estado_flujo"] == "LISTO_PARA_VALIDAR" and a["validacion"]["vigente"] is False
+        assert a["estado_flujo"] == "LISTO_PARA_VALIDAR"
+        assert a["validacion"]["vigente"] is False
         assert a["validacion"]["motivos_no_vigente"] == ["ESTADOS_CAMBIARON"]
-        assert a["puntaje"]["estado"] == "CALCULADO_SIN_VALIDAR" and a["puntaje"]["definitivo"] is False and a["puntaje"]["valor"] == 50.0
+        assert a["puntaje"]["estado"] == "CALCULADO_SIN_VALIDAR"
+        assert a["puntaje"]["definitivo"] is False
+        assert a["puntaje"]["valor"] == 50.0
         # Volver al estado original deja los estados idénticos, pero no revive la validación anterior.
         r = await asignar(c, m5.empresa, "204:2016", "OK", version_fila=2)
         assert r.json()["validacion_previa_invalidada"] is False
         a = await consultar(c, m5.empresa)
-        assert a["validacion"]["vigente"] is False and a["habilita_reporte"] is False
+        assert a["validacion"]["vigente"] is False
+        assert a["habilita_reporte"] is False
         assert (await validar(c, m5.empresa, a)).status_code == 201
 
 
@@ -398,9 +444,12 @@ async def test_un_documento_que_deja_de_ser_elegible_invalida_la_validacion(m5):
             await db.execute(text("UPDATE empresas SET activa = false WHERE id = :i"), {"i": m5.empresa.id})
             await db.commit()
         a = await consultar(c, m5.empresa)
-    assert a["estado_flujo"] == "DOCUMENTACION_INSUFICIENTE" and a["habilita_reporte"] is False and a["filas"] == []
+    assert a["estado_flujo"] == "DOCUMENTACION_INSUFICIENTE"
+    assert a["habilita_reporte"] is False
+    assert a["filas"] == []
     assert [p["codigo"] for p in a["pendientes"]] == ["EMPRESA_INACTIVA", "DOCUMENTACION_INSUFICIENTE"]
-    assert a["validacion"]["vigente"] is False and a["empresa"]["activa"] is False
+    assert a["validacion"]["vigente"] is False
+    assert a["empresa"]["activa"] is False
 
 
 # ============================================ Sin códigos GRI, observados y sanciones ============================================
@@ -409,10 +458,15 @@ async def test_solo_sanciones_muestra_las_sanciones_pero_no_habilita_el_reporte(
     (doc,) = await con_documentos(m5, (MD_SOLO_SANCIONES, REPORTE))
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         a = await consultar(c, m5.empresa)
-        assert a["estado_flujo"] == "SIN_CODIGOS_GRI" and a["habilita_reporte"] is False and a["filas"] == []
-        assert a["puntaje"]["estado"] == "NO_DISPONIBLE" and a["puntaje"]["valor"] is None and "no disponible" in a["puntaje"]["mensaje"]
+        assert a["estado_flujo"] == "SIN_CODIGOS_GRI"
+        assert a["habilita_reporte"] is False
+        assert a["filas"] == []
+        assert a["puntaje"]["estado"] == "NO_DISPONIBLE"
+        assert a["puntaje"]["valor"] is None
+        assert "no disponible" in a["puntaje"]["mensaje"]
         assert [s["documento_id"] for s in a["sanciones"]] == [str(doc.id)] * 2
-        assert a["resumen_sanciones"]["total"] == 2 and a["pendientes"][0]["codigo"] == "SIN_CODIGOS_GRI"
+        assert a["resumen_sanciones"]["total"] == 2
+        assert a["pendientes"][0]["codigo"] == "SIN_CODIGOS_GRI"
         comprobar_error(await validar(c, m5.empresa, a), 409, "ANALYSIS_NO_GRI_CODES")
     assert await sql(m5, "SELECT 1 FROM analisis_gri_validaciones") == []
 
@@ -423,9 +477,12 @@ async def test_sanciones_con_evidencia_monto_ausente_no_cuantificado_y_sin_sumas
         a = await consultar(c, m5.empresa)
     con_monto = next(s for s in a["sanciones"] if s["monto"] is not None)
     sin_monto = next(s for s in a["sanciones"] if s["monto"] is None)
-    assert con_monto["cuantificada"] is True and con_monto["monto"]["texto"] == "S/ 120,000"
-    assert con_monto["monto"]["separador_ambiguo"] is True and con_monto["entidad"]["texto"] == "OSINERGMIN"
-    assert sin_monto["cuantificada"] is False and sin_monto["monto"] is None  # nunca cero
+    assert con_monto["cuantificada"] is True
+    assert con_monto["monto"]["texto"] == "S/ 120,000"
+    assert con_monto["monto"]["separador_ambiguo"] is True
+    assert con_monto["entidad"]["texto"] == "OSINERGMIN"
+    assert sin_monto["cuantificada"] is False  # nunca cero
+    assert sin_monto["monto"] is None
     assert {"cita", "cita_inicio", "cita_fin", "seccion", "documento_nombre", "motivos_revision"} <= set(sin_monto)
     assert a["resumen_sanciones"] == {"total": 2, "cuantificadas": 1, "no_cuantificadas": 1, "por_unidad": {"S/": 1}}
     assert a["puntaje"]["valor"] is None  # las sanciones no forman parte del promedio ESG
@@ -435,12 +492,14 @@ async def test_un_observado_no_habilita_por_si_solo_pero_tampoco_bloquea_otro_do
     observado, = await con_documentos(m5, (MD_OBSERVADO, TipoDocumento.MEMORIA_ANUAL))
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         a = await consultar(c, m5.empresa)
-        assert a["estado_flujo"] == "SIN_CODIGOS_GRI" and a["habilita_reporte"] is False
+        assert a["estado_flujo"] == "SIN_CODIGOS_GRI"
+        assert a["habilita_reporte"] is False
         assert [(d["documento_id"], d["observado"], d["resultado_analisis"]) for d in a["documentos"]] == [(str(observado.id), True, "OBSERVADO")]
         comprobar_error(await validar(c, m5.empresa, a), 409, "ANALYSIS_NO_GRI_CODES")
         await con_documentos(m5, (MD_GRI_204_305, REPORTE))  # otro documento elegible de la misma empresa/año con GRI
         _, validada = await completar_y_validar(c, m5, {"204:2016": "OK", "305:2016": "BAJA_SUSTANCIA"})
-        assert validada["habilita_reporte"] is True and validada["puntaje"]["valor"] == 75.0
+        assert validada["habilita_reporte"] is True
+        assert validada["puntaje"]["valor"] == 75.0
         a = await consultar(c, m5.empresa)
     assert {d["observado"] for d in a["documentos"]} == {True, False}
 
@@ -451,18 +510,23 @@ async def test_referencias_desconocidas_son_advertencias_y_no_puntuan(m5):
         a = await consultar(c, m5.empresa)
         assert [f["identidad"] for f in a["filas"]] == ["204:2016"]
         (adv,) = [x for x in a["advertencias"] if x["codigo"] == "GRI_REFERENCIA_DESCONOCIDA"]
-        assert adv["detalles"]["codigo_estandar"] == "999" and adv["evidencias"][0]["cita"]
+        assert adv["detalles"]["codigo_estandar"] == "999"
+        assert adv["evidencias"][0]["cita"]
         assert (await asignar(c, m5.empresa, "999:2016", "OK")).status_code == 404  # no es evaluable
         _, v = await completar_y_validar(c, m5, {"204:2016": "OK"})
-    assert v["puntaje"]["valor"] == 100.0 and v["puntaje"]["filas_contadas"] == 1
+    assert v["puntaje"]["valor"] == 100.0
+    assert v["puntaje"]["filas_contadas"] == 1
 
 
 async def test_todas_sub_reportadas_validan_con_cero_y_no_es_no_disponible(m5):
     await con_documentos(m5, (MD_GRI_204_305, REPORTE))
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         _, v = await completar_y_validar(c, m5, {"204:2016": "SUB_REPORTADO", "305:2016": "SUB_REPORTADO"})
-    assert v["puntaje"]["valor"] == 0.0 and v["puntaje"]["valor_presentacion"] == 0.0 and v["puntaje"]["estado"] == "VALIDADO"
-    assert v["puntaje"]["definitivo"] is True and v["puntaje"]["suma_puntos"] == 0
+    assert v["puntaje"]["valor"] == 0.0
+    assert v["puntaje"]["valor_presentacion"] == 0.0
+    assert v["puntaje"]["estado"] == "VALIDADO"
+    assert v["puntaje"]["definitivo"] is True
+    assert v["puntaje"]["suma_puntos"] == 0
 
 
 # ============================================ Elegibilidad y aislamiento ============================================
@@ -475,12 +539,15 @@ async def test_solo_los_documentos_completados_con_analisis_y_publicacion_confir
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         for anio in (2025, 2024, 2023):
             a = await consultar(c, m5.empresa, anio)
-            assert a["documentos"] == [] and a["filas"] == [] and a["estado_flujo"] == "DOCUMENTACION_INSUFICIENTE"
+            assert a["documentos"] == []
+            assert a["filas"] == []
+            assert a["estado_flujo"] == "DOCUMENTACION_INSUFICIENTE"
         # La publicación confirmada lo vuelve elegible.
         async with m5.fabrica() as db:
             await publicar(db, sin_publicar)
         a = await consultar(c, m5.empresa)
-        assert [d["documento_id"] for d in a["documentos"]] == [str(sin_publicar.id)] and len(a["filas"]) == 2
+        assert [d["documento_id"] for d in a["documentos"]] == [str(sin_publicar.id)]
+        assert len(a["filas"]) == 2
 
 
 async def test_aislamiento_por_ambiente_empresa_y_anio(m5):
@@ -491,15 +558,18 @@ async def test_aislamiento_por_ambiente_empresa_y_anio(m5):
         await sembrar_documento(db, m5.empresa, m5.admin, texto=MD_GRI_204_Y_302, anio=2024)
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         a = await consultar(c, m5.empresa)  # development, 2025, empresa de prueba: nada propio
-        assert a["documentos"] == [] and a["filas"] == []
+        assert a["documentos"] == []
+        assert a["filas"] == []
         assert [f["identidad"] for f in (await consultar(c, otra))["filas"]] == ["204:2016", "302:2016"]
         assert [f["identidad"] for f in (await consultar(c, m5.empresa, 2024))["filas"]] == ["204:2016", "302:2016"]
         assert (await asignar(c, otra, "204:2016", "OK")).status_code == 200
         # El estado de otra empresa/año/ambiente no se filtra: cada análisis tiene su versión y sus estados.
-        assert (await consultar(c, m5.empresa, 2024))["version"] == 0 and fila_de(await consultar(c, m5.empresa, 2024), "204:2016")["estado"] is None
+        assert (await consultar(c, m5.empresa, 2024))["version"] == 0
+        assert fila_de(await consultar(c, m5.empresa, 2024), "204:2016")["estado"] is None
     async with cliente_http(construir_app(m5.fabrica, m5.admin, ambiente="qa")) as cqa:
         a = await consultar(cqa, m5.empresa)
-        assert a["ambiente"] == "qa" and [f["identidad"] for f in a["filas"]] == ["204:2016", "305:2016"]
+        assert a["ambiente"] == "qa"
+        assert [f["identidad"] for f in a["filas"]] == ["204:2016", "305:2016"]
 
 
 async def test_el_ambiente_sale_de_app_env_y_uno_invalido_es_503(m5, monkeypatch):
@@ -528,7 +598,8 @@ async def test_si_falla_el_historial_no_queda_ni_el_estado_ni_la_version(m5, mon
         r = await asignar(c, m5.empresa, "204:2016", "OK")
         assert r.status_code == 500
         a = await consultar(c, m5.empresa)
-    assert fila_de(a, "204:2016")["estado"] is None and a["version"] == 0
+    assert fila_de(a, "204:2016")["estado"] is None
+    assert a["version"] == 0
     for tabla in ("analisis_gri_estados", "analisis_gri_historial", "analisis_gri_control"):
         assert await sql(m5, f"SELECT 1 FROM {tabla}") == [], tabla
 
@@ -560,7 +631,8 @@ async def test_dos_administradores_asignando_la_misma_fila_a_la_vez_solo_uno_gan
             if r.status_code == 409:
                 assert r.json()["error"]["code"] == "ANALYSIS_ROW_VERSION_CONFLICT"
         a = await consultar(c1, m5.empresa)
-    assert a["version"] == 2 and fila_de(a, "204:2016")["version_fila"] == 1
+    assert a["version"] == 2
+    assert fila_de(a, "204:2016")["version_fila"] == 1
     assert len(await sql(m5, "SELECT 1 FROM analisis_gri_historial WHERE identidad = '204:2016'")) == 1  # sin sobrescritura silenciosa
 
 
@@ -591,7 +663,8 @@ async def test_validar_y_cambiar_un_estado_a_la_vez_nunca_validan_datos_obsoleto
         a = await consultar(c1, m5.empresa)
         if r_validar.status_code == 201:
             # Ganó la validación: se hizo sobre la versión consultada y el cambio posterior la dejó sin vigencia.
-            assert a["validacion"]["version_estados"] == consultado["version"] and a["validacion"]["vigente"] is False
+            assert a["validacion"]["version_estados"] == consultado["version"]
+            assert a["validacion"]["vigente"] is False
         else:
             comprobar_error(r_validar, 409, "ANALYSIS_VERSION_CONFLICT")
             assert a["validacion"] is None
@@ -670,17 +743,23 @@ async def test_obtener_analisis_validado_exige_validacion_vigente_en_la_base(m5)
 
     with pytest.raises(ConflictError) as error:
         await pedir()
-    assert error.value.code == "ANALYSIS_NOT_VALIDATED" and error.value.details["estado_flujo"] == "PENDIENTE_ESTADOS"
+    assert error.value.code == "ANALYSIS_NOT_VALIDATED"
+    assert error.value.details["estado_flujo"] == "PENDIENTE_ESTADOS"
     assert error.value.details["pendientes"] == ["ESTADOS_PENDIENTES"]
 
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         await completar_y_validar(c, m5, {"204:2016": "OK", "305:2016": "BAJA_SUSTANCIA"})
         validado = await pedir()
-        assert validado.habilita_reporte is True and validado.estado_flujo.value == "VALIDADO"
-        assert validado.puntaje.definitivo and validado.puntaje.valor == 75.0 and validado.puntaje.estado.value == "VALIDADO"
-        assert validado.validacion.vigente and validado.validacion.validado_por.nombre == "Ana Admin"
+        assert validado.habilita_reporte is True
+        assert validado.estado_flujo.value == "VALIDADO"
+        assert validado.puntaje.definitivo
+        assert validado.puntaje.valor == 75.0
+        assert validado.puntaje.estado.value == "VALIDADO"
+        assert validado.validacion.vigente
+        assert validado.validacion.validado_por.nombre == "Ana Admin"
         assert [(f.identidad, f.estado) for f in validado.filas] == [("204:2016", EstadoGri.OK), ("305:2016", EstadoGri.BAJA_SUSTANCIA)]
-        assert all(f.evidencias for f in validado.filas) and len(validado.huella_documentos) == 64
+        assert all(f.evidencias for f in validado.filas)
+        assert len(validado.huella_documentos) == 64
         assert validado.version == 2 == validado.validacion.version_estados
         # Un cambio posterior deja de entregarlo: no basta nada que venga del frontend.
         await asignar(c, m5.empresa, "305:2016", "OK", version_fila=1)
@@ -719,7 +798,8 @@ async def test_el_flujo_completo_consultar_asignar_reconsultar_y_validar_con_la_
     await con_documentos(m5, (MD_GRI_204_305, REPORTE), (MD_GRI_204_Y_302, TipoDocumento.MEMORIA_ANUAL))
     async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
         inicial = await consultar(c, m5.empresa)  # 1. consultar
-        assert inicial["version"] == 0 and inicial["estado_flujo"] == "PENDIENTE_ESTADOS"
+        assert inicial["version"] == 0
+        assert inicial["estado_flujo"] == "PENDIENTE_ESTADOS"
         versiones = []
         for identidad, estado in (("204:2016", "OK"), ("302:2016", "BAJA_SUSTANCIA"), ("305:2016", "SUB_REPORTADO")):  # 2. asignar
             r = await asignar(c, m5.empresa, identidad, estado)
@@ -727,17 +807,22 @@ async def test_el_flujo_completo_consultar_asignar_reconsultar_y_validar_con_la_
             versiones.append(r.json()["version_analisis"])
         assert versiones == [1, 2, 3]  # asignar SÍ incrementa la versión del análisis, una vez por cambio
         actual = await consultar(c, m5.empresa)  # 3. consultar de nuevo
-        assert actual["version"] == 3 and actual["huella_documentos"] == inicial["huella_documentos"]  # la huella no cambió
-        assert actual["estado_flujo"] == "LISTO_PARA_VALIDAR" and actual["habilita_reporte"] is False
-        assert actual["puntaje"]["estado"] == "CALCULADO_SIN_VALIDAR" and actual["puntaje"]["definitivo"] is False
+        assert actual["version"] == 3  # la huella no cambió
+        assert actual["huella_documentos"] == inicial["huella_documentos"]
+        assert actual["estado_flujo"] == "LISTO_PARA_VALIDAR"
+        assert actual["habilita_reporte"] is False
+        assert actual["puntaje"]["estado"] == "CALCULADO_SIN_VALIDAR"
+        assert actual["puntaje"]["definitivo"] is False
         # 4. validar con la versión y la huella ACTUALES
         r = await validar(c, m5.empresa, actual)
         assert r.status_code == 201
         assert r.json()["validacion"]["version_estados"] == 3
         final = await consultar(c, m5.empresa)
     # 5. VALIDADO y puntaje correcto: (100 + 50 + 0) / 3 = 50
-    assert final["estado_flujo"] == "VALIDADO" and final["habilita_reporte"] is True
-    assert final["puntaje"]["estado"] == "VALIDADO" and final["puntaje"]["definitivo"] is True
+    assert final["estado_flujo"] == "VALIDADO"
+    assert final["habilita_reporte"] is True
+    assert final["puntaje"]["estado"] == "VALIDADO"
+    assert final["puntaje"]["definitivo"] is True
     assert (final["puntaje"]["valor"], final["puntaje"]["valor_presentacion"], final["puntaje"]["suma_puntos"]) == (50.0, 50.0, 150)
     assert final["version"] == 3  # validar no cambia la versión de los estados
 
@@ -751,7 +836,8 @@ async def test_validar_con_la_version_consultada_antes_de_asignar_es_409_y_no_mo
         await asignar(c, m5.empresa, "305:2016", "OK")
         antes = await foto_de_tablas(m5)
         error = comprobar_error(await validar(c, m5.empresa, antigua), 409, "ANALYSIS_VERSION_CONFLICT")
-        assert error["details"]["version_esperada"] == 0 and error["details"]["version_actual"] == 2
+        assert error["details"]["version_esperada"] == 0
+        assert error["details"]["version_actual"] == 2
         assert "consulte de nuevo" in error["message"]
         assert await foto_de_tablas(m5) == antes  # el 409 no escribió ni una fila ni cambió la versión
         # Tampoco sirve una versión inventada o futura, ni una huella ajena.

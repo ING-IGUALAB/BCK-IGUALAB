@@ -57,7 +57,7 @@ def test_falta_de_una_variable_obligatoria_aborta(monkeypatch, entorno_aislado, 
 
 
 def test_el_env_qa_manda_sobre_la_terminal_y_neutraliza_el_load_dotenv_de_la_app(monkeypatch, entorno_aislado):
-    os.environ["DATABASE_URL"] = "postgresql+asyncpg://otro@otro/igualab"
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://otro@otro/igualab")
     monkeypatch.setattr(script, "ARCHIVO_ENV", escribir_env(entorno_aislado / ".env.qa"))
     valores = script.cargar_entorno_qa()
     assert os.environ["DATABASE_URL"] == VALORES_QA["DATABASE_URL"]
@@ -147,9 +147,11 @@ async def test_restablece_todo_en_una_transaccion_y_audita_sin_secretos(sesion_l
         assert usuario.bloqueado_hasta is None
         assert usuario.rol is RolUsuario.SUPERADMIN
         sesiones = (await db.execute(select(Sesion).where(Sesion.usuario_id == usuario_id))).scalars().all()
-        assert sesiones and all(s.revocada for s in sesiones)
+        assert sesiones
+        assert all(s.revocada for s in sesiones)
         tokens = (await db.execute(select(TokenRecuperacion).where(TokenRecuperacion.usuario_id == usuario_id))).scalars().all()
-        assert tokens and all(t.usado for t in tokens)
+        assert tokens
+        assert all(t.usado for t in tokens)
         eventos = (await db.execute(select(RegistroAuditoria))).scalars().all()
         assert [(e.tipo_evento, e.usuario_id) for e in eventos] == [(TipoEventoAuditoria.CAMBIO_ROL, usuario_id)]
         texto = eventos[0].detalle
