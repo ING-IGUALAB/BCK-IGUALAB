@@ -41,6 +41,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
+_USUARIOS_ID = "usuarios.id"
+
 
 class EstadoGri(str, enum.Enum):
     """Únicos estados que un Administrador puede asignar (RN-030). No hay cuarto estado."""
@@ -110,7 +112,7 @@ class AnalisisGriEstado(Base):
     estado: Mapped[str] = mapped_column(String(16), nullable=False)
     # Versión de ESTA fila: 1 en la primera asignación, +1 en cada cambio. Control de sobrescritura.
     version: Mapped[int] = mapped_column(Integer, default=1, server_default=text("1"), nullable=False)
-    asignado_por: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuarios.id"), nullable=False, index=True)
+    asignado_por: Mapped[uuid.UUID] = mapped_column(ForeignKey(_USUARIOS_ID), nullable=False, index=True)
     asignado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_ahora_utc, server_default=func.now(), nullable=False
     )
@@ -142,7 +144,7 @@ class AnalisisGriHistorial(Base):
     estado_anterior: Mapped[str | None] = mapped_column(String(16), nullable=True)
     estado_nuevo: Mapped[str] = mapped_column(String(16), nullable=False)
     # Actor: sesión validada, nunca el payload.
-    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuarios.id"), nullable=False, index=True)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(_USUARIOS_ID), nullable=False, index=True)
     cambiado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_ahora_utc, server_default=func.now(), nullable=False
     )
@@ -180,7 +182,7 @@ class AnalisisGriValidacion(Base):
     estados: Mapped[list] = mapped_column(JSONB, nullable=False)
     puntaje_suma: Mapped[int] = mapped_column(Integer, nullable=False)
     puntaje_filas: Mapped[int] = mapped_column(Integer, nullable=False)
-    validado_por: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuarios.id"), nullable=False, index=True)
+    validado_por: Mapped[uuid.UUID] = mapped_column(ForeignKey(_USUARIOS_ID), nullable=False, index=True)
     validado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_ahora_utc, server_default=func.now(), nullable=False
     )

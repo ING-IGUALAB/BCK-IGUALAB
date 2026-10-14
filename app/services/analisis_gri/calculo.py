@@ -214,6 +214,59 @@ def _advertencias_de_fila(menciones: list[tuple[DocumentoBase, dict]]) -> list[A
     ]
 
 
+def _advertencia_gri_desconocida(doc: DocumentoBase, codigo: str, menciones: list[dict]) -> AdvertenciaAnalisis:
+    """Referencia desconocida: advertencia con su evidencia; no es fila ni puntúa."""
+    return AdvertenciaAnalisis(
+        codigo=ADV_GRI_DESCONOCIDA,
+        categoria=CATEGORIA_GRI,
+        mensaje="Referencia a un código que el catálogo no conoce. Se conserva sin corregirla, "
+        "no es una fila evaluable y no entra en el puntaje.",
+        documento_id=doc.id,
+        documento_nombre=doc.nombre_archivo,
+        detalles={"codigo_estandar": codigo, "total_menciones": len(menciones)},
+        evidencias=[_evidencia(doc, m) for m in menciones],
+    )
+
+
+def _acumular_grupo(acumuladores: dict[str, _Acumulador], doc: DocumentoBase, grupo: dict, codigo: str, menciones: list[dict]) -> None:
+    """Suma las menciones de un grupo catalogado a la identidad (código + edición) que le corresponde."""
+    for mencion in menciones:
+        clave, tipo, edicion = clave_identidad(codigo, grupo.get("edicion"), mencion.get("edicion_mencionada"))
+        acc = acumuladores.get(clave)
+        if acc is None:
+            acc = acumuladores[clave] = _Acumulador(codigo=codigo, edicion=edicion, tipo=tipo)
+        if grupo.get("nombre") and acc.nombre is None and tipo is TipoIdentidadGri.EDICION_RESUELTA:
+            acc.nombre = grupo["nombre"]
+        for candidato in grupo.get("candidatos") or []:
+            acc.candidatos[(candidato["codigo"], candidato["edicion"])] = f"{candidato['edicion']}: {candidato['nombre']}"
+        acc.menciones.append((doc, mencion))
+
+
+def _fila_desde_acumulador(clave: str, acc: _Acumulador) -> FilaGri:
+    evidencias = [_evidencia(doc, m) for doc, m in acc.menciones]
+    documentos_fila = list(dict.fromkeys(doc.id for doc, _ in acc.menciones))
+    return FilaGri(
+        identidad=clave,
+        codigo=acc.codigo,
+        edicion=acc.edicion,
+        identidad_tipo=acc.tipo,
+        estandar=_etiqueta_estandar(acc.codigo, acc.tipo, acc.edicion),
+        nombre=acc.nombre,
+        candidatos=sorted(acc.candidatos.values()),
+        requiere_revision=acc.tipo is not TipoIdentidadGri.EDICION_RESUELTA
+        or any(m.get("motivos_revision") for _, m in acc.menciones),
+        estado=None,
+        estado_etiqueta=None,
+        version_fila=0,
+        total_menciones=len(evidencias),
+        menciones_en_indice=sum(e.rol == "indice" for e in evidencias),
+        menciones_en_cuerpo=sum(e.rol == "cuerpo" for e in evidencias),
+        documentos=documentos_fila,
+        advertencias=_advertencias_de_fila(acc.menciones),
+        evidencias=evidencias,
+    )
+
+
 def construir_filas(documentos: list[DocumentoBase]) -> tuple[list[FilaGri], list[AdvertenciaAnalisis]]:
     """Filas evaluables (sin estados) y advertencias de referencias desconocidas y de calidad, en orden estable.
     `documentos` ya viene en orden determinista (completado_en, id)."""
@@ -224,65 +277,15 @@ def construir_filas(documentos: list[DocumentoBase]) -> tuple[list[FilaGri], lis
             try:
                 codigo = grupo["codigo"]
                 menciones = grupo["menciones"]
-                if not grupo.get("catalogado"):
-                    # Referencia desconocida: advertencia con su evidencia; no es fila ni puntúa.
-                    advertencias.append(
-                        AdvertenciaAnalisis(
-                            codigo=ADV_GRI_DESCONOCIDA,
-                            categoria=CATEGORIA_GRI,
-                            mensaje="Referencia a un código que el catálogo no conoce. Se conserva sin corregirla, "
-                            "no es una fila evaluable y no entra en el puntaje.",
-                            documento_id=doc.id,
-                            documento_nombre=doc.nombre_archivo,
-                            detalles={"codigo_estandar": codigo, "total_menciones": len(menciones)},
-                            evidencias=[_evidencia(doc, m) for m in menciones],
-                        )
-                    )
-                    continue
-                for mencion in menciones:
-                    clave, tipo, edicion = clave_identidad(
-                        codigo, grupo.get("edicion"), mencion.get("edicion_mencionada")
-                    )
-                    acc = acumuladores.get(clave)
-                    if acc is None:
-                        acc = acumuladores[clave] = _Acumulador(codigo=codigo, edicion=edicion, tipo=tipo)
-                    if grupo.get("nombre") and acc.nombre is None and tipo is TipoIdentidadGri.EDICION_RESUELTA:
-                        acc.nombre = grupo["nombre"]
-                    for candidato in grupo.get("candidatos") or []:
-                        acc.candidatos[(candidato["codigo"], candidato["edicion"])] = (
-                            f"{candidato['edicion']}: {candidato['nombre']}"
-                        )
-                    acc.menciones.append((doc, mencion))
+                if grupo.get("catalogado"):
+                    _acumular_grupo(acumuladores, doc, grupo, codigo, menciones)
+                else:
+                    advertencias.append(_advertencia_gri_desconocida(doc, codigo, menciones))
             except (KeyError, TypeError):
                 raise _datos_invalidos() from None
         advertencias.extend(_advertencias_de_calidad(doc))
 
-    filas = []
-    for clave, acc in acumuladores.items():
-        evidencias = [_evidencia(doc, m) for doc, m in acc.menciones]
-        documentos_fila = list(dict.fromkeys(doc.id for doc, _ in acc.menciones))
-        filas.append(
-            FilaGri(
-                identidad=clave,
-                codigo=acc.codigo,
-                edicion=acc.edicion,
-                identidad_tipo=acc.tipo,
-                estandar=_etiqueta_estandar(acc.codigo, acc.tipo, acc.edicion),
-                nombre=acc.nombre,
-                candidatos=sorted(acc.candidatos.values()),
-                requiere_revision=acc.tipo is not TipoIdentidadGri.EDICION_RESUELTA
-                or any(m.get("motivos_revision") for _, m in acc.menciones),
-                estado=None,
-                estado_etiqueta=None,
-                version_fila=0,
-                total_menciones=len(evidencias),
-                menciones_en_indice=sum(e.rol == "indice" for e in evidencias),
-                menciones_en_cuerpo=sum(e.rol == "cuerpo" for e in evidencias),
-                documentos=documentos_fila,
-                advertencias=_advertencias_de_fila(acc.menciones),
-                evidencias=evidencias,
-            )
-        )
+    filas = [_fila_desde_acumulador(clave, acc) for clave, acc in acumuladores.items()]
     filas.sort(key=lambda f: (int(f.codigo), f.edicion is None, f.edicion or "", f.identidad))
     return filas, advertencias
 
@@ -430,7 +433,7 @@ def redondear_presentacion(suma: int, filas: int, decimales: int = DECIMALES_PRE
 def calcular_puntaje(filas: list[FilaGri], *, vigente: bool, hay_documentos: bool) -> PuntajeEsg:
     evaluables = len(filas)
     sin_estado = sum(f.estado is None for f in filas)
-    base = dict(decimales_presentacion=DECIMALES_PRESENTACION, filas_evaluables=evaluables, filas_sin_estado=sin_estado)
+    base = {"decimales_presentacion": DECIMALES_PRESENTACION, "filas_evaluables": evaluables, "filas_sin_estado": sin_estado}
     if evaluables == 0:
         motivo = "SIN_CODIGOS_GRI_EVALUABLES" if hay_documentos else "DOCUMENTACION_INSUFICIENTE"
         mensaje = (

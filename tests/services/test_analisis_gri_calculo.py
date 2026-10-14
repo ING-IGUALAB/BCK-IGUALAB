@@ -49,7 +49,8 @@ def test_veinte_menciones_del_mismo_codigo_son_una_fila_y_una_contribucion():
     texto = "# Informe\n\n" + "".join(f"Párrafo {n}: cumplimos GRI 204-1 en el periodo.\n\n" for n in range(20))
     d = doc(texto)
     filas, advertencias = calculo.construir_filas([d])
-    assert len(filas) == 1 and advertencias == []
+    assert len(filas) == 1
+    assert advertencias == []
     fila = filas[0]
     assert (fila.identidad, fila.codigo, fila.edicion) == ("204:2016", "204", "2016")
     assert fila.total_menciones == len(fila.evidencias) == 20
@@ -74,7 +75,9 @@ def test_la_evidencia_conserva_cita_literal_offsets_seccion_y_rol_sin_inventar_p
         for e in fila.evidencias:
             assert texto[e.inicio:e.fin] == e.referencia_original
             assert texto[e.cita_inicio:e.cita_fin] == e.cita
-            assert e.documento_nombre == "reporte.md" and e.seccion and e.rol in ("indice", "cuerpo")
+            assert e.documento_nombre == "reporte.md"
+            assert e.seccion
+            assert e.rol in ("indice", "cuerpo")
             assert "pagina" not in type(e).model_fields
 
 
@@ -105,14 +108,16 @@ def test_ediciones_distintas_son_filas_distintas_y_la_ambigua_no_se_fusiona_con_
     por_id = {f.identidad: f for f in filas}
     assert set(por_id) == {"102:2016", "102:2025", "102:ambigua", "102:no-catalogada-2030"}
     assert por_id["102:ambigua"].identidad_tipo is TipoIdentidadGri.EDICION_AMBIGUA
-    assert por_id["102:ambigua"].edicion is None and por_id["102:ambigua"].nombre is None
+    assert por_id["102:ambigua"].edicion is None
+    assert por_id["102:ambigua"].nombre is None
     assert por_id["102:ambigua"].candidatos == ["2016: General Disclosures", "2025: Climate Change"]
     assert por_id["102:ambigua"].requiere_revision
     assert [a.codigo for a in por_id["102:ambigua"].advertencias] == ["GRI_EDICION_AMBIGUA"]
     assert por_id["102:no-catalogada-2030"].identidad_tipo is TipoIdentidadGri.EDICION_NO_CATALOGADA
     assert por_id["102:no-catalogada-2030"].edicion == "2030"
     assert [a.codigo for a in por_id["102:no-catalogada-2030"].advertencias] == ["GRI_EDICION_NO_CATALOGADA"]
-    assert por_id["102:2016"].identidad_tipo is TipoIdentidadGri.EDICION_RESUELTA and not por_id["102:2016"].advertencias
+    assert por_id["102:2016"].identidad_tipo is TipoIdentidadGri.EDICION_RESUELTA
+    assert not por_id["102:2016"].advertencias
     assert all(f.total_menciones == 1 for f in filas)
 
 
@@ -120,7 +125,8 @@ def test_la_misma_identidad_ambigua_en_dos_documentos_es_una_sola_fila():
     a, b = doc("# A\nVer GRI 102 aquí.\n"), doc("# B\nOtra vez GRI 102 allá.\n")
     filas, _ = calculo.construir_filas([a, b])
     assert [f.identidad for f in filas] == ["102:ambigua"]
-    assert filas[0].total_menciones == 2 and filas[0].documentos == [a.id, b.id]
+    assert filas[0].total_menciones == 2
+    assert filas[0].documentos == [a.id, b.id]
 
 
 def test_las_referencias_desconocidas_son_advertencias_con_evidencia_y_no_puntuan():
@@ -128,11 +134,14 @@ def test_las_referencias_desconocidas_son_advertencias_con_evidencia_y_no_puntua
     filas, advertencias = calculo.construir_filas([d])
     assert [f.identidad for f in filas] == ["204:2016"]
     (adv,) = advertencias
-    assert adv.codigo == "GRI_REFERENCIA_DESCONOCIDA" and adv.documento_id == d.id
-    assert adv.detalles["codigo_estandar"] == "999" and adv.evidencias[0].referencia_original == "GRI 999"
+    assert adv.codigo == "GRI_REFERENCIA_DESCONOCIDA"
+    assert adv.documento_id == d.id
+    assert adv.detalles["codigo_estandar"] == "999"
+    assert adv.evidencias[0].referencia_original == "GRI 999"
     # Un documento con SOLO referencias desconocidas no aporta ninguna fila.
     solo, advertencias = calculo.construir_filas([doc("# X\nVer GRI 999.\n")])
-    assert solo == [] and len(advertencias) == 1
+    assert solo == []
+    assert len(advertencias) == 1
 
 
 def test_los_avisos_de_calidad_de_la_ingesta_se_conservan_por_documento():
@@ -181,10 +190,15 @@ def test_sin_filas_evaluables_el_puntaje_no_esta_disponible_y_nunca_es_cero():
     for documentos, motivo in (([doc(MD_SOLO_SANCIONES)], "SIN_CODIGOS_GRI_EVALUABLES"), ([doc(MD_OBSERVADO)], "SIN_CODIGOS_GRI_EVALUABLES")):
         filas, _ = calculo.construir_filas(documentos)
         puntaje = calculo.calcular_puntaje(filas, vigente=False, hay_documentos=True)
-        assert puntaje.estado is EstadoPuntaje.NO_DISPONIBLE and puntaje.valor is None and puntaje.valor_presentacion is None
-        assert puntaje.suma_puntos is None and puntaje.motivo == motivo and "no disponible" in puntaje.mensaje
+        assert puntaje.estado is EstadoPuntaje.NO_DISPONIBLE
+        assert puntaje.valor is None
+        assert puntaje.valor_presentacion is None
+        assert puntaje.suma_puntos is None
+        assert puntaje.motivo == motivo
+        assert "no disponible" in puntaje.mensaje
     sin_docs = calculo.calcular_puntaje([], vigente=False, hay_documentos=False)
-    assert sin_docs.valor is None and sin_docs.motivo == "DOCUMENTACION_INSUFICIENTE"
+    assert sin_docs.valor is None
+    assert sin_docs.motivo == "DOCUMENTACION_INSUFICIENTE"
 
 
 def test_todos_sub_reportados_dan_cero_valido_distinto_de_no_disponible():
@@ -192,15 +206,20 @@ def test_todos_sub_reportados_dan_cero_valido_distinto_de_no_disponible():
     filas = con_estados(filas, [EstadoGri.SUB_REPORTADO, EstadoGri.SUB_REPORTADO])
     puntaje = calculo.calcular_puntaje(filas, vigente=False, hay_documentos=True)
     assert puntaje.estado is EstadoPuntaje.CALCULADO_SIN_VALIDAR
-    assert puntaje.valor == 0.0 and puntaje.valor is not None and puntaje.suma_puntos == 0
+    assert puntaje.valor == 0.0
+    assert puntaje.valor is not None
+    assert puntaje.suma_puntos == 0
 
 
 def test_con_estados_pendientes_no_se_presenta_puntaje():
     filas, _ = calculo.construir_filas([doc(MD_GRI_204_305)])
     filas = con_estados(filas, [EstadoGri.OK, None])
     puntaje = calculo.calcular_puntaje(filas, vigente=False, hay_documentos=True)
-    assert puntaje.estado is EstadoPuntaje.PENDIENTE_ESTADOS and puntaje.definitivo is False
-    assert puntaje.valor is None and puntaje.valor_presentacion is None and puntaje.suma_puntos is None
+    assert puntaje.estado is EstadoPuntaje.PENDIENTE_ESTADOS
+    assert puntaje.definitivo is False
+    assert puntaje.valor is None
+    assert puntaje.valor_presentacion is None
+    assert puntaje.suma_puntos is None
     assert (puntaje.filas_evaluables, puntaje.filas_sin_estado, puntaje.filas_contadas) == (2, 1, 1)
 
 
@@ -216,7 +235,9 @@ def test_el_redondeo_no_altera_el_valor_exacto():
     filas, _ = calculo.construir_filas([doc(MD_GRI_204_305 + "\nTambién GRI 302-1.\n")])
     filas = con_estados(filas, [EstadoGri.OK, EstadoGri.OK, EstadoGri.BAJA_SUSTANCIA])
     puntaje = calculo.calcular_puntaje(filas, vigente=False, hay_documentos=True)
-    assert puntaje.valor == 250 / 3 and puntaje.valor_presentacion == 83.3 and puntaje.decimales_presentacion == 1
+    assert puntaje.valor == 250 / 3
+    assert puntaje.valor_presentacion == 83.3
+    assert puntaje.decimales_presentacion == 1
 
 
 # ============================================ Huella, vigencia y flujo ============================================
@@ -268,11 +289,16 @@ def test_las_sanciones_se_muestran_con_evidencia_y_el_monto_ausente_no_es_cero()
     sanciones, resumen = calculo.construir_sanciones([d])
     assert len(sanciones) == 2
     con_monto, sin_monto = sorted(sanciones, key=lambda s: s.monto is None)
-    assert con_monto.cuantificada and con_monto.monto.texto == "S/ 120,000" and con_monto.monto.unidad == "S/"
+    assert con_monto.cuantificada
+    assert con_monto.monto.texto == "S/ 120,000"
+    assert con_monto.monto.unidad == "S/"
     assert con_monto.monto.separador_ambiguo is True  # no se interpreta el separador
     assert con_monto.entidad.texto == "OSINERGMIN"
-    assert sin_monto.monto is None and sin_monto.cuantificada is False
-    assert sin_monto.documento_nombre == "sanciones.md" and sin_monto.cita and sin_monto.seccion
+    assert sin_monto.monto is None
+    assert sin_monto.cuantificada is False
+    assert sin_monto.documento_nombre == "sanciones.md"
+    assert sin_monto.cita
+    assert sin_monto.seccion
     assert (resumen.total, resumen.cuantificadas, resumen.no_cuantificadas) == (2, 1, 1)
 
 
@@ -282,8 +308,10 @@ def test_no_se_suman_monedas_distintas_ni_se_convierte_uit():
         "La SUNAT impuso una multa de US$ 1,200.00 en 2022.\n"
     )
     sanciones, resumen = calculo.construir_sanciones([doc(texto)])
-    assert resumen.total == 3 and resumen.cuantificadas == 3
-    assert sum(resumen.por_unidad.values()) == 3 and len(resumen.por_unidad) == 3  # contadas por unidad, jamás sumadas
+    assert resumen.total == 3
+    assert resumen.cuantificadas == 3
+    assert sum(resumen.por_unidad.values()) == 3  # contadas por unidad, jamás sumadas
+    assert len(resumen.por_unidad) == 3
     campos = set(type(resumen).model_fields)
     assert not {"total_monto", "monto_total", "suma"} & campos
     assert {s.monto.texto for s in sanciones} == {"S/ 5,000.50", "59 UIT", "US$ 1,200.00"}
@@ -293,7 +321,9 @@ def test_un_documento_observado_se_lista_pero_no_aporta_filas_ni_sanciones():
     observado = doc(MD_OBSERVADO)
     assert observado.resultado_analisis is ResultadoAnalisis.OBSERVADO
     (resumen,) = calculo.resumir_documentos([observado])
-    assert resumen.observado is True and resumen.total_referencias_gri == 0 and resumen.total_sanciones == 0
+    assert resumen.observado is True
+    assert resumen.total_referencias_gri == 0
+    assert resumen.total_sanciones == 0
     assert calculo.construir_filas([observado]) == ([], [])
     assert calculo.construir_sanciones([observado])[0] == []
 

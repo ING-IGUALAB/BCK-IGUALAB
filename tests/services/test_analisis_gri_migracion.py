@@ -61,13 +61,15 @@ async def test_instalacion_nueva_aplica_las_cuatro_migraciones_y_registra_la_000
     assert set(TABLAS_ANALISIS_GRI) <= await tablas(url)
     assert (await versiones_registradas(url))[-1] == (4, "aplicada")
     (fila,) = await consultar(url, "SELECT nombre, checksum FROM igualab_migraciones WHERE version = 4")
-    assert fila["nombre"] == "analisis_gri" and fila["checksum"].strip() == ESQUEMA_TRANSACCIONAL.migraciones[3].checksum()
+    assert fila["nombre"] == "analisis_gri"
+    assert fila["checksum"].strip() == ESQUEMA_TRANSACCIONAL.migraciones[3].checksum()
 
 
 async def test_actualiza_una_base_con_datos_aplicando_solo_la_0004_y_sin_perder_nada(url_pg_aislado):
     url = await base_transaccional_nueva(url_pg_aislado)
     anterior = await migrar(url, PRIMERAS_TRES)  # lo que ya hay desplegado antes del Módulo 5
-    assert anterior.aplicadas == (1, 2, 3) and not (set(TABLAS_ANALISIS_GRI) & await tablas(url))
+    assert anterior.aplicadas == (1, 2, 3)
+    assert not (set(TABLAS_ANALISIS_GRI) & await tablas(url))
     usuario = (await consultar(url, "SELECT id FROM usuarios LIMIT 1"))[0]["id"]
     empresa = (await consultar(url, "SELECT id FROM empresas LIMIT 1"))[0]["id"]
     documento = uuid.uuid4()
@@ -110,7 +112,8 @@ async def test_segundo_arranque_no_ejecuta_nada_y_una_base_con_datos_del_modulo_
     monkeypatch.setattr(motor, "_aplicar", no_debe_ejecutarse)
     monkeypatch.setattr(motor, "_registrar", no_debe_ejecutarse)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.sin_cambios and resultado.previas == (1, 2, 3, 4)
+    assert resultado.sin_cambios
+    assert resultado.previas == (1, 2, 3, 4)
     assert await consultar(url, "SELECT version, aplicada_en, xmin::text AS xmin FROM igualab_migraciones ORDER BY version") == antes
     assert (await consultar(url, "SELECT estado FROM analisis_gri_estados"))[0]["estado"] == "OK"
 
@@ -121,12 +124,16 @@ async def test_la_0004_sin_los_prerrequisitos_no_deja_nada(url_pg_aislado):
     from tests.ayudantes_migraciones import base_vacia
 
     url = await base_vacia(url_pg_aislado, "sin_prerreq")
+    sql_0004 = ESQUEMA_TRANSACCIONAL.migraciones[3].sql()
     with pytest.raises(asyncpg.UndefinedTableError):
-        await ejecutar(url, ESQUEMA_TRANSACCIONAL.migraciones[3].sql())
+        await ejecutar(url, sql_0004)
     assert not (set(TABLAS_ANALISIS_GRI) & await tablas(url))
 
 
 def test_la_migracion_no_toca_documentos_ni_crea_tipos_enumerados():
     sql = ESQUEMA_TRANSACCIONAL.migraciones[3].sql()
-    assert "CREATE TYPE" not in sql and "ALTER TABLE documentos" not in sql and "UPDATE documentos" not in sql
-    assert "analisis_gri_estados" in sql and "solo inserción" in sql.lower().replace("solo insercion", "solo inserción")
+    assert "CREATE TYPE" not in sql
+    assert "ALTER TABLE documentos" not in sql
+    assert "UPDATE documentos" not in sql
+    assert "analisis_gri_estados" in sql
+    assert "solo inserción" in sql.lower().replace("solo insercion", "solo inserción")

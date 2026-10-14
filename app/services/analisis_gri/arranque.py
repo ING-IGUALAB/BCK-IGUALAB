@@ -28,9 +28,11 @@ async def preparar_esquema_analisis(app) -> None:
             {"base": exc.base, "motivo": exc.codigo, **exc.detalles},
         )
         # El mensaje y los detalles del ErrorMigracion están saneados (código, versión, SQLSTATE); sin URL ni credenciales.
-        logger.error(
+        # `exc_info=False`: el traceback encadenado podría arrastrar la causa original (URL, credenciales) del driver.
+        logger.exception(
             "Análisis GRI no disponible: la preparación del esquema de la base %s falló (%s). %s Detalles: %s",
             exc.base, exc.codigo, exc.mensaje, exc.detalles,
+            exc_info=False,
         )
     except Exception as exc:  # noqa: BLE001 - el arranque no debe caerse por este módulo
         app.state.analisis_error = (
@@ -38,4 +40,5 @@ async def preparar_esquema_analisis(app) -> None:
             "El análisis GRI no está disponible por un error de inicialización.",
             {"motivo": type(exc).__name__},
         )
-        logger.error("Análisis GRI no disponible: error de inicialización (%s).", type(exc).__name__)
+        # Solo el nombre del tipo: el texto de una excepción inesperada puede contener URLs o credenciales.
+        logger.exception("Análisis GRI no disponible: error de inicialización (%s).", type(exc).__name__, exc_info=False)
