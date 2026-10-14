@@ -112,3 +112,8 @@ SuperAdminUser = Annotated[
     Usuario,
     Depends(requerir_rol(RolUsuario.SUPERADMIN)),
 ]
+
+AdministradorUser = Annotated[
+    Usuario,
+    Depends(requerir_rol(RolUsuario.ADMINISTRADOR)),
+]

@@ -1,5 +1,344 @@
 {
  "transaccional": {
+  "analisis_gri_control": {
+   "4": {
+    "columnas": [
+     [
+      "actualizado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "version",
+      "integer",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "analisis_gri_control_pkey",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "analisis_gri_control_empresa_id_fkey",
+     "analisis_gri_control_pkey",
+     "ck_analisis_control_anio_minimo",
+     "ck_analisis_control_version_no_negativa"
+    ]
+   }
+  },
+  "analisis_gri_estados": {
+   "4": {
+    "columnas": [
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "asignado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "asignado_por",
+      "uuid",
+      true
+     ],
+     [
+      "codigo",
+      "character varying(3)",
+      true
+     ],
+     [
+      "edicion",
+      "character varying(4)",
+      false
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "estado",
+      "character varying(16)",
+      true
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "identidad",
+      "character varying(48)",
+      true
+     ],
+     [
+      "identidad_tipo",
+      "character varying(24)",
+      true
+     ],
+     [
+      "version",
+      "integer",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "analisis_gri_estados_pkey",
+      true,
+      false
+     ],
+     [
+      "ix_analisis_gri_estados_asignado_por",
+      false,
+      false
+     ],
+     [
+      "uq_analisis_estado_identidad",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "analisis_gri_estados_ambiente_empresa_id_anio_fkey",
+     "analisis_gri_estados_asignado_por_fkey",
+     "analisis_gri_estados_pkey",
+     "ck_analisis_estado_tipo_identidad",
+     "ck_analisis_estado_valido",
+     "ck_analisis_estado_version_positiva",
+     "uq_analisis_estado_identidad"
+    ]
+   }
+  },
+  "analisis_gri_historial": {
+   "4": {
+    "columnas": [
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "cambiado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "codigo",
+      "character varying(3)",
+      true
+     ],
+     [
+      "edicion",
+      "character varying(4)",
+      false
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "estado_anterior",
+      "character varying(16)",
+      false
+     ],
+     [
+      "estado_nuevo",
+      "character varying(16)",
+      true
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "identidad",
+      "character varying(48)",
+      true
+     ],
+     [
+      "identidad_tipo",
+      "character varying(24)",
+      true
+     ],
+     [
+      "usuario_id",
+      "uuid",
+      true
+     ],
+     [
+      "version_analisis",
+      "integer",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "analisis_gri_historial_pkey",
+      true,
+      false
+     ],
+     [
+      "ix_analisis_gri_historial_usuario_id",
+      false,
+      false
+     ],
+     [
+      "ix_analisis_historial_consulta",
+      false,
+      false
+     ]
+    ],
+    "restricciones": [
+     "analisis_gri_historial_empresa_id_fkey",
+     "analisis_gri_historial_pkey",
+     "analisis_gri_historial_usuario_id_fkey",
+     "ck_analisis_historial_es_un_cambio",
+     "ck_analisis_historial_estado_anterior",
+     "ck_analisis_historial_estado_nuevo",
+     "ck_analisis_historial_tipo_identidad",
+     "ck_analisis_historial_version_positiva"
+    ]
+   }
+  },
+  "analisis_gri_validaciones": {
+   "4": {
+    "columnas": [
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "documentos",
+      "jsonb",
+      true
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "estados",
+      "jsonb",
+      true
+     ],
+     [
+      "huella_documentos",
+      "character varying(64)",
+      true
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "numero",
+      "integer",
+      true
+     ],
+     [
+      "puntaje_filas",
+      "integer",
+      true
+     ],
+     [
+      "puntaje_suma",
+      "integer",
+      true
+     ],
+     [
+      "validado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "validado_por",
+      "uuid",
+      true
+     ],
+     [
+      "version_estados",
+      "integer",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "analisis_gri_validaciones_pkey",
+      true,
+      false
+     ],
+     [
+      "ix_analisis_gri_validaciones_validado_por",
+      false,
+      false
+     ],
+     [
+      "uq_analisis_validacion_numero",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "analisis_gri_validaciones_ambiente_empresa_id_anio_fkey",
+     "analisis_gri_validaciones_pkey",
+     "analisis_gri_validaciones_validado_por_fkey",
+     "ck_analisis_validacion_documentos_arreglo",
+     "ck_analisis_validacion_estados_arreglo",
+     "ck_analisis_validacion_huella",
+     "ck_analisis_validacion_numero_positivo",
+     "ck_analisis_validacion_puntaje",
+     "ck_analisis_validacion_version_positiva",
+     "uq_analisis_validacion_numero"
+    ]
+   }
+  },
   "documentos": {
    "1": {
     "columnas": [

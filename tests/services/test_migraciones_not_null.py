@@ -171,8 +171,8 @@ async def test_actualiza_la_etapa_4a_conservando_las_filas_y_el_segundo_arranque
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3))  # 0001 adoptada tras verificarla; 0002 y 0003 aplicadas
-    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "aplicada"), (3, "aplicada")]
+    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4))  # 0001 adoptada tras verificarla; 0002, 0003 y 0004 aplicadas
+    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada")]
     (fila,) = await consultar(url, "SELECT id, nombre_archivo, etapa_actual, fragmentos_procesados, advertencias::text AS adv FROM documentos")
     assert (fila["id"], fila["nombre_archivo"], fila["etapa_actual"], fila["fragmentos_procesados"], fila["adv"]) == (
         documento_id, "viejo.md", "RESERVADO", 0, "[]")
@@ -191,7 +191,7 @@ async def test_actualiza_la_etapa_4a_conservando_las_filas_y_el_segundo_arranque
     monkeypatch.setattr(motor, "_registrar", no_debe_ejecutarse)
     segundo = await migrar(url, ESQUEMA_TRANSACCIONAL)
     assert segundo.sin_cambios
-    assert segundo.previas == (1, 2, 3)
+    assert segundo.previas == (1, 2, 3, 4)
     assert await consultar(url, "SELECT version, aplicada_en, xmin::text AS xmin FROM igualab_migraciones ORDER BY version") == antes
 
 
@@ -238,11 +238,12 @@ async def test_una_instalacion_manual_completa_se_adopta_en_cualquier_version(ur
     url = await base_transaccional_nueva(url_servidor)
     await ejecutar(url, generar_ddl())
     await ejecutar(url, generar_ddl_operaciones())
+    await ejecutar(url, ESQUEMA_TRANSACCIONAL.migraciones[3].sql())  # 004 (Módulo 5)
 
     async def no_debe_ejecutarse(*args, **kwargs):
         raise AssertionError("adoptar no ejecuta SQL de migración")
 
     monkeypatch.setattr(motor, "_aplicar", no_debe_ejecutarse)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.adoptadas == (1, 2, 3)
+    assert resultado.adoptadas == (1, 2, 3, 4)
     assert resultado.aplicadas == ()

@@ -28,6 +28,12 @@ ESQUEMA_TRANSACCIONAL = EsquemaBase(
         Migracion(1, "documentos_etapa_4a", "0001_documentos_etapa_4a.sql", ("documentos",), carpeta="transaccional"),
         Migracion(2, "documentos_coordinador", "0002_documentos_coordinador.sql", ("documentos",), carpeta="transaccional"),
         Migracion(3, "operaciones_ingesta", "0003_operaciones_ingesta.sql", ("operaciones_ingesta",), carpeta="transaccional"),
+        # Módulo 5 (análisis y validación GRI). No toca `documentos`: guarda solo lo que decide una persona.
+        Migracion(
+            4, "analisis_gri", "0004_analisis_gri.sql",
+            ("analisis_gri_control", "analisis_gri_estados", "analisis_gri_historial", "analisis_gri_validaciones"),
+            carpeta="transaccional",
+        ),
     ),
     # Los crea el arranque de los módulos existentes (`crear_tablas`), que corre ANTES que esta preparación.
     prerrequisitos=(("tabla", "usuarios"), ("tabla", "empresas"), ("tipo", "sector_empresa")),
@@ -58,6 +64,14 @@ def _url_vectorial() -> str:
             "MIGRATION_DB_NOT_CONFIGURED", "La base vectorial no está configurada (VECTOR_DATABASE_URL).", "vectorial",
             {"causa": exc.code},
         ) from None
+
+
+async def asegurar_esquema_transaccional() -> ResultadoMigracion:
+    """Lleva SOLO la base transaccional al último esquema. Lo usa el Módulo 5 (análisis GRI) en el arranque para no depender de que
+    la ingesta (OCI, MinIO, base vectorial) esté configurada: sus tablas viven en la base transaccional. Es idempotente: si
+    `asegurar_esquema_ingesta` ya las aplicó (o las aplica después) no se ejecuta ningún SQL."""
+    with paso_de_arranque(logger, "Esquema transaccional del análisis GRI"):
+        return await migrar(settings.DATABASE_URL, ESQUEMA_TRANSACCIONAL)
 
 
 async def asegurar_esquema_ingesta() -> list[ResultadoMigracion]:
