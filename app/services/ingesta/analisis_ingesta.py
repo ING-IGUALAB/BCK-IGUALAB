@@ -37,7 +37,11 @@ from app.services.ingesta.deteccion_gri import (
     ResultadoDeteccionGri,
     detectar_referencias_gri,
 )
-from app.services.ingesta.deteccion_sanciones import ResultadoSanciones, detectar_sanciones
+from app.services.ingesta.deteccion_sanciones import (
+    VERSION_DETECTOR_SANCIONES,
+    ResultadoSanciones,
+    detectar_sanciones,
+)
 from app.services.ingesta.validacion import AdvertenciaCalidad, DocumentoValidado
 
 CODIGO_ERROR_ANALISIS = "INGESTION_ANALYSIS_FAILED"
@@ -98,6 +102,8 @@ class ResultadoAnalisisIngesta:
             "resultado": self.resultado.value,
             "motivos": list(self.motivos),
             "version_catalogo": self.version_catalogo,
+            # Un análisis persistido SIN esta clave (o con una versión anterior) lo produjo un detector de sanciones previo.
+            "version_detector_sanciones": VERSION_DETECTOR_SANCIONES,
             "gri": [
                 {
                     "codigo": grupo.codigo,
