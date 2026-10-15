@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     options {
-        buildDiscarder(logRotator(numToKeepStr: '5'))
+        buildDiscarder(logRotator(numToKeepStr: '1', artifactNumToKeepStr: '1'))
         disableConcurrentBuilds()
         timestamps()
         skipDefaultCheckout(true)
@@ -191,6 +191,79 @@ docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=200 backend
                             docker compose -p "$COMPOSE_PROJECT" up -d --build
                         '''
                     }
+                }
+            }
+        }
+
+        // Pruebas HTTP del backend DESPLEGADO en QA (colecciones Postman ejecutadas con Newman; ver pruebas-http/README.md).
+        // Solo en la rama qa. Nunca se ejecutan automáticamente contra UAT: la demostración en UAT es manual (README).
+        // Credencial de Jenkins requerida: IGUALAB_QA_SUPERADMIN (Username with password = correo y contraseña VIGENTE del
+        // SuperAdmin de QA). Opcional: variable de entorno IGUALAB_QA_API_URL si el backend no es alcanzable por el nombre de su
+        // contenedor en la red proxy_net.
+        stage('Integration Tests') {
+            when {
+                beforeAgent true
+                branch 'qa'
+            }
+            agent {
+                dockerfile {
+                    filename 'Dockerfile'
+                    dir 'pruebas-http'
+                    reuseNode true
+                    args '--network proxy_net'
+                }
+            }
+            environment {
+                IGUALAB_PRUEBAS_ENTORNO = 'qa'
+                IGUALAB_API_URL = "${env.IGUALAB_QA_API_URL ?: 'http://igualab-backend-qa-backend-1:8000'}"
+            }
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'IGUALAB_QA_SUPERADMIN',
+                    usernameVariable: 'IGUALAB_E2E_SUPERADMIN_CORREO',
+                    passwordVariable: 'IGUALAB_E2E_SUPERADMIN_PASSWORD'
+                )]) {
+                    sh 'node /opt/pruebas-http/scripts/ejecutar.mjs --coleccion integracion --resultados "$WORKSPACE/pruebas-http/resultados"'
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'pruebas-http/resultados/integracion/**', allowEmptyArchive: false
+                    junit testResults: 'pruebas-http/resultados/integracion/junit.xml', allowEmptyResults: false
+                }
+            }
+        }
+
+        stage('E2E Tests') {
+            when {
+                beforeAgent true
+                branch 'qa'
+            }
+            agent {
+                dockerfile {
+                    filename 'Dockerfile'
+                    dir 'pruebas-http'
+                    reuseNode true
+                    args '--network proxy_net'
+                }
+            }
+            environment {
+                IGUALAB_PRUEBAS_ENTORNO = 'qa'
+                IGUALAB_API_URL = "${env.IGUALAB_QA_API_URL ?: 'http://igualab-backend-qa-backend-1:8000'}"
+            }
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'IGUALAB_QA_SUPERADMIN',
+                    usernameVariable: 'IGUALAB_E2E_SUPERADMIN_CORREO',
+                    passwordVariable: 'IGUALAB_E2E_SUPERADMIN_PASSWORD'
+                )]) {
+                    sh 'node /opt/pruebas-http/scripts/ejecutar.mjs --coleccion e2e --resultados "$WORKSPACE/pruebas-http/resultados"'
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'pruebas-http/resultados/e2e/**', allowEmptyArchive: false
+                    junit testResults: 'pruebas-http/resultados/e2e/junit.xml', allowEmptyResults: false
                 }
             }
         }

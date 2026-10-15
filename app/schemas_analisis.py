@@ -153,9 +153,17 @@ class MontoVista(_Modelo):
     unidad: str
     numero_texto: str
     separador_ambiguo: bool = Field(description="El separador decimal/de miles es ambiguo; NO se interpreta.")
-    vinculo: str
+    vinculo: str = Field(
+        description="Cómo se unió el monto a la sanción (p. ej. `termino_y_conector`, `fila_de_tabla`, `encabezado_de_columna`)."
+    )
     inicio: int
     fin: int
+    unidad_inicio: int | None = Field(
+        default=None,
+        description="Si la moneda no está dentro de `texto` (la nombra el encabezado de la columna o una celda «Moneda»), "
+        "posición inicial donde está escrita en el documento original; null si la moneda forma parte de `texto`.",
+    )
+    unidad_fin: int | None = Field(default=None, description="Posición final (exclusiva) de la moneda; ver `unidad_inicio`.")
 
 
 class CalificadorVista(_Modelo):
@@ -186,11 +194,16 @@ class SancionVista(_Modelo):
 
 
 class ResumenSanciones(_Modelo):
-    """Solo conteos. No se suman montos ni monedas distintas; las sanciones no forman parte del puntaje ESG."""
+    """Solo conteos de MENCIONES. No se suman montos ni monedas distintas; las sanciones no forman parte del puntaje ESG.
 
-    total: int
-    cuantificadas: int
-    no_cuantificadas: int
+    Una mención no es un suceso: el mismo suceso suele aparecer en un párrafo y en una tabla y se cuenta dos veces, y no se
+    fusionan menciones aunque coincidan entidad y monto (dos sanciones distintas pueden coincidir)."""
+
+    total: int = Field(description="Menciones de sanciones económicas detectadas (no sucesos independientes).")
+    cuantificadas: int = Field(description="Menciones con un monto explícito unido a la sanción.")
+    no_cuantificadas: int = Field(
+        description="Menciones sin monto: el documento no lo da o dice expresamente que no se especifica (nunca es cero)."
+    )
     por_unidad: dict[str, int] = Field(description="Cantidad de sanciones por unidad/moneda escrita en el documento.")
 
 

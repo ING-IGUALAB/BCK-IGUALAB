@@ -37,17 +37,19 @@ QUÉ NO ES UN HALLAZGO (se cuenta en `descartes`)
   medidas disciplinarias, despido, Canal/Código de Ética, hostigamiento…;
 - un término de multa sin evidencia de imposición («Multas de SUNAFIL y deterioro
   reputacional» en una matriz de riesgos);
-- «sanción» o «sancionado» sin carácter económico explícito (adjetivo económico o
-  monto vinculado).
+- «sanción» o «sancionado» sin carácter económico explícito: un adjetivo económico, un monto
+  vinculado, un enunciado del propio documento sobre su importe («no se especifica el monto») o,
+  en una tabla, una columna de importes.
 Es una heurística léxica: no se afirma precisión validada. Revisión humana pendiente.
 
 DATOS EXPLÍCITOS, NUNCA INFERIDOS (los ausentes quedan en None)
 - `entidad`: solo si el texto la une a la sanción («impuestas por el OEFA», «multa del
   OEFA», «la SUNAT multó»). Dos entidades distintas ligadas ⇒ ninguna + motivo.
 - `monto`: solo si el texto lo une al término («multa equivalente a 59.078 UIT»,
-  «multa de S/ 5,000», «S/ 3,000 de multa», «nos multó con…») o si una fila bien
-  formada de tabla lo da en una sola celda. NO se vincula un monto cercano sin esa
-  relación. Se conserva el texto original: no se convierte UIT a soles, no se
+  «multa de S/ 5,000», «S/ 3,000 de multa», «nos multó con…»; ver VÍNCULO ENTRE SANCIÓN, VERBO,
+  ENTIDAD E IMPORTE) o si una fila bien formada de tabla lo da en una sola celda o en una cifra
+  bajo una columna de importes con moneda explícita (ver TABLAS CON ENCABEZADO). NO se vincula
+  un monto cercano sin esa relación. Se conserva el texto original: no se convierte UIT a soles, no se
   interpretan separadores ambiguos (`separador_ambiguo=True` en «59.078») y no se
   entienden cantidades en palabras.
 - `periodo`: solo si la fecha modifica a la sanción («multa de S/ 5,000 en 2023»,
@@ -74,6 +76,43 @@ inclusivo y fin exclusivo, la misma base que fragmentos y detector GRI.
 La cita es el párrafo, oración(es) relacionadas o fila de tabla; si supera
 `MAX_LONGITUD_CITA` es una ventana exacta alrededor del término.
 
+MARKDOWN: VISTA AUXILIAR CON VÍNCULO EXACTO
+El análisis se hace sobre una vista de lectura sin marcas en línea (`**negrita**`, `*cursiva*`, `[texto](url)`, `<br>`,
+`>`), construida por `vista_markdown` solo borrando o sustituyendo caracteres uno a uno. Todas las posiciones y los textos que
+devuelve este módulo se vuelven a calcular sobre el texto ORIGINAL (`texto[inicio:fin] == referencia_original`), que no se
+modifica. Las marcas dentro de un tramo («sanción **económica**») quedan dentro de su cita literal; las de los extremos no
+forman parte del dato, pero sí de la cita cuando están pegadas a ella.
+
+VÍNCULO ENTRE SANCIÓN, VERBO, ENTIDAD E IMPORTE
+- Entre el término y el importe se admiten calificativos («administrativa», «ambiental»), la entidad («del OEFA», «impuesta
+  por el OEFA»), una fecha y, si el importe lo introduce un sustantivo explícito («por un monto de», «equivalente a»), cualquier
+  expresión intermedia sin comas, sin conjunciones y sin otro término de sanción, un objeto ajeno (ingresos, impuestos…) o un
+  saldo. Un «de/por/con» pelado solo vale si lo intermedio son calificativos, entidad o fecha.
+- Un «saldo pendiente» o un pago parcial NO es el monto de la sanción: no se vincula (`solo_se_menciona_un_saldo_o_pago_parcial`).
+
+TABLAS CON ENCABEZADO
+Solo en filas con el mismo número de columnas que el encabezado (las deterioradas se leen celda por celda, sin encabezado):
+- Una cifra pura bajo una columna de importes cuyo encabezado nombra EXPLÍCITAMENTE una única moneda («Monto (S/)») es un
+  monto: `texto` es la cifra literal, `unidad` es la moneda tal como está escrita en el encabezado y `unidad_inicio/fin`
+  ubican ese encabezado (`vinculo="encabezado_de_columna"`). Dos monedas en el encabezado o un encabezado de otra magnitud
+  (ingresos, inversión…) no se usan. Una columna «Moneda» con una única moneda también sirve (`columna_de_moneda`).
+- Las columnas de saldo, pendiente o pagado no aportan el monto total; la columna de entidad aporta la entidad.
+- Una celda de importe que dice expresamente «No especificado», «Por determinar», «Pendiente de determinación» deja la
+  sanción SIN monto y con `monto_no_especificado_en_el_documento`: no cuantificada, nunca cero.
+- Si el encabezado o la fila hablan de riesgos, probabilidad, escenarios o estimaciones, nada de lo anterior se aplica.
+
+IMPORTE DESCONOCIDO
+«No se especifica el monto» NO es «no hubo sanción». Si el documento dice expresamente que el importe no consta o está
+pendiente de determinación (en la misma oración o en la siguiente del mismo párrafo, sin otro término de sanción), la
+sanción impuesta se conserva con `monto=None` y `monto_no_especificado_en_el_documento`; esa oración forma parte de la cita.
+Para «sanción» sin adjetivo económico, ese enunciado (o una columna de importes) es lo que expresa su carácter económico
+(`caracter_economico_en_contexto`). La negación de la existencia («no se impuso ninguna sanción») sigue excluyendo.
+
+ALCANCE DEL CONTEO
+`total` cuenta MENCIONES detectadas, no sucesos independientes: el mismo suceso suele aparecer en un párrafo y en una
+tabla y se informa dos veces. No se fusionan menciones aunque coincidan entidad y monto (dos sanciones distintas pueden
+coincidir) ni se afirma que cada mención sea una sanción distinta.
+
 LÍMITES CONOCIDOS
 - Solo español. Términos: multa(s), sanción(es) económica/pecuniaria/monetaria y
   «sanción/sancionado» con monto vinculado. Penalidades contractuales no se cuentan.
@@ -81,14 +120,26 @@ LÍMITES CONOCIDOS
 - Filas de tabla con solo un conteo («Número de multas | 2») no se detectan.
 - Las filas con distinto número de columnas que el encabezado no se interpretan por
   columnas: cada celda se analiza sola.
+- Un término que solo aparece en el encabezado («Multa (S/)») con filas de entidad e importe sin
+  término propio no se detecta. Tampoco un «monto no especificado» sin verbo de imposición («Sanción
+  económica del OEFA: monto no especificado»): sin evidencia de imposición no se asume que exista.
+- Un importe en otra oración («El monto fue de S/ 9,000») no se une a la sanción de la oración anterior.
+- Con dos sanciones y dos entidades en la misma cláusula no se adivina cuál es de cuál (`entidad_ambigua`).
+- El monto con formato dentro de la cifra («3**,**000») o con saltos de línea conserva su texto literal,
+  con las marcas internas (`numero_texto` es la cifra sin ellas).
 - Las referencias dentro de bloques de código se ignoran.
 - Rendimiento con 50 MB sin medir.
 """
 import re
-from collections.abc import Iterator
-from dataclasses import dataclass, field
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass, field, replace
 
 from app.services.ingesta import markdown
+from app.services.ingesta.vista_markdown import VistaPlana, construir_vista
+
+# Versión de las reglas de detección. Se persiste en el análisis (`version_detector_sanciones`): un análisis guardado sin
+# ella (o con una anterior) lo produjo un detector previo. Sube con cada cambio que pueda alterar el resultado.
+VERSION_DETECTOR_SANCIONES = "2026-10-15.1"
 
 SEPARADOR_RUTA = " > "
 MAX_LONGITUD_CITA = 900
@@ -102,6 +153,11 @@ BASE_MONTO_VINCULADO = "monto_vinculado"
 BASE_VERBO_IMPOSICION = "verbo_de_imposicion_o_pago"
 BASE_VERBO_TRAMITE = "verbo_de_tramite"
 BASE_FILA_DE_TABLA = "fila_de_tabla"
+# Carácter económico de una «sanción» genérica expresado por el contexto (importe desconocido o columna de importes).
+BASE_CARACTER_ECONOMICO = "caracter_economico_en_contexto"
+
+VINCULO_ENCABEZADO = "encabezado_de_columna"
+VINCULO_COLUMNA_MONEDA = "columna_de_moneda"
 
 CAL_PAGADA = "pagada"
 CAL_PENDIENTE = "pendiente_de_pago"
@@ -115,6 +171,8 @@ MOTIVO_ENTIDAD_AMBIGUA = "entidad_ambigua"
 MOTIVO_SEPARADOR_AMBIGUO = "monto_con_separador_ambiguo"
 MOTIVO_MONTOS_MULTIPLES = "montos_multiples_en_fila"
 MOTIVO_MONTO_NO_ASOCIADO = "monto_no_asociado_con_seguridad"
+MOTIVO_MONTO_NO_ESPECIFICADO = "monto_no_especificado_en_el_documento"
+MOTIVO_SOLO_SALDO = "solo_se_menciona_un_saldo_o_pago_parcial"
 
 DESCARTE_NEGACION = "negacion"
 DESCARTE_HIPOTETICA = "hipotetica_o_normativa"
@@ -141,7 +199,10 @@ class _UnionDePatrones:
 # --- Términos --------------------------------------------------------------------------
 _MULTA = re.compile(r"\b(?:multas?|multad[oa]s?|mult[óo]|multaron|multamos)\b", _I)
 _SANCION_ECONOMICA = re.compile(
-    r"\bsanci(?:[óo]n|ones)\s+(?:econ[óo]micas?|pecuniarias?|monetarias?)\b", _I
+    r"\bsanci(?:[óo]n|ones)(?:\s+(?:administrativ|ambiental|tributari|fiscal|regulatori|sectorial|firm|definitiv)\w*)?"
+    r"\s+(?:(?:de|con)\s+(?:car[áa]cter|naturaleza|tipo|[íi]ndole|orden)\s+)?"
+    r"(?:econ[óo]micas?|pecuniari[ao]s?|monetari[ao]s?|dinerari[ao]s?|patrimoniales?)\b",
+    _I,
 )
 _SANCION_GENERICA = re.compile(
     r"\bsanci(?:[óo]n|ones)\b|\bsancionad[oa]s?\b|\bsancion(?:[óo]|aron|amos)\b", _I
@@ -209,15 +270,17 @@ _FINITOS_IMPOSICION = (
     r"impuso|impusieron|impusimos|aplicó|aplicaron|aplicamos|determinó|determinaron|recibió|recibimos|recibieron|"
     r"pagó|pagaron|pagamos|canceló|cancelaron|abonó|abonaron|notificó|notificaron|registró|registraron|registramos|"
     r"reportó|reportaron|reportamos|tuvo|tuvimos|tuvieron|hubo|incurrió|incurrimos|incurrieron|sancionó|sancionaron|"
-    r"multó|multaron"
+    r"multó|multaron|emitió|emitieron|emitimos|dictó|dictaron|ordenó|ordenaron|dispuso|dispusieron|interpuso|interpusieron|"
+    r"decretó|decretaron"
 )
 _PARTICIPIOS_FEMENINOS = (
     r"(?:impuestas?|aplicadas?|determinadas?|notificadas?|pagadas?|canceladas?|abonadas?|registradas?|reportadas?|"
-    r"recibidas?|sancionadas?)"
+    r"recibidas?|sancionadas?|emitidas?|dictadas?|interpuestas?|ordenadas?|dispuestas?|decretadas?)"
 )
 _AUXILIAR_Y_PARTICIPIO = (
-    r"(?:ha|han|hemos|he|había|habían)\s+(?:impuesto|aplicado|determinado|recibido|pagado|cancelado|abonado|"
-    r"notificado|registrado|reportado)"
+    r"(?:(?:ha|han|hemos|he|había|habían)\s+(?:impuesto|aplicado|determinado|recibido|pagado|cancelado|abonado|"
+    r"notificado|registrado|reportado|emitido|dictado|interpuesto|ordenado|dispuesto|decretado)"
+    r"|(?:fue|fuimos|fueron|ha\s+sido|hemos\s+sido|han\s+sido)\s+objeto\s+de)"
 )
 _EVIDENCIA_ANTES = re.compile(
     rf"\b(?:{_FINITOS_IMPOSICION}|{_AUXILIAR_Y_PARTICIPIO}|{_PARTICIPIOS_FEMENINOS})\b", _I
@@ -237,7 +300,13 @@ _OBJETO_AJENO = re.compile(
     r"contratistas?|servicios|deudas?|bonos?)\b",
     _I,
 )
-_RELATIVO = r"(?!\s*(?:que|la\s+cual|las\s+cuales|el\s+cual)\b)"
+# Una coma seguida de un relativo («, que…») o de un cue de importe («, por un monto de…», «, equivalente a…») continúa
+# la misma frase nominal: no corta el alcance.
+_RELATIVO = (
+    r"(?!\s*(?:que|la\s+cual|las\s+cuales|el\s+cual|cuy[oa]s?|(?:por|con|de)\s+(?:un\s+|el\s+|su\s+)?(?:monto|importe|cuant[íi]a)|"
+    r"(?:por|con|de)\s+(?:(?:un|el|la)\s+)?(?:(?:S/|US\$|U\$S|USD|\$|PEN|EUR|€)\s*)?\d+|"
+    r"equivalente\s+a|ascendente\s+a|asciende\s+a|ascendi[óo]\s+a|valorizad[ao]\s+en|por\s+un\s+total\s+de)\b)"
+)
 _SEPARADOR_DE_ALCANCE = re.compile(r"(?<!\d),|,(?!\d)|;|\b(?:y|e|pero|sino|aunque|ni)\b", _I)
 # Una conjunción no corta el alcance si continúa el mismo predicado: «la multa ... y está pendiente de pago».
 _FIN_DE_ALCANCE = re.compile(
@@ -247,6 +316,8 @@ _FIN_DE_ALCANCE = re.compile(
 )
 PALABRAS_ANTES_DEL_TERMINO = 6
 PALABRAS_DESPUES_DEL_TERMINO = 12
+# El importe suele ir tras calificativos, entidad y un conector: se mira un poco más lejos que para los verbos.
+PALABRAS_HASTA_EL_MONTO = 16
 
 # --- Calificadores (literales) -------------------------------------------------------------------
 _CALIFICADORES: tuple[tuple[str, "re.Pattern[str] | _UnionDePatrones"], ...] = (
@@ -291,17 +362,54 @@ _MONTO_PREFIJO = re.compile(rf"(?P<unidad>{_PREFIJO_MONEDA})\s*(?P<numero>{_NUME
 _MONTO_SUFIJO = re.compile(
     rf"(?P<numero>{_NUMERO})(?:\s*(?:mil|millones?(?:\s+de)?))?\s*(?P<unidad>{_UNIDAD_SUFIJO})\b", _I
 )
-_CONECTOR_MONTO = (
-    r"(?:\s+(?:econ[óo]micas?|administrativas?|pecuniarias?|monetarias?|impuest[ao]s?|total(?:es)?|adicional(?:es)?|"
-    r"hist[óo]ric[ao]s?|pagad[ao]s?|impugnad[ao]s?|anterior(?:es)?|[úu]nic[ao]s?|ambiental(?:es)?|laboral(?:es)?|"
-    r"tributari[ao]s?|fiscal(?:es)?))*"
-    r"(?:\s+(?:ascendente|equivalente|valorizad[ao]|que\s+asciende|que\s+ascendi[óo])\s+a"
-    r"|\s+correspondiente\s+a"
-    r"|\s+(?:ascendi[óo]|asciende|fue|fueron|sum[óo])\s+(?:a|de|por)"
-    r"|\s+(?:de|por|con)(?:\s+(?:un|el|la))?(?:\s+(?:monto|importe|total|valor|suma))?(?:\s+(?:total|de))?"
-    r"|\s+total(?:izando)?(?:\s+de)?)\s+"
+# Calificativos y participios que pueden mediar entre el término y su importe («sanción administrativa», «multa impuesta»).
+_CALIFICATIVOS = (
+    r"(?:econ[óo]micas?|administrativas?|pecuniarias?|monetarias?|patrimoniales?|ambientales?|laborales?|"
+    r"tributari[ao]s?|fiscales?|regulatori[ao]s?|sectoriales?|firmes?|definitivas?|total(?:es)?|adicional(?:es)?|"
+    r"hist[óo]ric[ao]s?|anterior(?:es)?|[úu]nic[ao]s?|leves?|graves?|muy\s+graves?|formales?|menor(?:es)?|mayor(?:es)?|"
+    r"nuev[ao]s?|similar(?:es)?|impuest[ao]s?|aplicad[ao]s?|emitid[ao]s?|dictad[ao]s?|notificad[ao]s?|determinad[ao]s?|"
+    r"recibid[ao]s?|pagad[ao]s?|impugnad[ao]s?|confirmad[ao]s?|cancelad[ao]s?|abonad[ao]s?)"
 )
-_ENLACE_MONTO = re.compile(_CONECTOR_MONTO, _I)
+# Conector «débil» entre el término (con su relleno) y el importe; el importe sigue inmediatamente.
+_CONECTOR_DEBIL = (
+    r"(?:,?(?:\s+(?:ascendente|equivalente|valorizad[ao]|que\s+asciende|que\s+ascendi[óo])\s+a\s+"
+    r"|\s+correspondiente\s+a\s+"
+    r"|\s+(?:ascendi[óo]|asciende|fue|fueron|sum[óo])\s+(?:a|de|por)\s+"
+    r"|\s+(?:de|por|con)(?:\s+(?:un|el|la))?(?:\s+(?:monto|importe|total|valor|suma))?(?:\s+(?:total|de))?\s+"
+    r"|\s+total(?:izando)?(?:\s+de)?\s+"
+    r"|\s*[:(]\s*))"
+)
+# Cue «fuerte»: un sustantivo o verbo que dice expresamente que lo que sigue es el importe. Con él se admite cualquier
+# expresión intermedia (sin comas, conjunciones, otro término ni objeto ajeno).
+_CUE_FUERTE_FINAL = re.compile(
+    r"(?:\s+(?:(?:por|con|de|en)\s+)?(?:(?:un|el|la|su)\s+)?(?:monto|importe|cuant[íi]a|suma)\b"
+    r"(?:\s+(?:econ[óo]mico|total|aproximado|referencial))*"
+    r"(?:\s+(?:(?:es|fue|era|ser[íi]a|ser[áa]|asciende|ascendi[óo]|ascend[íi]a)\s+)?(?:de|por|a|igual\s+a))?"
+    r"(?:\s+(?:un|el)\s+total\s+de)?"
+    r"|\s+(?:equivalente|ascendente|valorizad[ao]|correspondiente)\s+(?:a|en)"
+    r"|\s+(?:que\s+)?(?:asciende|ascendi[óo]|totaliza|totaliz[óo])(?:\s+(?:a|en|de|por))?"
+    r"|\s+por\s+(?:un\s+)?(?:total|valor)\s+de)\s*:?\s+\Z",
+    _I,
+)
+# Entre el término y el importe no puede haber otra cosa a la que el importe pertenezca más naturalmente.
+_AJENOS_AL_IMPORTE = (
+    r"impuestos?|tributos?|proveedor\w*|planillas?|salarios?|sueldos?|dividendos?|facturas?|intereses|contratistas?|"
+    r"servicios|deudas?|bonos?|ingresos?|ventas?|facturaci[óo]n|utilidad(?:es)?|ganancias?|inversi[óo]n(?:es)?|"
+    r"presupuest\w+|costos?|gastos?|ahorros?|capital|beneficios?"
+)
+_OBJETO_AJENO_AL_IMPORTE = re.compile(rf"\b(?:{_AJENOS_AL_IMPORTE})\b", _I)
+_BARRERA_DE_PUENTE = re.compile(
+    rf"\b(?:{_AJENOS_AL_IMPORTE}|saldos?|restantes?|adeudad[ao]s?|multas?|sanci(?:[óo]n|ones)|sancionad[ao]s?)\b", _I
+)
+# Celda sin dato («-», «N/A», «No aplica») y celda con varias entidades («OEFA / SUNAFIL», «OEFA y SUNAFIL»).
+_SIN_DATO = re.compile(r"[\s\-–—.*]*|n\s*/\s*a|no\s+aplica|no\s+corresponde", _I)
+_VARIAS_ENTIDADES = re.compile(r"[/;,]|\s(?:y|e|o)\s", _I)
+_ENCABEZADO_IMPORTE = re.compile(r"monto|importe|valor|total|multa|sanci|cuant[íi]a|aplicad|determinad", _I)
+_SALDO_ANTES_DEL_MONTO = re.compile(
+    r"\b(?:saldos?|restantes?|resta|adeudad[ao]s?|por\s+pagar|pendientes?\s+de\s+pago|pago\s+pendiente|deuda)\b"
+    r"(?:\s+\w+){0,4}\s*\Z",
+    _I,
+)
 _PALABRA_INTERMEDIA = re.compile(r"\s+[^\s,.;:()|]+")
 _CON_O_POR = re.compile(r"\s+(?:con|por)(?:\s+(?:un|el|la)(?:\s+(?:monto|importe)\s+de)?)?\s+", _I)
 
@@ -321,7 +429,8 @@ def _fin_de_verbo_con_monto(texto: str, desde: int, limite: int) -> int | None:
     return None
 _MONTO_ANTES = re.compile(
     rf"(?:(?:{_PREFIJO_MONEDA})\s*{_NUMERO}{_ESCALA}|{_NUMERO}(?:\s*(?:mil|millones?(?:\s+de)?))?\s*{_UNIDAD_SUFIJO}\b)"
-    r"\s+(?:de|en|por|como)\s+(?P<termino>multas?|sanci(?:[óo]n|ones)(?:\s+econ[óo]micas?)?)\b",
+    r"\s+(?:de|en|por|como)\s+(?:concepto\s+de\s+)?(?:(?:una|la|esa|esta)\s+)?"
+    r"(?P<termino>multas?|sanci(?:[óo]n|ones)(?:\s+econ[óo]micas?)?)\b",
     _I,
 )
 _SOLO_MONTO = (_MONTO_PREFIJO, _MONTO_SUFIJO)
@@ -329,12 +438,82 @@ _CERO_SUELTO = re.compile(r"[\W_]*(?:0+(?:[.,]0+)?|cero)[\W_]*", _I)
 _NUMERO_SUELTO = re.compile(r"[\W_]*+\d[\d.,'’   ]*+[\W_]*+")
 _ANIO_SUELTO = re.compile(r"(?:19|20)\d{2}")
 _ENCABEZADO_DE_MONTO = re.compile(r"monto|importe|valor|total|multa|sanci|s/|soles|uit|usd|us\$", _I)
+
+# --- Importe desconocido y roles de columna -------------------------------------------------------------
+# «No se especifica el monto», «el importe está pendiente de determinación»: el documento dice que el importe no consta.
+# Eso NO niega la sanción. El monto debe ser de la sanción: «monto de las ventas» no vale.
+_NOMBRE_DE_MONTO = r"(?:monto|importe|cuant[íi]a)"
+_NOMBRE_DE_MONTO_SUELTO = re.compile(rf"\b{_NOMBRE_DE_MONTO}\b", _I)
+_MONTO_ECONOMICO = r"(?:\s+(?:econ[óo]mic|pecuniari|monetari)\w+)?"
+_MONTO_DESCONOCIDO = re.compile(
+    r"\bno\s+(?:se\s+)?(?:ha\s+|han\s+)?(?:especific|determin|indic|inform|precis|detall|cuantific|fij|defin|consign|"
+    r"revel|public|document|report|comunic|declar)\w*\s+(?:a[úu]n\s+|todav[íi]a\s+)?"
+    rf"(?:(?:un|el|su|dicho|ning[úu]n|alg[úu]n)\s+)?{_NOMBRE_DE_MONTO}{_MONTO_ECONOMICO}\b"
+    r"(?!\s+(?:de|del)\s+(?!(?:(?:la|las|el|los)\s+)?(?:multas?\b|sanci)))"
+    rf"|\b{_NOMBRE_DE_MONTO}{_MONTO_ECONOMICO}(?:\s+\w+){{0,8}}?\s+"
+    r"(?:(?:se\s+)?(?:encuentra|queda|est[áa]|permanece|sigue|fue|es|ha\s+sido)\s+)?"
+    r"(?:(?:a[úu]n\s+)?pendiente\s+de\s+(?:determinaci[óo]n|definici[óo]n|cuantificaci[óo]n|fijaci[óo]n|precisi[óo]n)"
+    r"|por\s+(?:determinar|definir|cuantificar|fijar|precisar)|a\s+(?:determinar|definir|fijar)"
+    r"|no\s+(?:(?:ha\s+sido|fue|est[áa]|se(?:\s+ha)?)\s+)?(?:especific|determin|definid|inform|indic|precis|cuantific|fij|"
+    r"disponible)\w*|sin\s+(?:determinar|especificar|definir|cuantificar|fijar|precisar))"
+    rf"|\bsin\s+(?:un\s+)?{_NOMBRE_DE_MONTO}\s+(?:determinad|especificad|definid|fijad|cuantificad|precisad)\w*",
+    _I,
+)
+# Celda de una columna de importes que dice expresamente que no hay cifra.
+_CELDA_MONTO_DESCONOCIDO = re.compile(
+    r"(?:no\s+(?:especificad|determinad|definid|informad|indicad|precisad|cuantificad|publicad|reportad|revelad)\w*"
+    r"|no\s+disponible|n\s*/\s*d|n\.\s*d\.?|por\s+(?:determinar|definir|cuantificar|precisar|fijar)"
+    r"|a\s+(?:determinar|definir|fijar)|sin\s+(?:determinar|especificar|definir|cuantificar|precisar)"
+    r"|pendiente(?:\s+de\s+(?:determinaci[óo]n|definici[óo]n|cuantificaci[óo]n|fijaci[óo]n|precisi[óo]n))?"
+    r"|en\s+(?:determinaci[óo]n|definici[óo]n|evaluaci[óo]n))[\s.*]*",
+    _I,
+)
+_MONEDA_CELDA = re.compile(
+    r"(?:S/\.?|US\$|U\$S|\$|USD|PEN|EUR|€|soles|nuevos\s+soles|d[oó]lares(?:\s+americanos)?|euros?|UITs?)", _I
+)
+# Moneda nombrada en un encabezado («Monto (S/)», «Importe en miles de soles»). Se conserva tal como está escrita.
+_MONEDA_ENCABEZADO = re.compile(
+    r"(?<![\w$/])(?:(?:en\s+)?(?:miles|millones)\s+de\s+)?"
+    r"(?:S/\.?|US\$|U\$S|\$|USD|PEN|EUR|€|UITs?|nuevos\s+soles|soles|d[oó]lares(?:\s+americanos)?|euros?)(?![\w])",
+    _I,
+)
+_ENCABEZADO_ENTIDAD = re.compile(
+    r"entidad|autoridad|organismo|\bente\b|regulador|sancionador|[óo]rgano|instituci[óo]n|fiscalizador|emisor", _I
+)
+_ENCABEZADO_ESTADO = re.compile(r"estado|situaci[óo]n|condici[óo]n|observaci|comentario|etapa", _I)
+_ENCABEZADO_COLUMNA_MONEDA = re.compile(r"\s*(?:moneda|divisa|currency)\s*", _I)
+# Columnas de importes que no son el monto total de la sanción.
+_ENCABEZADO_SALDO = re.compile(
+    r"saldo|pendiente|restante|adeudad|deuda|por\s+pagar|impag|pagad|abonad|cancelad|descuent|rebaj|reducci[óo]n|provisi[óo]n",
+    _I,
+)
+# Columnas de importes de otra magnitud.
+_ENCABEZADO_AJENO = re.compile(
+    r"ingres|venta|factur|inversi|presupuest|costo|gasto|ahorro|utilidad|capital|beneficio|patrimonio|ebitda|activo|pasivo|"
+    r"\bimpuestos\b|tribut",
+    _I,
+)
+# Una tabla o fila que habla de esto describe hipótesis, no sanciones impuestas: no se usa el encabezado.
+_CONTEXTO_HIPOTETICO_TABLA = re.compile(
+    r"riesgos?|probabilidad|potencial\w*|eventual\w*|escenarios?|simulaci\w+|exposici\w+|posibles?|estimad\w+|proyectad\w+|"
+    r"presupuest\w+|contingen\w+",
+    _I,
+)
+_NUMERO_PURO = re.compile(rf"{_NUMERO}{_ESCALA}")
+_NUMERO_INICIAL = re.compile(_NUMERO)
 _SEPARADOR_FINAL = re.compile(r"[.,'’  ](\d+)$")
 
 # --- Entidades explícitas -------------------------------------------------------------------------------
 _SIGLAS = (
     r"(?:OEFA|SUNAFIL|SUNAT|OSINERGMIN|OSINERG|ANA|INDECOPI|SMV|SBS|SENACE|SUNASS|OSITRAN|SUCAMEC|SERFOR|"
-    r"SERNANP|MINEM|MTPE|MINAM|DIGESA|SUTRAN|SENASA|OSCE|ANLA|SEC|EPA|IBAMA)"
+    r"SERNANP|MINEM|MTPE|MINAM|DIGESA|SUTRAN|SENASA|OSCE|ANLA|SEC|EPA|IBAMA|OSIPTEL|SUNARP|SUNEDU|MIDAGRI|MINSA|MTC|MEF|"
+    r"OSINFOR|DICAPI|DIGEMID|SUSALUD|PRODUCE|MIDIS|SENAMHI|INGEMMET|SBN)"
+)
+# Sigla genérica: solo se acepta donde el texto la presenta como AUTORIDAD que impone («impuesta por el X», «el X impuso»).
+# Se excluyen monedas, unidades, formas societarias y siglas de uso común que no son entidades.
+_SIGLA_GENERICA = (
+    r"(?-i:(?!(?:USD|PEN|EUR|UITS?|IGV|IVA|GRI|ESG|ISO|PDF|SAC|SRL|EIRL|RUC|DNI|CEO|ONG|MWH|TCO|NOX|SOX)\b)"
+    r"[A-ZÁÉÍÓÚÑ]{3,10}\b)"
 )
 _NOMBRE_ENTIDAD = (
     r"(?:(?:Organismo|Autoridad|Superintendencia|Ministerio|Instituto|Tribunal|Direcci[oó]n|Gobierno|Municipalidad|"
@@ -344,27 +523,31 @@ _NOMBRE_ENTIDAD = (
 )
 _ENTIDAD = rf"(?P<ent>{_NOMBRE_ENTIDAD}(?:\s*\(\s*{_SIGLAS}\s*\))?|{_SIGLAS})"
 _ARTICULO = r"(?:(?i:el|la|los|las)\s+)?"
+_ENTIDAD_AGENTE = rf"(?P<ent>{_NOMBRE_ENTIDAD}(?:\s*\(\s*{_SIGLAS}\s*\))?|{_SIGLAS}|{_SIGLA_GENERICA})"
 # «multa impuesta por el OEFA de S/ 1000»: la entidad explícita forma parte de la misma frase nominal.
 _ENTIDAD_SIN_GRUPO = _ENTIDAD.replace("(?P<ent>", "(?:", 1)
-_ENLACE_MONTO = re.compile(
-    r"(?:\s+(?:impuest[ao]s?|aplicad[ao]s?)\s+por\s+(?:parte\s+de\s+)?(?:(?:el|la|los|las)\s+)?"
-    rf"(?-i:{_ENTIDAD_SIN_GRUPO}))?{_CONECTOR_MONTO}",
-    _I,
-)
+_AGENTE_SIN_GRUPO = _ENTIDAD_AGENTE.replace("(?P<ent>", "(?:", 1)
 _ENTIDAD_POR = re.compile(
-    r"(?i:impuest[ao]s?|aplicad[ao]s?|determinad[ao]s?|multad[ao]s?|sancionad[ao]s?|emitid[ao]s?|dictad[ao]s?|notificad[ao]s?)"
-    rf"\s+(?i:por)\s+(?:(?i:parte\s+de)\s+)?{_ARTICULO}{_ENTIDAD}"
+    r"(?i:impuest[ao]s?|aplicad[ao]s?|determinad[ao]s?|multad[ao]s?|sancionad[ao]s?|emitid[ao]s?|dictad[ao]s?|notificad[ao]s?|"
+    r"interpuest[ao]s?|ordenad[ao]s?)"
+    rf"\s+(?i:por)\s+(?:(?i:parte\s+de)\s+)?{_ARTICULO}{_ENTIDAD_AGENTE}"
 )
+# «sanción administrativa del OEFA»: los calificativos intermedios no rompen el vínculo entre el término y su entidad.
 _ENTIDAD_TRAS_TERMINO = re.compile(
-    r"(?i:multas?|sanci(?:[óo]n|ones)(?:\s+econ[óo]micas?)?)\s+(?:(?i:de|del|de\s+la|por\s+parte\s+de)\s+)"
+    rf"(?i:multas?|sanci(?:[óo]n|ones)(?:\s+{_CALIFICATIVOS})*)(?:\s*\([^()\n]{{1,40}}\))?\s+(?:(?i:de|del|de\s+la|por\s+parte\s+de)\s+)"
     rf"{_ARTICULO}{_ENTIDAD}"
 )
 # «multas del OEFA y de la SUNAFIL»: las entidades coordinadas también quedan ligadas al término.
 _ENTIDAD_COORDINADA = re.compile(
     rf"\s*(?:,|(?i:y|e|o))\s*(?:(?i:de|del|de\s+la|por\s+parte\s+de)\s+)?{_ARTICULO}{_ENTIDAD}"
 )
+# Una celda de tabla que ES una entidad conocida («OEFA», «el Organismo de Evaluación…»).
+_ENTIDAD_EXACTA = re.compile(rf"{_ARTICULO}{_ENTIDAD}")
+_ENTIDAD_DE_PARTE = re.compile(rf"(?i:de\s+parte\s+de|por\s+parte\s+de)\s+{_ARTICULO}{_ENTIDAD_AGENTE}")
 _ENTIDAD_ACTIVA = re.compile(
-    rf"{_ENTIDAD}\s+(?:(?i:nos|le|les|la|lo)\s+)?(?i:impuso|impusieron|mult[óo]|multaron|sancion[óo]|sancionaron|aplic[óo]|aplicaron)"
+    rf"{_ENTIDAD_AGENTE}\s+(?:(?i:nos|le|les|la|lo)\s+)?"
+    r"(?i:impuso|impusieron|mult[óo]|multaron|sancion[óo]|sancionaron|aplic[óo]|aplicaron|emiti[óo]|emitieron|dict[óo]|"
+    r"dictaron|interpuso|interpusieron)"
 )
 
 # --- Fechas --------------------------------------------------------------------------------------------
@@ -379,6 +562,23 @@ _PERIODO_POSTERIOR = re.compile(
     r"(?:\s+(?:impuest[ao]s?|aplicad[ao]s?|pagad[ao]s?|notificad[ao]s?|recibid[ao]s?))?"
     rf"\s+(?:en|durante|el|del|con\s+fecha\s+(?:de|del))\s+(?:el\s+)?{_ANIO_PREFIJO}(?P<f>{_FECHA_TEXTO})",
     _I,
+)
+
+# Entre el término y el importe: calificativos, entidad («del OEFA», «impuesta por el OEFA») y fechas, y luego un conector.
+_RELLENO_ENTIDAD = (
+    r"(?:\s+(?:impuest[ao]s?|aplicad[ao]s?|emitid[ao]s?|dictad[ao]s?|notificad[ao]s?|determinad[ao]s?|interpuest[ao]s?)"
+    rf"\s+por\s+(?:parte\s+de\s+)?(?:(?:el|la|los|las)\s+)?(?-i:{_AGENTE_SIN_GRUPO})"
+    rf"|\s+(?:de|del|de\s+la|por\s+parte\s+de|ante)\s+(?:(?:el|la|los|las)\s+)?(?-i:{_ENTIDAD_SIN_GRUPO}))"
+)
+_RELLENO_DESTINATARIO = (
+    r"(?:\s+(?:a|contra)\s+(?:la|el|nuestra|nuestro)\s+(?:empresa|compañ[íi]a|organizaci[óo]n|sociedad|filial|subsidiaria|"
+    r"operaci[óo]n|planta|proyecto))"
+)
+_RELLENO_FECHA = (
+    rf"(?:\s+(?:en|el|durante|del|con\s+fecha\s+(?:de|del))\s+(?:el\s+)?{_ANIO_PREFIJO}(?:{_FECHA_TEXTO}))"
+)
+_ENLACE_MONTO = re.compile(
+    rf"(?:{_RELLENO_ENTIDAD}|{_RELLENO_DESTINATARIO}|{_RELLENO_FECHA}|\s+{_CALIFICATIVOS})*{_CONECTOR_DEBIL}", _I
 )
 
 # --- Estructura ----------------------------------------------------------------------------------------
@@ -410,6 +610,9 @@ class MontoSancion:
     numero_texto: str
     separador_ambiguo: bool
     vinculo: str
+    # Si la moneda no está dentro de `texto` (encabezado de la columna, columna «Moneda»), dónde está escrita en el original.
+    unidad_inicio: int | None = None
+    unidad_fin: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,8 +667,9 @@ class _Unidad:
     seccion: str
     tipo: str  # "parrafo" | "celda" | "fila"
     celdas: tuple[tuple[int, int], ...] = ()
-    # Texto de los encabezados de la tabla (solo en filas con el número de columnas del encabezado).
+    # Texto y rangos de los encabezados de la tabla (solo en filas con el número de columnas del encabezado).
     encabezados: tuple[str, ...] = ()
+    encabezados_rangos: tuple[tuple[int, int], ...] = ()
 
 
 class _RecorridoDeUnidades:
@@ -478,6 +682,7 @@ class _RecorridoDeUnidades:
         self.parrafo: list[int] | None = None  # [inicio, fin]
         self.n_columnas: int | None = None
         self.encabezados: tuple[str, ...] = ()
+        self.encabezados_rangos: tuple[tuple[int, int], ...] = ()
         self.delimitador_pendiente = False
 
     def _seccion(self) -> str:
@@ -531,6 +736,7 @@ class _RecorridoDeUnidades:
             rangos = markdown.rangos_de_celdas(texto, posicion, fin_linea)
             self.n_columnas = len(rangos)
             self.encabezados = tuple(texto[a:b] for a, b in rangos)
+            self.encabezados_rangos = tuple(rangos)
             self.delimitador_pendiente = True
             return
         yield from self._parrafo(posicion, fin_linea)
@@ -545,7 +751,9 @@ class _RecorridoDeUnidades:
     def _fila(self, posicion: int, fin_linea: int) -> Iterator[_Unidad]:
         celdas = markdown.rangos_de_celdas(self.texto, posicion, fin_linea)
         if len(celdas) == self.n_columnas:
-            yield _Unidad(posicion, fin_linea, self._seccion(), "fila", tuple(celdas), self.encabezados)
+            yield _Unidad(
+                posicion, fin_linea, self._seccion(), "fila", tuple(celdas), self.encabezados, self.encabezados_rangos
+            )
             return
         for a, b in celdas:
             if b > a:
@@ -626,10 +834,30 @@ def _oraciones(texto: str, inicio: int, fin: int) -> list[tuple[int, int]]:
 class _NumerosDeFila:
     """Cifras de las celdas de una fila distintas de la que contiene el término."""
 
-    montos: list[MontoSancion]  # con unidad y distintos de cero
+    montos: list[MontoSancion]  # con unidad (en la celda, en el encabezado o en una columna de moneda) y distintos de cero
     sin_unidad: int  # cifras distintas de cero sin moneda ni UIT
     ceros_con_unidad: int  # «S/ 0»
     ceros_sin_unidad: int  # «0»
+    desconocido: bool = False  # una columna de importes dice expresamente «No especificado», «Por determinar»…
+    solo_saldo: bool = False  # hay cifras de saldo o pago parcial con moneda y ninguna de monto total
+
+
+@dataclass(frozen=True, slots=True)
+class _Columna:
+    """Papel de una columna según su encabezado (solo en tablas bien formadas y sin lenguaje hipotético)."""
+
+    moneda: tuple[str, int, int] | None = None  # (literal, inicio, fin) de la ÚNICA moneda nombrada en el encabezado
+    importe: bool = False  # el encabezado nombra un importe de la sanción («Monto», «Multa») o es solo una moneda
+    saldo: bool = False  # saldo, pendiente, pagado, descuento: no es el monto total
+    ajena: bool = False  # ingresos, inversión…: otra magnitud
+    entidad: bool = False
+    estado: bool = False
+    columna_moneda: bool = False  # la columna contiene la moneda de otra columna
+
+    @property
+    def monto(self) -> bool:
+        """Una cifra pura de esta columna es un monto: es un importe de la sanción y su moneda consta en el encabezado."""
+        return self.importe and self.moneda is not None
 
 
 @dataclass(slots=True)
@@ -651,13 +879,28 @@ class _Borrador:
     en_tabla: bool
     motivos: list[str] = field(default_factory=list)
     adicionales: list[_Termino] = field(default_factory=list)
+    indice_celda: int = 0  # celda de la fila donde está el término (si la unidad es una fila)
 
+
+@dataclass(slots=True)
+class _AcumuladorDeFila:
+    """Lo que se va sabiendo de las demás celdas de una fila mientras se recorre."""
+
+    montos: list[MontoSancion] = field(default_factory=list)
+    sin_unidad: int = 0
+    ceros_con_unidad: int = 0
+    ceros_sin_unidad: int = 0
+    saldos_con_moneda: int = 0
+    desconocido: bool = False
+    monedas_de_celda: list[tuple[int, int]] = field(default_factory=list)
+    candidatas: list[tuple[int, int, bool]] = field(default_factory=list)  # (inicio, fin, es_cero)
 
 class _Analizador:
     def __init__(self, texto: str) -> None:
         self.texto = texto
         self.sanciones: list[SancionDetectada] = []
         self.descartes: dict[str, int] = {}
+        self._columnas_cache: dict[tuple[tuple[int, int], ...], tuple[_Columna, ...]] = {}
 
     def _descartar(self, motivo: str) -> None:
         self.descartes[motivo] = self.descartes.get(motivo, 0) + 1
@@ -717,6 +960,9 @@ class _Analizador:
         verbo = _PRIMER_VERBO.match(previo, negaciones[-1].end())
         if verbo is not None and _VERBO_DE_ESTADO.fullmatch(verbo.group(1)):
             return False
+        # «No se especifica el monto de la multa»: lo negado es que el importe conste, no que la multa exista.
+        if _NOMBRE_DE_MONTO_SUELTO.search(previo, negaciones[-1].end()):
+            return False
         return True
 
     def _motivo_de_exclusion(self, termino: _Termino, clausula: tuple[int, int]) -> str | None:
@@ -770,7 +1016,8 @@ class _Analizador:
 
     def _monto_vinculado(self, termino: _Termino, clausula: tuple[int, int]) -> MontoSancion | None:
         # Se prueba en este orden y gana el primero que encuentra un monto.
-        for buscar in (self._monto_tras_conector, self._monto_tras_verbo, self._monto_antes_del_termino):
+        # Un término verbal («multó a la Compañía con S/ 3») se une por la vía del verbo; el resto por conector.
+        for buscar in (self._monto_tras_verbo, self._monto_tras_conector, self._monto_antes_del_termino):
             monto = buscar(termino, clausula)
             if monto is not None:
                 return monto
@@ -780,9 +1027,38 @@ class _Analizador:
         texto = self.texto
         limite = clausula[1]
         enlace = _ENLACE_MONTO.match(texto, termino.fin, limite)
-        if enlace is None:
+        if enlace is not None:
+            monto = self._monto_en(enlace.end(), limite, "termino_y_conector")
+            if monto is not None:
+                return monto
+        return self._monto_con_cue_fuerte(termino, clausula)
+
+    def _primer_monto_del_alcance(self, termino: _Termino, clausula: tuple[int, int]) -> re.Match[str] | None:
+        """Primer importe (por posición) dentro del alcance posterior del término."""
+        texto = self.texto
+        _, (a, b) = self._rangos_de_ambito(termino, clausula, PALABRAS_HASTA_EL_MONTO)
+        primero = None
+        for patron in _SOLO_MONTO:
+            encontrado = patron.search(texto, a, b)
+            if encontrado is not None and (primero is None or encontrado.start() < primero.start()):
+                primero = encontrado
+        return primero
+
+    def _monto_con_cue_fuerte(self, termino: _Termino, clausula: tuple[int, int]) -> MontoSancion | None:
+        # «sanción administrativa por incumplimiento de plazos por un monto de S/ 500»: el sustantivo «monto» (o «equivalente
+        # a», «asciende a»…) dice que lo que sigue es el importe, aunque medien otras palabras.
+        primero = self._primer_monto_del_alcance(termino, clausula)
+        if primero is None:
             return None
-        return self._monto_en(enlace.end(), limite, "termino_y_conector")
+        cue = _CUE_FUERTE_FINAL.search(self.texto, termino.fin, primero.start())
+        if cue is None or _BARRERA_DE_PUENTE.search(self.texto, termino.fin, cue.start()):
+            return None
+        return self._monto_en(primero.start(), primero.end(), "termino_y_cue_de_importe")
+
+    def _menciona_solo_un_saldo(self, termino: _Termino, clausula: tuple[int, int]) -> bool:
+        """El importe más cercano del término es un saldo o un pago parcial («saldo pendiente de S/ 2,000»)."""
+        primero = self._primer_monto_del_alcance(termino, clausula)
+        return primero is not None and _SALDO_ANTES_DEL_MONTO.search(self.texto, termino.fin, primero.start()) is not None
 
     def _monto_tras_verbo(self, termino: _Termino, clausula: tuple[int, int]) -> MontoSancion | None:
         # «nos multó con S/ 10», «fuimos multados por 5 UIT»
@@ -809,21 +1085,31 @@ class _Analizador:
 
     # Entidad, periodo y calificadores -------------------------------------------------------------
 
-    def _entidad(self, clausula: tuple[int, int]) -> tuple[Dato | None, bool]:
+    def _entidades_del_texto(self, clausula: tuple[int, int]) -> dict[str, Dato]:
+        """Entidades que el texto de la cláusula une explícitamente a la sanción, por clave normalizada."""
         texto = self.texto
         encontradas: dict[str, Dato] = {}
-        for patron in (_ENTIDAD_POR, _ENTIDAD_TRAS_TERMINO, _ENTIDAD_ACTIVA):
+        for patron in (_ENTIDAD_POR, _ENTIDAD_TRAS_TERMINO, _ENTIDAD_DE_PARTE, _ENTIDAD_ACTIVA):
+            admite_coordinadas = patron is _ENTIDAD_POR or patron is _ENTIDAD_TRAS_TERMINO
             for m in patron.finditer(texto, clausula[0], clausula[1]):
                 coincidencias = [m]
-                if patron is not _ENTIDAD_ACTIVA:
-                    while (c := _ENTIDAD_COORDINADA.match(texto, coincidencias[-1].end(), clausula[1])) is not None:
-                        coincidencias.append(c)
+                while admite_coordinadas and (c := _ENTIDAD_COORDINADA.match(texto, coincidencias[-1].end(), clausula[1])):
+                    coincidencias.append(c)
                 for c in coincidencias:
                     clave = re.sub(r"\s+", " ", c.group("ent"))
                     encontradas.setdefault(clave, Dato(c.group("ent"), c.start("ent"), c.end("ent")))
-        if len(encontradas) == 1:
+        return encontradas
+
+    def _entidad(
+        self, clausula: tuple[int, int], de_fila: Sequence[Dato] = (), fila_ambigua: bool = False
+    ) -> tuple[Dato | None, bool]:
+        """(entidad, ambigua). `de_fila` son las entidades de otras celdas de la fila de tabla del término."""
+        encontradas = self._entidades_del_texto(clausula)
+        for dato in de_fila:
+            encontradas.setdefault(re.sub(r"\s+", " ", dato.texto), dato)
+        if len(encontradas) == 1 and not fila_ambigua:
             return next(iter(encontradas.values())), False
-        return None, len(encontradas) > 1
+        return None, len(encontradas) > 1 or fila_ambigua
 
     def _periodo(self, termino: _Termino, monto: MontoSancion | None, clausula: tuple[int, int], oracion_inicio: int) -> Dato | None:
         texto = self.texto
@@ -840,7 +1126,7 @@ class _Analizador:
     # Ámbito del término -----------------------------------------------------------------------------
 
     def _rangos_de_ambito(
-        self, termino: _Termino, clausula: tuple[int, int]
+        self, termino: _Termino, clausula: tuple[int, int], max_despues: int = PALABRAS_DESPUES_DEL_TERMINO
     ) -> tuple[tuple[int, int], tuple[int, int]]:
         """((inicio, fin) antes del término, (inicio, fin) después). El ámbito son las pocas palabras
         contiguas al término sin cruzar comas, punto y coma ni conjunciones (salvo que continúe el
@@ -858,8 +1144,8 @@ class _Analizador:
         fin_alcance = _FIN_DE_ALCANCE.search(posterior)
         fin = termino.fin + (fin_alcance.start() if fin_alcance else len(posterior))
         palabras = [m.end() for m in re.finditer(r"\S+", texto[termino.fin:fin])]
-        if len(palabras) > PALABRAS_DESPUES_DEL_TERMINO:
-            fin = termino.fin + palabras[PALABRAS_DESPUES_DEL_TERMINO - 1]
+        if len(palabras) > max_despues:
+            fin = termino.fin + palabras[max_despues - 1]
         return (inicio, termino.inicio), (termino.fin, fin)
 
     def _buscar_vinculado(
@@ -961,13 +1247,20 @@ class _Analizador:
         texto = self.texto
         termino = b.termino
         calificadores = self._calificadores(b.oraciones)
-        entidad, ambigua = self._entidad(b.clausula)
+        if b.unidad.tipo == "fila":
+            propios = {c.codigo for c in calificadores}
+            calificadores = sorted(
+                [*calificadores, *(c for c in self._calificadores_de_fila(b.unidad, b.indice_celda) if c.codigo not in propios)],
+                key=lambda c: c.inicio,
+            )
+        de_fila, fila_ambigua = self._entidades_de_fila(b.unidad, b.indice_celda)
+        entidad, ambigua = self._entidad(b.clausula, de_fila, fila_ambigua)
         motivos = list(b.motivos)
         if ambigua:
             motivos.append(MOTIVO_ENTIDAD_AMBIGUA)
         if b.monto is not None and b.monto.separador_ambiguo:
             motivos.append(MOTIVO_SEPARADOR_AMBIGUO)
-        if b.base == [BASE_VERBO_TRAMITE]:
+        if [x for x in b.base if x != BASE_CARACTER_ECONOMICO] == [BASE_VERBO_TRAMITE]:
             motivos.append(MOTIVO_SOLO_TRAMITE)
         periodo = self._periodo(termino, b.monto, b.clausula, b.oraciones[0][0])
         cita_inicio, cita_fin = self._limites_de_cita(b)
@@ -1007,28 +1300,185 @@ class _Analizador:
         es_anio = _ANIO_SUELTO.fullmatch(celda.strip()) is not None
         return not es_anio or _ENCABEZADO_DE_MONTO.search(encabezado) is not None
 
-    def _fila_montos(self, unidad: _Unidad, indice_celda: int) -> _NumerosDeFila:
-        """Clasifica las demás celdas de la fila. Una celda cuenta como monto solo si ES un monto
-        (moneda o UIT); un número suelto se cuenta aparte porque su unidad no consta. Un año en una
-        columna que no es de montos se ignora."""
+    # Columnas de la tabla ----------------------------------------------------------------------------------------------
+
+    def _fila_hipotetica(self, unidad: _Unidad) -> bool:
+        """La fila habla de riesgos, probabilidad, escenarios o estimaciones: no describe sanciones impuestas."""
+        return _CONTEXTO_HIPOTETICO_TABLA.search(self.texto, unidad.inicio, unidad.fin) is not None
+
+    def _columna(self, a: int, b: int) -> _Columna:
         texto = self.texto
-        montos: list[MontoSancion] = []
-        sin_unidad = ceros_con_unidad = ceros_sin_unidad = 0
+        encabezado = texto[a:b]
+        monedas = list(_MONEDA_ENCABEZADO.finditer(texto, a, b))
+        distintas = {re.sub(r"(?i)^(?:en\s+)?(?:miles|millones)\s+de\s+|[.\s]", "", m.group()).lower() for m in monedas}
+        # Dos monedas distintas en un encabezado: no se sabe cuál corresponde a la cifra, no se usa ninguna.
+        moneda = (monedas[0].group(), monedas[0].start(), monedas[0].end()) if len(distintas) == 1 else None
+        solo_moneda = bool(monedas) and re.search(r"\w", _MONEDA_ENCABEZADO.sub("", encabezado)) is None
+        saldo = _ENCABEZADO_SALDO.search(encabezado) is not None
+        ajena = _ENCABEZADO_AJENO.search(encabezado) is not None
+        importe = (solo_moneda or _ENCABEZADO_IMPORTE.search(encabezado) is not None) and not saldo and not ajena
+        return _Columna(
+            moneda=moneda,
+            importe=importe,
+            saldo=saldo,
+            ajena=ajena,
+            entidad=_ENCABEZADO_ENTIDAD.search(encabezado) is not None,
+            estado=_ENCABEZADO_ESTADO.search(encabezado) is not None,
+            columna_moneda=_ENCABEZADO_COLUMNA_MONEDA.fullmatch(encabezado) is not None,
+        )
+
+    def _columnas_de_fila(self, unidad: _Unidad) -> tuple[_Columna, ...]:
+        """Papel de cada columna según su encabezado. Sin papel alguno si la tabla o la fila hablan de hipótesis."""
+        if self._fila_hipotetica(unidad) or _CONTEXTO_HIPOTETICO_TABLA.search(" ".join(unidad.encabezados)):
+            return tuple(_Columna() for _ in unidad.celdas)
+        clave = unidad.encabezados_rangos
+        if clave not in self._columnas_cache:
+            self._columnas_cache[clave] = tuple(self._columna(a, b) for a, b in clave)
+        return self._columnas_cache[clave]
+
+    def _monto_de_columna(self, a: int, b: int, columna: _Columna) -> MontoSancion:
+        """Cifra pura de [a, b) cuya moneda consta en el encabezado de su columna."""
+        celda = self.texto[a:b]
+        numero = _NUMERO_INICIAL.match(celda).group()
+        unidad, ua, ub = columna.moneda
+        return MontoSancion(
+            texto=celda,
+            inicio=a,
+            fin=b,
+            unidad=unidad,
+            numero_texto=numero,
+            separador_ambiguo=self._separador_ambiguo(numero),
+            vinculo=VINCULO_ENCABEZADO,
+            unidad_inicio=ua,
+            unidad_fin=ub,
+        )
+
+    def _entidad_de_celda(self, columna: _Columna, a: int, b: int) -> tuple[Dato | None, bool]:
+        """(entidad, ambigua) de una celda de la fila: la de una columna cuyo encabezado nombra a la autoridad, o la de una
+        celda que ES una entidad conocida. Una celda con varias entidades no se resuelve."""
+        celda = self.texto[a:b]
+        if not columna.entidad:
+            exacta = _ENTIDAD_EXACTA.fullmatch(self.texto, a, b)
+            if exacta is None:
+                return None, False
+            return Dato(exacta.group("ent"), exacta.start("ent"), exacta.end("ent")), False
+        if _SIN_DATO.fullmatch(celda) or _NUMERO_PURO.fullmatch(celda) or _CELDA_MONTO_DESCONOCIDO.fullmatch(celda):
+            return None, False
+        if _VARIAS_ENTIDADES.search(celda):
+            return None, True
+        return Dato(celda, a, b), False
+
+    def _entidades_de_fila(self, unidad: _Unidad, indice_celda: int) -> tuple[list[Dato], bool]:
+        """Entidades escritas en OTRAS celdas de la fila del término (datos, ambigua)."""
+        if unidad.tipo != "fila":
+            return [], False
+        columnas = self._columnas_de_fila(unidad)
+        datos: list[Dato] = []
+        ambigua = False
         for i, (a, b) in enumerate(unidad.celdas):
             if i == indice_celda or b <= a:
                 continue
-            celda = texto[a:b]
-            monto = self._monto_exacto(a, b)
-            if monto is not None:
-                if self._es_cero(monto.numero_texto):
-                    ceros_con_unidad += 1
-                else:
-                    montos.append(monto)
-            elif _CERO_SUELTO.fullmatch(celda):
-                ceros_sin_unidad += 1
-            elif _NUMERO_SUELTO.fullmatch(celda) and self._cifra_sin_unidad_relevante(unidad, i, celda):
-                sin_unidad += 1
-        return _NumerosDeFila(montos, sin_unidad, ceros_con_unidad, ceros_sin_unidad)
+            dato, varias = self._entidad_de_celda(columnas[i], a, b)
+            ambigua = ambigua or varias
+            if dato is not None:
+                datos.append(dato)
+        return datos, ambigua
+
+    def _calificadores_de_fila(self, unidad: _Unidad, indice_celda: int) -> list[Calificador]:
+        """Calificadores literales de las celdas de una columna de estado («Pagada», «Impugnada»)."""
+        texto = self.texto
+        columnas = self._columnas_de_fila(unidad)
+        encontrados: list[Calificador] = []
+        for i, (a, b) in enumerate(unidad.celdas):
+            if i == indice_celda or b <= a or not columnas[i].estado:
+                continue
+            for codigo, patron in _CALIFICADORES:
+                m = next(iter(patron.finditer(texto, a, b)), None)
+                if m is not None and not _niega_el_calificador(texto[a:m.start()]):
+                    encontrados.append(Calificador(codigo, m.group(), m.start(), m.end()))
+        return encontrados
+
+    @staticmethod
+    def _registrar_monto(acum: _AcumuladorDeFila, monto: MontoSancion) -> None:
+        if _Analizador._es_cero(monto.numero_texto):
+            acum.ceros_con_unidad += 1
+        else:
+            acum.montos.append(monto)
+
+    def _acumular_cifra(self, acum: _AcumuladorDeFila, a: int, b: int, columna: _Columna, es_cero: bool) -> None:
+        """Una cifra suelta (o un cero) de otra celda de la fila."""
+        celda = self.texto[a:b]
+        if columna.moneda is not None and (columna.saldo or columna.ajena):
+            if columna.saldo:
+                acum.saldos_con_moneda += 1  # no es el monto total; una columna de otra magnitud se ignora
+            return
+        if columna.monto and _NUMERO_PURO.fullmatch(celda):
+            self._registrar_monto(acum, self._monto_de_columna(a, b, columna))
+            return
+        if es_cero:
+            acum.ceros_sin_unidad += 1
+        else:
+            acum.sin_unidad += 1
+        if columna.importe and columna.moneda is None and _NUMERO_PURO.fullmatch(celda):
+            acum.candidatas.append((a, b, es_cero))
+
+    def _clasificar_celda(
+        self, unidad: _Unidad, i: int, a: int, b: int, columna: _Columna, acum: _AcumuladorDeFila
+    ) -> None:
+        celda = self.texto[a:b]
+        monto = self._monto_exacto(a, b)
+        if monto is not None:
+            self._registrar_monto(acum, monto)
+            return
+        es_cero = _CERO_SUELTO.fullmatch(celda) is not None
+        if es_cero or (_NUMERO_SUELTO.fullmatch(celda) and self._cifra_sin_unidad_relevante(unidad, i, celda)):
+            self._acumular_cifra(acum, a, b, columna, es_cero)
+        elif columna.columna_moneda and _MONEDA_CELDA.fullmatch(celda):
+            acum.monedas_de_celda.append((a, b))
+        elif columna.importe and _CELDA_MONTO_DESCONOCIDO.fullmatch(celda):
+            acum.desconocido = True
+
+    def _aplicar_columna_de_moneda(self, acum: _AcumuladorDeFila) -> None:
+        """«Monto | Moneda»: la moneda consta en otra celda de la misma fila."""
+        if len(acum.monedas_de_celda) != 1 or len(acum.candidatas) != 1:
+            return
+        (ca, cb, era_cero), (ma, mb) = acum.candidatas[0], acum.monedas_de_celda[0]
+        numero = _NUMERO_INICIAL.match(self.texto[ca:cb]).group()
+        propio = MontoSancion(
+            texto=self.texto[ca:cb],
+            inicio=ca,
+            fin=cb,
+            unidad=self.texto[ma:mb],
+            numero_texto=numero,
+            separador_ambiguo=self._separador_ambiguo(numero),
+            vinculo=VINCULO_COLUMNA_MONEDA,
+            unidad_inicio=ma,
+            unidad_fin=mb,
+        )
+        if era_cero:
+            acum.ceros_sin_unidad -= 1
+        else:
+            acum.sin_unidad -= 1
+        self._registrar_monto(acum, propio)
+
+    def _fila_montos(self, unidad: _Unidad, indice_celda: int) -> _NumerosDeFila:
+        """Clasifica las demás celdas de la fila. Una celda cuenta como monto si ES un monto (moneda o UIT) o si es una
+        cifra pura bajo una columna de importes cuyo encabezado nombra UNA moneda; un número suelto sin moneda se cuenta
+        aparte porque su unidad no consta. Un año en una columna que no es de montos se ignora."""
+        columnas = self._columnas_de_fila(unidad)
+        acum = _AcumuladorDeFila()
+        for i, (a, b) in enumerate(unidad.celdas):
+            if i != indice_celda and b > a:
+                self._clasificar_celda(unidad, i, a, b, columnas[i], acum)
+        self._aplicar_columna_de_moneda(acum)
+        return _NumerosDeFila(
+            acum.montos,
+            acum.sin_unidad,
+            acum.ceros_con_unidad,
+            acum.ceros_sin_unidad,
+            acum.desconocido,
+            solo_saldo=acum.saldos_con_moneda > 0 and not acum.montos,
+        )
 
     def _completar_con_fila(
         self, unidad: _Unidad, indice_celda: int, base: list[str], monto: MontoSancion | None
@@ -1040,6 +1490,11 @@ class _Analizador:
             return numeros.montos[0], [*base, BASE_FILA_DE_TABLA], []
         if len(numeros.montos) > 1:
             return monto, [*base, BASE_FILA_DE_TABLA], [MOTIVO_MONTOS_MULTIPLES]
+        if numeros.desconocido:
+            # La columna de importes dice expresamente que no hay cifra: sanción no cuantificada (nunca cero).
+            return monto, [*base, BASE_FILA_DE_TABLA], [MOTIVO_MONTO_NO_ESPECIFICADO]
+        if numeros.solo_saldo:
+            return monto, base, [MOTIVO_SOLO_SALDO]
         if numeros.sin_unidad or numeros.ceros_sin_unidad:
             # Hay cifras pero no se puede asociar con seguridad un monto con su unidad. Si el
             # término ya tiene evidencia propia («Multa impuesta por OEFA») la sanción se conserva
@@ -1056,6 +1511,32 @@ class _Analizador:
             return None
         return monto, base, []
 
+    def _fila_expresa_un_importe(self, unidad: _Unidad, indice_celda: int) -> bool:
+        """¿La fila dice algo sobre el importe (una cifra con moneda, un cero monetario o «No especificado»)? Es lo que
+        da carácter económico a una «sanción» genérica de una tabla."""
+        numeros = self._fila_montos(unidad, indice_celda)
+        return bool(numeros.montos or numeros.desconocido or numeros.ceros_con_unidad)
+
+    # Importe desconocido -------------------------------------------------------------------------------------------------
+
+    def _enunciado_de_importe_desconocido(self, inicio: int, fin: int) -> bool:
+        """La oración dice que el importe no consta («no se especifica el monto», «importe pendiente de determinación»)."""
+        return any(
+            _OBJETO_AJENO_AL_IMPORTE.search(m.group()) is None
+            for m in _MONTO_DESCONOCIDO.finditer(self.texto, inicio, fin)
+        )
+
+    def _importe_desconocido(
+        self, inicio: int, fin: int, siguiente: tuple[int, int] | None
+    ) -> tuple[int, int] | None:
+        """Oración (la propia o la siguiente del mismo párrafo, si no tiene término de sanción propio) donde el documento
+        dice que el importe no consta; None si no lo dice."""
+        if self._enunciado_de_importe_desconocido(inicio, fin):
+            return (inicio, fin)
+        if siguiente is not None and not self._terminos(*siguiente) and self._enunciado_de_importe_desconocido(*siguiente):
+            return siguiente
+        return None
+
     def _anexar_anaforico(self, inicio: int, fin: int, borradores_unidad: list[_Borrador]) -> None:
         """«Esta multa…» sin término propio: amplía la cita del hallazgo anterior de la unidad."""
         if not borradores_unidad:
@@ -1065,31 +1546,58 @@ class _Analizador:
         if (inicio, fin) not in anterior.oraciones:
             anterior.oraciones.append((inicio, fin))
 
-    def _candidato(
-        self, termino: _Termino, clausula: tuple[int, int], unidad: _Unidad, indice_celda: int
-    ) -> tuple[MontoSancion | None, list[str], list[str]] | None:
-        """(monto, base, motivos) del término, o None si se descarta (o no es hallazgo ni descarte)."""
-        if termino.tipo == TERMINO_SANCION_CON_MONTO and self._monto_vinculado(termino, clausula) is None:
-            return None  # «sanción» sin carácter económico explícito: no es un hallazgo ni un descarte
+    def _tiene_caracter_economico(
+        self, termino: _Termino, monto: MontoSancion | None, enunciado: tuple[int, int] | None, unidad: _Unidad, indice_celda: int
+    ) -> bool:
+        """«multa» y «sanción económica» lo tienen por su palabra; una «sanción» genérica solo si hay un monto unido, si el
+        documento dice algo sobre su importe o, en una tabla, si la fila expresa un importe."""
+        if termino.tipo != TERMINO_SANCION_CON_MONTO or monto is not None or enunciado is not None:
+            return True
+        return unidad.tipo == "fila" and self._fila_expresa_un_importe(unidad, indice_celda)
+
+    def _se_descarta(self, termino: _Termino, clausula: tuple[int, int], monto: MontoSancion | None) -> bool:
+        """Registra el descarte y devuelve True si el término está en un contexto excluido o su monto es cero."""
         motivo = self._motivo_de_exclusion(termino, clausula)
-        if motivo is not None:
-            self._descartar(motivo)
-            return None
+        if motivo is None and monto is not None and self._es_cero(monto.numero_texto):
+            motivo = DESCARTE_MONTO_CERO
+        if motivo is None:
+            return False
+        self._descartar(motivo)
+        return True
+
+    def _candidato(
+        self,
+        termino: _Termino,
+        clausula: tuple[int, int],
+        unidad: _Unidad,
+        indice_celda: int,
+        oracion: tuple[int, int],
+        siguiente: tuple[int, int] | None,
+    ) -> tuple[MontoSancion | None, list[str], list[str], tuple[int, int] | None] | None:
+        """(monto, base, motivos, oración del enunciado de importe desconocido) del término, o None si se descarta (o no es
+        hallazgo ni descarte)."""
         monto = self._monto_vinculado(termino, clausula)
-        if monto is not None and self._es_cero(monto.numero_texto):
-            self._descartar(DESCARTE_MONTO_CERO)
+        enunciado = None if monto is not None else self._importe_desconocido(*oracion, siguiente)
+        if not self._tiene_caracter_economico(termino, monto, enunciado, unidad, indice_celda):
+            return None  # «sanción» sin carácter económico explícito: no es un hallazgo ni un descarte
+        if self._se_descarta(termino, clausula, monto):
             return None
         base = self._evidencia(termino, clausula, monto)
-        motivos: list[str] = []
+        motivos = [] if enunciado is None else [MOTIVO_MONTO_NO_ESPECIFICADO]
         if unidad.tipo == "fila" and monto is None:
             completado = self._completar_con_fila(unidad, indice_celda, base, monto)
             if completado is None:
                 return None
-            monto, base, motivos = completado
+            monto, base, motivos_de_fila = completado
+            motivos += motivos_de_fila
+        elif monto is None and self._menciona_solo_un_saldo(termino, clausula):
+            motivos.append(MOTIVO_SOLO_SALDO)
         if not base:
             self._descartar(DESCARTE_SIN_EVIDENCIA)
             return None
-        return monto, base, motivos
+        if monto is None and termino.tipo == TERMINO_SANCION_CON_MONTO:
+            base.append(BASE_CARACTER_ECONOMICO)  # lo expresa el contexto, no un adjetivo ni un importe
+        return monto, base, motivos, enunciado
 
     def _procesar_oracion(
         self,
@@ -1098,6 +1606,7 @@ class _Analizador:
         fin: int,
         indice_celda: int,
         borradores_unidad: list[_Borrador],
+        siguiente: tuple[int, int] | None = None,
     ) -> None:
         terminos = self._terminos(inicio, fin)
         if not terminos:
@@ -1110,15 +1619,18 @@ class _Analizador:
             if termino.anaforico:
                 self._anexar_anaforico(inicio, fin, borradores_unidad)
                 continue
-            candidato = self._candidato(termino, clausula, unidad, indice_celda)
+            candidato = self._candidato(termino, clausula, unidad, indice_celda, (inicio, fin), siguiente)
             if candidato is None:
                 continue
-            monto, base, motivos = candidato
+            monto, base, motivos, enunciado = candidato
             if de_esta_oracion and monto is None:
                 # Segundo término de la misma oración sin monto propio: reitera al anterior.
                 de_esta_oracion[-1].adicionales.append(termino)
                 continue
-            borrador = _Borrador(unidad, termino, clausula, [(inicio, fin)], base, monto, en_tabla, motivos)
+            oraciones = [(inicio, fin)]
+            if enunciado is not None and enunciado != (inicio, fin):
+                oraciones.append(enunciado)  # la oración que dice que el importe no consta forma parte de la cita
+            borrador = _Borrador(unidad, termino, clausula, oraciones, base, monto, en_tabla, motivos, indice_celda=indice_celda)
             de_esta_oracion.append(borrador)
             borradores_unidad.append(borrador)
 
@@ -1127,18 +1639,71 @@ class _Analizador:
             celdas = unidad.celdas if unidad.tipo == "fila" else ((unidad.inicio, unidad.fin),)
             borradores: list[_Borrador] = []
             for indice, (a, b) in enumerate(celdas):
-                for inicio, fin in _oraciones(self.texto, a, b):
-                    self._procesar_oracion(unidad, inicio, fin, indice, borradores)
+                oraciones = _oraciones(self.texto, a, b)
+                for k, (inicio, fin) in enumerate(oraciones):
+                    siguiente = oraciones[k + 1] if k + 1 < len(oraciones) else None
+                    self._procesar_oracion(unidad, inicio, fin, indice, borradores, siguiente)
             self.sanciones.extend(self._finalizar(b) for b in borradores)
 
 
+# --- Vuelta al texto original -------------------------------------------------------------------------------------
+
+def _a_original(sancion: SancionDetectada, vista: VistaPlana) -> SancionDetectada:
+    """Reexpresa un hallazgo calculado sobre la vista de lectura en posiciones y textos del ORIGINAL."""
+    original = vista.original
+
+    def tramo(inicio: int, fin: int) -> tuple[int, int]:
+        return vista.inicio_en_original(inicio), vista.fin_en_original(fin)
+
+    def dato(d: Dato | None) -> Dato | None:
+        if d is None:
+            return None
+        a, b = tramo(d.inicio, d.fin)
+        return Dato(original[a:b], a, b)
+
+    monto = sancion.monto
+    if monto is not None:
+        a, b = tramo(monto.inicio, monto.fin)
+        unidad, ua, ub = monto.unidad, None, None
+        if monto.unidad_inicio is not None:
+            ua, ub = tramo(monto.unidad_inicio, monto.unidad_fin)
+            unidad = original[ua:ub]
+        monto = replace(monto, texto=original[a:b], inicio=a, fin=b, unidad=unidad, unidad_inicio=ua, unidad_fin=ub)
+    a, b = tramo(sancion.inicio, sancion.fin)
+    cita_inicio = vista.inicio_con_marcas(sancion.cita_inicio)
+    cita_fin = vista.fin_con_marcas(sancion.cita_fin)
+    calificadores = []
+    for c in sancion.calificadores:
+        x, y = tramo(c.inicio, c.fin)
+        calificadores.append(Calificador(c.codigo, original[x:y], x, y))
+    return replace(
+        sancion,
+        referencia_original=original[a:b],
+        inicio=a,
+        fin=b,
+        cita=original[cita_inicio:cita_fin],
+        cita_inicio=cita_inicio,
+        cita_fin=cita_fin,
+        entidad=dato(sancion.entidad),
+        monto=monto,
+        periodo=dato(sancion.periodo),
+        fechas_en_contexto=tuple(dato(f) for f in sancion.fechas_en_contexto),
+        calificadores=tuple(calificadores),
+    )
+
+
 def detectar_sanciones(texto: str) -> ResultadoSanciones:
-    """Detecta las sanciones económicas explícitas de `texto`. Determinista."""
+    """Detecta las sanciones económicas explícitas de `texto`. Determinista. Las posiciones y los textos devueltos son del
+    texto ORIGINAL recibido, aunque el análisis se haga sobre su vista de lectura sin marcas de Markdown."""
     if not isinstance(texto, str):
         raise TypeError(f"El texto debe ser str, no {type(texto).__name__}.")
-    analizador = _Analizador(texto)
+    vista = construir_vista(texto)
+    analizador = _Analizador(vista.plano)
     analizador.ejecutar()
+    sanciones = analizador.sanciones
+    if not vista.es_identidad:
+        sanciones = [_a_original(s, vista) for s in sanciones]
     return ResultadoSanciones(
-        sanciones=tuple(sorted(analizador.sanciones, key=lambda s: s.inicio)),
+        sanciones=tuple(sorted(sanciones, key=lambda s: s.inicio)),
         descartes=tuple(sorted(analizador.descartes.items())),
     )

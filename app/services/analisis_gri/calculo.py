@@ -374,6 +374,8 @@ def construir_sanciones(documentos: list[DocumentoBase]) -> tuple[list[SancionVi
                             vinculo=monto["vinculo"],
                             inicio=monto["inicio"],
                             fin=monto["fin"],
+                            unidad_inicio=monto.get("unidad_inicio"),  # ausente en análisis de detectores anteriores
+                            unidad_fin=monto.get("unidad_fin"),
                         ),
                         cuantificada=monto is not None,
                         periodo=_dato(s.get("periodo")),
