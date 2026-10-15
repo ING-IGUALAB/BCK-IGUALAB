@@ -22,6 +22,7 @@ import re
 import unicodedata
 from bisect import bisect_right
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 from app.services.ingesta import markdown
 
@@ -109,8 +110,12 @@ def _flanqueo(antes: str, despues: str) -> tuple[bool, bool]:
     return izquierda, derecha
 
 
+@lru_cache(maxsize=4096)
 def _es_enfasis(marca: str, antes: str, despues: str) -> bool:
-    """¿Esta racha de `*`, `_` o `~~` es formato (y se retira) y no parte del texto?"""
+    """¿Esta racha de `*`, `_` o `~~` es formato (y se retira) y no parte del texto?
+
+    Función pura de tres cadenas de a lo sumo tres caracteres: en un documento con formato abundante se evalúa cientos de miles de
+    veces con unas pocas combinaciones distintas, por eso se memoiza (acotada: no crece sin límite con caracteres raros)."""
     if _es_blanco(antes) and _es_blanco(despues):
         return False  # solitaria: marca de lista, multiplicación o separador
     if marca[0] == "_" and antes.isalnum() and despues.isalnum():

@@ -9,6 +9,7 @@ nombre de archivo, empresa, año, cifra o disposición concreta.
 Es una heurística léxica: estas pruebas fijan el comportamiento acordado, no una precisión medida sobre documentos reales.
 `total` cuenta MENCIONES, no sucesos (ver `test_el_conteo_es_de_menciones_*`).
 """
+import gc
 import hashlib
 import re
 import time
@@ -18,7 +19,7 @@ import pytest
 
 from app.services.ingesta import vista_markdown
 from app.services.ingesta.analisis_ingesta import analizar_texto
-from app.services.ingesta.deteccion_sanciones import VERSION_DETECTOR_SANCIONES, detectar_sanciones
+from app.services.ingesta.deteccion_sanciones import MAX_LONGITUD_CITA, VERSION_DETECTOR_SANCIONES, detectar_sanciones
 
 DATOS = Path(__file__).parent / "datos"
 NL = "\n"
@@ -577,13 +578,55 @@ def test_determinismo_y_el_texto_original_no_se_modifica():
     assert texto == copia
 
 
-def test_el_formato_abundante_no_vuelve_cuadratica_la_deteccion():
-    texto = ("**a** _b_ [c](d) `e` ~~f~~ " * 40_000) + NL + "Recibimos una **multa** de **S/ 5,000**." + NL
-    inicio = time.perf_counter()
-    resultado = detectar_sanciones(texto)
-    assert time.perf_counter() - inicio < 10
-    verificar(texto, resultado)
+UNIDAD_DE_FORMATO = "**a** _b_ [c](d) `e` ~~f~~ "  # un delimitador cada 4-5 caracteres: densidad patológica
+FACTOR_DE_TAMANO = 4
+# Un coste lineal da un cociente de tiempos ≈ 4 (medido entre 3,9 y 4,6, con y sin cobertura); uno cuadrático, ≈ 16.
+RAZON_MAXIMA_ACEPTADA = 8
+
+
+def _texto_con_formato(repeticiones: int) -> str:
+    return (UNIDAD_DE_FORMATO * repeticiones) + NL + "Recibimos una **multa** de **S/ 5,000**." + NL
+
+
+def _mejor_tiempo(texto: str, ejecuciones: int) -> float:
+    """Mejor (menor) de varias ejecuciones: descarta las interrumpidas por otras cargas de la máquina."""
+    mejor = float("inf")
+    for _ in range(ejecuciones):
+        gc.collect()
+        inicio = time.perf_counter()
+        detectar_sanciones(texto)
+        mejor = min(mejor, time.perf_counter() - inicio)
+    return mejor
+
+
+def test_el_formato_abundante_crece_linealmente_con_el_tamano_del_documento():
+    """Garantiza que NO hay crecimiento cuadrático (el defecto que tuvo la vista con muchos fragmentos de código en una línea), no
+    una velocidad absoluta: un tope en segundos depende de la máquina y de la medición (con `--cov` el mismo trabajo tarda ≈2,5
+    veces más). Se compara el tiempo con N y con 4·N repeticiones del mismo texto: la lentitud del entorno y la cobertura
+    multiplican ambos tiempos por igual y se cancelan en el cociente."""
+    pequeno = _texto_con_formato(4_000)
+    grande = _texto_con_formato(4_000 * FACTOR_DE_TAMANO)
+    _mejor_tiempo(pequeno, 1)  # calentamiento: compila expresiones regulares y llena la memoización
+    t_pequeno = _mejor_tiempo(pequeno, 3)
+    t_grande = _mejor_tiempo(grande, 2)
+    razon = t_grande / t_pequeno
+    assert razon < RAZON_MAXIMA_ACEPTADA, (
+        f"El tiempo creció ×{razon:.1f} al multiplicar por {FACTOR_DE_TAMANO} el tamaño ({t_pequeno:.2f} s → {t_grande:.2f} s): "
+        f"lineal ≈ {FACTOR_DE_TAMANO}, cuadrático ≈ {FACTOR_DE_TAMANO ** 2}."
+    )
+
+
+def test_el_formato_abundante_conserva_la_deteccion_y_las_posiciones():
+    texto = _texto_con_formato(8_000)
+    resultado = detectar(texto)
     assert resultado.total == 1
+    s = resultado.sanciones[0]
+    assert s.monto.numero_texto == "5,000"
+    # El texto repetido no tiene puntos: es una sola oración enorme y la cita es la ventana acotada alrededor del término.
+    assert s.cita.endswith("Recibimos una **multa** de **S/ 5,000**.")
+    # Acotada, no el documento entero. La ventana (≈ MAX_LONGITUD_CITA) se mide en la vista sin marcas; al volver al original
+    # recupera las marcas retiradas, por eso puede superar ese valor en una fracción.
+    assert len(s.cita) < 2 * MAX_LONGITUD_CITA < len(texto)
 
 
 # ============================================ Del detector al análisis persistido ============================================
