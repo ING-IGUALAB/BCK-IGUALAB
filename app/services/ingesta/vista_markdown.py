@@ -29,7 +29,7 @@ from app.services.ingesta import markdown
 # Cualquier carácter que pueda formar parte de una marca que se retire; si la línea no tiene ninguno se copia tal cual.
 _RASGOS = re.compile(r"[*_~\[<&\\>]")
 _CITA_INICIAL = re.compile(r" {0,3}(?:>[ \t]?)+")
-_CODIGO_EN_LINEA = re.compile(r"(`+)(?!`).*?(?<!`)\1(?!`)")
+_RACHA_DE_ACENTOS_GRAVES = re.compile(r"`+")
 _DELIMITADOR = re.compile(r"(?<!\\)(?:\*{1,3}|_{1,3}|~~)")
 _ENLACE = re.compile(r"(?<![!\\])\[(?P<texto>[^\[\]\n]*)\](?:\((?P<destino>[^()\n]*)\)|\[(?P<referencia>[^\[\]\n]*)\])")
 _NOTA_AL_PIE = re.compile(r"(?<!\\)\[\^[^\]\s]+\]")
@@ -85,6 +85,29 @@ class VistaPlana:
 
 def _es_signo(caracter: str) -> bool:
     return unicodedata.category(caracter)[0] in "PS"
+
+
+def _fragmentos_de_codigo(linea: str, desde: int) -> list[tuple[int, int]]:
+    """Rangos de los fragmentos `código en línea` de la línea (CommonMark): una racha de N acentos graves abre un fragmento que
+    termina en la SIGUIENTE racha de exactamente N; si no existe, la racha es texto. Recorrido lineal: un regex con `.*?` y
+    retrovinculación se vuelve super-lineal con muchas rachas sin cierre (una línea hostil podía bloquear la ingesta)."""
+    rachas = [m.span() for m in _RACHA_DE_ACENTOS_GRAVES.finditer(linea, desde)]
+    por_longitud: dict[int, list[int]] = {}
+    for indice, (a, b) in enumerate(rachas):
+        por_longitud.setdefault(b - a, []).append(indice)
+    fragmentos: list[tuple[int, int]] = []
+    i = 0
+    while i < len(rachas):
+        a, b = rachas[i]
+        mismas = por_longitud[b - a]
+        k = bisect_right(mismas, i)
+        if k < len(mismas):
+            cierre = mismas[k]
+            fragmentos.append((a, rachas[cierre][1]))
+            i = cierre + 1
+        else:
+            i += 1
+    return fragmentos
 
 
 def _interseca(protegidos: list[tuple[int, int]], a: int, b: int) -> bool:
@@ -148,7 +171,7 @@ def _ediciones_de_linea(linea: str) -> list[tuple[int, int, str]]:
     if cita is not None and cita.end() > 0:
         ediciones.append((0, cita.end(), ""))
         arranque = cita.end()
-    protegidos = [m.span() for m in _CODIGO_EN_LINEA.finditer(linea, arranque)]
+    protegidos = _fragmentos_de_codigo(linea, arranque)
 
     def libre(a: int, b: int) -> bool:
         return not _interseca(protegidos, a, b)

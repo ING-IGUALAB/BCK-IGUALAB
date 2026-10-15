@@ -4,7 +4,9 @@ Nivel: unidad, sin BD ni red. La vista existe para que los detectores léxicos n
 formato en línea, SIN tocar el original: estas pruebas fijan que (1) solo se retira formato, (2) el mapa de posiciones es
 exacto y monótono y (3) lo que no es formato (código, listas, tablas, cifras) se conserva.
 """
+import gc
 import random
+import time
 
 import pytest
 
@@ -171,7 +173,65 @@ def test_el_mapa_de_posiciones_es_exacto_y_monotono_con_entradas_aleatorias(semi
 
 
 def test_el_original_no_se_modifica():
-    original = "una **sanción** del OEFA"
-    copia = str(original)
-    construir_vista(original)
-    assert original == copia
+    texto = "una **sanción** del OEFA"
+    vista = construir_vista(texto)
+    assert vista.original == "una **sanción** del OEFA"
+    assert vista.plano == "una sanción del OEFA"
+
+
+@pytest.mark.parametrize(
+    ("texto", "plano"),
+    [
+        # Una racha abre un fragmento que cierra la siguiente racha de EXACTAMENTE la misma longitud.
+        ("`**a**` **b**", "`**a**` b"),
+        ("``a ` **x** `` **b**", "``a ` **x** `` b"),
+        ("```x``` **b**", "```x``` b"),
+        # Sin una racha igual que la cierre, los acentos graves son texto y el formato sí se retira.
+        ("`a **b**", "`a b"),
+        ("``a` **b**", "``a` b"),
+        ("`a ``b`` **c**", "`a ``b`` c"),
+        ("` `` ``` **b**", "` `` ``` b"),
+        # Dos fragmentos seguidos y uno que contiene a otro de distinta longitud.
+        ("`**a**` y `**b**` **c**", "`**a**` y `**b**` c"),
+        ("`` `**a**` `` **c**", "`` `**a**` `` c"),
+    ],
+)
+def test_los_fragmentos_de_codigo_en_linea_cierran_con_una_racha_de_la_misma_longitud(texto, plano):
+    assert construir_vista(texto).plano == plano
+
+
+def _linea_con_rachas_sin_cierre(k: int) -> str:
+    """Rachas de acentos graves de longitud 1..k, todas distintas: ninguna tiene una igual que la cierre."""
+    return "**x** " + " ".join("`" * n for n in range(1, k + 1))
+
+
+def _tiempo_por_llamada(texto: str, minimo_s: float = 0.15, intentos: int = 5) -> float:
+    """Mejor de varios intentos del tiempo medio por llamada. Se repite hasta acumular `minimo_s` para que un coste de pocos
+    milisegundos no quede dominado por el ruido del reloj."""
+    mejor = float("inf")
+    for _ in range(intentos):
+        gc.collect()
+        llamadas = 0
+        inicio = time.perf_counter()
+        while True:
+            construir_vista(texto)
+            llamadas += 1
+            transcurrido = time.perf_counter() - inicio
+            if transcurrido >= minimo_s:
+                break
+        mejor = min(mejor, transcurrido / llamadas)
+    return mejor
+
+
+def test_muchas_rachas_de_acentos_graves_sin_cierre_crecen_linealmente():
+    """Con el regex anterior (`.*?` y retrovinculación) cuadruplicar el tamaño multiplicaba el tiempo por más de 50: una línea de
+    13 KB tardaba 3 s y una de 320 KB no terminaba (una línea hostil bloqueaba la ingesta). Se compara el tiempo con N y 4·N
+    caracteres, así que no depende de la velocidad de la máquina ni de la cobertura: lineal ≈ 4, cuadrático ≈ 16."""
+    pequeno, grande = _linea_con_rachas_sin_cierre(200), _linea_con_rachas_sin_cierre(400)
+    assert len(grande) / len(pequeno) == pytest.approx(4, rel=0.1)
+    razon = _tiempo_por_llamada(grande) / _tiempo_por_llamada(pequeno)
+    assert razon < 8, f"El tiempo creció ×{razon:.1f} al cuadruplicar el tamaño (lineal ≈ 4, cuadrático ≈ 16)."
+
+
+def test_las_rachas_sin_cierre_no_impiden_retirar_el_formato():
+    assert construir_vista(_linea_con_rachas_sin_cierre(50)).plano.startswith("x ")

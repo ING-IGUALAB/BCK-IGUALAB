@@ -355,7 +355,9 @@ def _niega_el_calificador(previo: str) -> bool:
 
 # --- Montos -----------------------------------------------------------------------------------------
 _PREFIJO_MONEDA = r"(?:S/\.?|US\$|U\$S|USD|\$|PEN|EUR|€)"
-_NUMERO = r"(?:\d{1,3}(?:[.,'’  ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)"
+_SEPARADOR_DE_MILES = r"[.,'’  ]"
+_NUMERO_AGRUPADO = rf"\d{{1,3}}(?:{_SEPARADOR_DE_MILES}\d{{3}})+"
+_NUMERO = rf"(?:(?:{_NUMERO_AGRUPADO}|\d+)(?:[.,]\d+)?)"
 _ESCALA = r"(?:\s*(?:mil\b|millones?\b|MM\b))?"
 _UNIDAD_SUFIJO = r"(?:UITs?|soles|nuevos\s+soles|d[oó]lares(?:\s+americanos)?|USD|PEN|euros?)"
 _MONTO_PREFIJO = re.compile(rf"(?P<unidad>{_PREFIJO_MONEDA})\s*(?P<numero>{_NUMERO}){_ESCALA}", _I)
@@ -403,7 +405,7 @@ _BARRERA_DE_PUENTE = re.compile(
 )
 # Celda sin dato («-», «N/A», «No aplica») y celda con varias entidades («OEFA / SUNAFIL», «OEFA y SUNAFIL»).
 _SIN_DATO = re.compile(r"[\s\-–—.*]*|n\s*/\s*a|no\s+aplica|no\s+corresponde", _I)
-_VARIAS_ENTIDADES = re.compile(r"[/;,]|\s(?:y|e|o)\s", _I)
+_VARIAS_ENTIDADES = re.compile(r"[/;,]|\s[yeo]\s", _I)
 _ENCABEZADO_IMPORTE = re.compile(r"monto|importe|valor|total|multa|sanci|cuant[íi]a|aplicad|determinad", _I)
 _SALDO_ANTES_DEL_MONTO = re.compile(
     r"\b(?:saldos?|restantes?|resta|adeudad[ao]s?|por\s+pagar|pendientes?\s+de\s+pago|pago\s+pendiente|deuda)\b"
@@ -468,9 +470,7 @@ _CELDA_MONTO_DESCONOCIDO = re.compile(
     r"|en\s+(?:determinaci[óo]n|definici[óo]n|evaluaci[óo]n))[\s.*]*",
     _I,
 )
-_MONEDA_CELDA = re.compile(
-    r"(?:S/\.?|US\$|U\$S|\$|USD|PEN|EUR|€|soles|nuevos\s+soles|d[oó]lares(?:\s+americanos)?|euros?|UITs?)", _I
-)
+_MONEDA_CELDA = re.compile(rf"(?:{_PREFIJO_MONEDA}|{_UNIDAD_SUFIJO})", _I)
 # Moneda nombrada en un encabezado («Monto (S/)», «Importe en miles de soles»). Se conserva tal como está escrita.
 _MONEDA_ENCABEZADO = re.compile(
     r"(?<![\w$/])(?:(?:en\s+)?(?:miles|millones)\s+de\s+)?"
@@ -1310,7 +1310,7 @@ class _Analizador:
         texto = self.texto
         encabezado = texto[a:b]
         monedas = list(_MONEDA_ENCABEZADO.finditer(texto, a, b))
-        distintas = {re.sub(r"(?i)^(?:en\s+)?(?:miles|millones)\s+de\s+|[.\s]", "", m.group()).lower() for m in monedas}
+        distintas = {re.sub(r"(?i)(?:^(?:en\s+)?(?:miles|millones)\s+de\s+)|[.\s]", "", m.group()).lower() for m in monedas}
         # Dos monedas distintas en un encabezado: no se sabe cuál corresponde a la cifra, no se usa ninguna.
         moneda = (monedas[0].group(), monedas[0].start(), monedas[0].end()) if len(distintas) == 1 else None
         solo_moneda = bool(monedas) and re.search(r"\w", _MONEDA_ENCABEZADO.sub("", encabezado)) is None
@@ -1676,19 +1676,24 @@ def _a_original(sancion: SancionDetectada, vista: VistaPlana) -> SancionDetectad
     for c in sancion.calificadores:
         x, y = tramo(c.inicio, c.fin)
         calificadores.append(Calificador(c.codigo, original[x:y], x, y))
-    return replace(
-        sancion,
+    # Se construye explícitamente (no con `dataclasses.replace`, que se tipa como «cualquier dataclass»): cada campo queda a la vista.
+    return SancionDetectada(
+        tipo_termino=sancion.tipo_termino,
         referencia_original=original[a:b],
         inicio=a,
         fin=b,
         cita=original[cita_inicio:cita_fin],
         cita_inicio=cita_inicio,
         cita_fin=cita_fin,
+        seccion=sancion.seccion,
+        en_tabla=sancion.en_tabla,
+        base_deteccion=sancion.base_deteccion,
         entidad=dato(sancion.entidad),
         monto=monto,
         periodo=dato(sancion.periodo),
         fechas_en_contexto=tuple(dato(f) for f in sancion.fechas_en_contexto),
         calificadores=tuple(calificadores),
+        motivos_revision=sancion.motivos_revision,
     )
 
 

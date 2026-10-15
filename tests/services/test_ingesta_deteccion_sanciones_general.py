@@ -574,7 +574,9 @@ def test_citas_y_offsets_exactos_con_formato_crlf_acentos_y_tablas():
 def test_determinismo_y_el_texto_original_no_se_modifica():
     texto = VARIANTES["saltos_y_negrita"]
     copia = str(texto)
-    assert detectar_sanciones(texto) == detectar_sanciones(texto)
+    primera = detectar_sanciones(texto)
+    segunda = detectar_sanciones(texto)
+    assert segunda == primera
     assert texto == copia
 
 
