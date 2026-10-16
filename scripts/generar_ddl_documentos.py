@@ -13,7 +13,7 @@ Uso (PowerShell, desde la raíz del repositorio):
 """
 import os
 
-# `app.config` exige JWT_SECRET_KEY al importarse; este script no la usa.
+# `app.core.config` exige JWT_SECRET_KEY al importarse; este script no la usa.
 os.environ.setdefault("JWT_SECRET_KEY", "valor-ficticio-solo-para-generar-ddl")
 
 from sqlalchemy.dialects import postgresql  # noqa: E402

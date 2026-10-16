@@ -7,11 +7,11 @@ from types import SimpleNamespace
 import asyncpg
 import pytest
 
-from app.logging_config import paso_de_arranque
+from app.core.logging_config import paso_de_arranque
 from app.migraciones import catalogo, motor
 from app.migraciones.motor import ErrorMigracion
-from app.services.ingesta import gestor as modulo_gestor
-from app.services.ingesta.gestor import GestorIngesta, OpcionesGestor
+from app.modules.ingesta.application import gestor as modulo_gestor
+from app.modules.ingesta.application.gestor import GestorIngesta, OpcionesGestor
 from tests.test_gestor_flujo import _AppDoble, _gestor_doble, sesion_nula
 
 SECRETOS = ("CLAVE-SECRETA", "usuario_secreto", "host-secreto", "PRIVATE KEY")
@@ -279,8 +279,8 @@ async def test_migrar_registra_conexion_y_lectura_del_registro(monkeypatch, capl
 async def test_el_primer_barrido_se_registra_con_su_duracion_y_no_bloquea_el_arranque(monkeypatch, caplog):
     import contextlib
 
-    from app.services.ingesta import coordinador
-    from app.services.ingesta.coordinador import DependenciasIngesta
+    from app.modules.ingesta.application import coordinador
+    from app.modules.ingesta.application.coordinador import DependenciasIngesta
     from tests.ayudantes_ingesta import AlmacenEnMemoria
 
     llamadas = []

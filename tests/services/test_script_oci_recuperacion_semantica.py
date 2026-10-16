@@ -3,7 +3,7 @@ SDK de OCI SUSTITUIDO por un doble que asigna vectores por tema. No hay llamadas
 créditos; la ejecución real la hace una persona con `--ejecutar`."""
 import pytest
 
-from app.services.ingesta import proveedor_oci
+from app.modules.ingesta.infrastructure import proveedor_oci
 from scripts.pruebas_manuales import oci_recuperacion_semantica as prueba
 from tests.services.test_ingesta_proveedor_oci import ClienteFalso, ajustes, vector
 from tests.services.test_script_smoke_embeddings_oci import entorno  # noqa: F401  (fixture)

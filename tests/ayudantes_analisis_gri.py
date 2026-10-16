@@ -13,9 +13,9 @@ import asyncpg
 import httpx
 from fastapi import FastAPI
 
-from app.database import get_db
-from app.dependencies import get_current_user
-from app.exception_handlers import register_exception_handlers
+from app.core.database import get_db
+from app.core.dependencies import get_current_user
+from app.core.exception_handlers import register_exception_handlers
 from app.migraciones.catalogo import ESQUEMA_TRANSACCIONAL
 from app.models import Empresa, RolUsuario, SectorEmpresa, TipoDocumento, Usuario
 from app.models.documento_ingesta import (
@@ -23,9 +23,9 @@ from app.models.documento_ingesta import (
     EstadoProcesamiento,
     ResultadoAnalisis,
 )
-from app.request_id import RequestIDMiddleware
-from app.routers import analisis_gri
-from app.services.ingesta.analisis_ingesta import analizar_texto
+from app.core.request_id import RequestIDMiddleware
+from app.modules.analisis_gri import router as analisis_gri
+from app.modules.ingesta.application.analisis_ingesta import analizar_texto
 
 TABLAS_MODULO_5 = (
     "analisis_gri_validaciones",

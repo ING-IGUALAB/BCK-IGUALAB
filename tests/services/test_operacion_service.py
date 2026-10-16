@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select, text, update
 
-from app.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.models import SectorEmpresa, TipoDocumento
 from app.models.documento_ingesta import (
     Documento,
@@ -21,10 +21,10 @@ from app.models.documento_ingesta import (
     OperacionIngesta,
     ResultadoAnalisis,
 )
-from app.schemas_ingesta import EstadoOperacionPublico
-from app.services.ingesta import documento_service as servicio
-from app.services.ingesta import operacion_service as ops
-from app.services.ingesta.documento_service import EstadoProgreso
+from app.modules.ingesta.schemas import EstadoOperacionPublico
+from app.modules.ingesta.application import documento_service as servicio
+from app.modules.ingesta.application import operacion_service as ops
+from app.modules.ingesta.application.documento_service import EstadoProgreso
 from tests.ayudantes_ingesta import SesionSQLite, crear_empresa, crear_usuario, metadatos, sha256_de
 
 VIGENCIA = timedelta(minutes=5)

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.models import RolUsuario
-from app.routers import usuarios as usuarios_router
+from app.modules.usuarios import router as usuarios_router
 from app.schemas import CrearUsuarioRequest, TransferirSuperAdminRequest
 
 

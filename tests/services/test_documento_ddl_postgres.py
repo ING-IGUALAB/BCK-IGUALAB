@@ -20,7 +20,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.database import Base
+from app.core.database import Base
 from app.models import Empresa, RolUsuario, SectorEmpresa, Usuario
 from app.models.documento_ingesta import Documento
 from scripts.generar_ddl_documentos import generar_ddl

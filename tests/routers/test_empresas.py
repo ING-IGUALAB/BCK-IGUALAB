@@ -10,12 +10,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
-from app.dependencies import get_current_user
-from app.exception_handlers import register_exception_handlers
+from app.core.database import get_db
+from app.core.dependencies import get_current_user
+from app.core.exception_handlers import register_exception_handlers
 from app.models import Empresa, RolUsuario
-from app.request_id import RequestIDMiddleware
-from app.routers.empresas import router
+from app.core.request_id import RequestIDMiddleware
+from app.modules.empresas.router import router
 
 
 @pytest.fixture

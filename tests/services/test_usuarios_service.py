@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import app.services.usuario_service as usuario_service
-from app.exceptions import ConflictError, NotFoundError
+import app.modules.usuarios.service as usuario_service
+from app.core.exceptions import ConflictError, NotFoundError
 from app.models import RolUsuario
 
 

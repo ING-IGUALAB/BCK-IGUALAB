@@ -4,7 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.models import RolUsuario, SectorEmpresa, TipoDocumento
-from app.services.ingesta.reglas import interpretar_anio
+from app.modules.ingesta.domain.reglas import interpretar_anio
 
 
 

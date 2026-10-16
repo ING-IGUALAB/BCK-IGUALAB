@@ -62,8 +62,8 @@ from typing import Any
 
 from botocore.exceptions import ClientError, ConnectTimeoutError, EndpointConnectionError, SSLError
 
-from app.services.ingesta.almacenamiento import ConfigAlmacenamiento
-from app.services.ingesta.almacenamiento_s3 import crear_cliente_s3, listar_versiones_exactas
+from app.modules.ingesta.domain.almacenamiento import ConfigAlmacenamiento
+from app.modules.ingesta.infrastructure.almacenamiento_s3 import crear_cliente_s3, listar_versiones_exactas
 
 TAMANO_OBJETIVO = 50_000_000
 AMBIENTE = "development"

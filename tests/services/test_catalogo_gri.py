@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from app.services.ingesta import catalogo_gri
-from app.services.ingesta.catalogo_gri import (
+from app.modules.ingesta.domain import catalogo_gri
+from app.modules.ingesta.domain.catalogo_gri import (
     CatalogoGriInvalido,
     cargar_catalogo,
     catalogo_predeterminado,

@@ -9,8 +9,8 @@ Uso (desde la raíz del repo, con el venv activado):
 """
 import asyncio
 
-from app.services.ingesta.embeddings import embeber_consulta
-from app.services.ingesta.proveedor_oci import ProveedorEmbeddingsOCI
+from app.modules.ingesta.domain.embeddings import embeber_consulta
+from app.modules.ingesta.infrastructure.proveedor_oci import ProveedorEmbeddingsOCI
 
 CONSULTA = "¿Cuál fue el consumo total de agua en 2025?"
 

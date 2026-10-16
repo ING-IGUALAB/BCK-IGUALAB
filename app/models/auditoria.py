@@ -7,7 +7,7 @@ from sqlalchemy import String, DateTime, ForeignKey, Enum as SAEnum, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.core.database import Base
 
 
 class TipoEventoAuditoria(str, enum.Enum):

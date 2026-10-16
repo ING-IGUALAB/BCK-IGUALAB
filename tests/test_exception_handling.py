@@ -5,9 +5,9 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.exception_handlers import register_exception_handlers
-from app.exceptions import ConflictError
-from app.request_id import RequestIDMiddleware
+from app.core.exception_handlers import register_exception_handlers
+from app.core.exceptions import ConflictError
+from app.core.request_id import RequestIDMiddleware
 
 
 class _Payload(BaseModel):

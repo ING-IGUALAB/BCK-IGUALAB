@@ -13,8 +13,8 @@ from sqlalchemy import text
 
 from app.models import SectorEmpresa
 from app.models.documento_ingesta import EstadoProcesamiento
-from app.services.ingesta import coordinador
-from app.services.ingesta.coordinador import DependenciasIngesta, ingerir_documento
+from app.modules.ingesta.application import coordinador
+from app.modules.ingesta.application.coordinador import DependenciasIngesta, ingerir_documento
 from tests.ayudantes_coordinador import (
     TABLA_DETERIORADA,
     TEXTO_CON_HALLAZGOS,
@@ -508,7 +508,7 @@ async def test_timeout_del_proveedor_es_504(entorno):
 
 
 async def test_fallo_interno_del_analisis_es_500_con_su_codigo_y_no_es_observado(entorno, monkeypatch):
-    from app.services.ingesta.analisis_ingesta import AnalisisIngestaError
+    from app.modules.ingesta.application.analisis_ingesta import AnalisisIngestaError
 
     def detector_roto(_documento):
         raise AnalisisIngestaError(
@@ -543,7 +543,7 @@ async def test_un_error_inesperado_es_500_generico_sin_detalles(entorno, monkeyp
 
 
 async def test_dimension_de_embeddings_incompatible_es_502_y_no_deja_nada(entorno):
-    from app.services.ingesta.embeddings import IdentidadEmbeddings
+    from app.modules.ingesta.domain.embeddings import IdentidadEmbeddings
 
     entorno.proveedor.identidad = IdentidadEmbeddings("doble", "doble-512", 512)
     async with cliente_http(construir_app(entorno)) as cliente:
@@ -682,7 +682,7 @@ async def test_un_uuid_de_otro_ambiente_es_404_y_no_se_lee_ni_se_modifica(entorn
 
 
 async def test_el_reintento_del_coordinador_tambien_comprueba_el_ambiente(entorno):
-    from app.exceptions import NotFoundError
+    from app.core.exceptions import NotFoundError
 
     qa_documento = await documento_en_otro_ambiente(entorno, pendiente=True)
     antes = await entorno.sql("SELECT vector_publicacion_intentos, vector_publicado_en FROM documentos WHERE id = :i", i=qa_documento)
@@ -691,7 +691,7 @@ async def test_el_reintento_del_coordinador_tambien_comprueba_el_ambiente(entorn
     assert error.value.code == "DOCUMENT_NOT_FOUND"
     assert await entorno.sql("SELECT vector_publicacion_intentos, vector_publicado_en FROM documentos WHERE id = :i", i=qa_documento) == antes
     async with entorno.fabrica_pg() as db:
-        from app.services.ingesta import documento_service as servicio
+        from app.modules.ingesta.application import documento_service as servicio
         with pytest.raises(NotFoundError):
             await servicio.obtener_progreso(db, qa_documento, ambiente="development")
         assert (await servicio.obtener_progreso(db, qa_documento, ambiente="qa")).documento_id == qa_documento

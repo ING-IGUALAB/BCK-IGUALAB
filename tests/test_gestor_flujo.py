@@ -14,12 +14,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.exceptions import ConflictError, ExternalServiceError, ServiceUnavailableError
+from app.core.exceptions import ConflictError, ExternalServiceError, ServiceUnavailableError
 from app.schemas import MetadatosIngestaRequest
-from app.schemas_ingesta import EstadoOperacionPublico, OperacionResponse
-from app.services.ingesta import coordinador, operacion_service
-from app.services.ingesta.coordinador import DependenciasIngesta, PublicacionVectorialPendiente
-from app.services.ingesta.gestor import FuenteEnMemoria, GestorIngesta, OpcionesGestor
+from app.modules.ingesta.schemas import EstadoOperacionPublico, OperacionResponse
+from app.modules.ingesta.application import coordinador, operacion_service
+from app.modules.ingesta.application.coordinador import DependenciasIngesta, PublicacionVectorialPendiente
+from app.modules.ingesta.application.gestor import FuenteEnMemoria, GestorIngesta, OpcionesGestor
 from tests.ayudantes_ingesta import AlmacenEnMemoria
 
 OPERACION = uuid.uuid4()
@@ -450,7 +450,7 @@ class _AppDoble:
 
 
 def _gestor_doble(registro: list, monkeypatch):
-    from app.services.ingesta import gestor as modulo
+    from app.modules.ingesta.application import gestor as modulo
 
     deps = DependenciasIngesta(sesion_nula, sesion_nula, AlmacenEnMemoria("development"), SimpleNamespace())
 
@@ -468,7 +468,7 @@ def _gestor_doble(registro: list, monkeypatch):
 
 
 async def test_el_esquema_se_prepara_despues_de_construir_y_antes_de_habilitar_la_ingesta(monkeypatch):
-    from app.services.ingesta.gestor import iniciar_ingesta
+    from app.modules.ingesta.application.gestor import iniciar_ingesta
 
     orden = []
     gestor = _gestor_doble(orden, monkeypatch)
@@ -487,7 +487,7 @@ async def test_el_esquema_se_prepara_despues_de_construir_y_antes_de_habilitar_l
 
 async def test_si_falla_la_preparacion_del_esquema_la_ingesta_queda_en_503_y_se_liberan_los_recursos(monkeypatch, caplog):
     from app.migraciones.motor import ErrorMigracion
-    from app.services.ingesta.gestor import iniciar_ingesta
+    from app.modules.ingesta.application.gestor import iniciar_ingesta
 
     orden = []
     gestor = _gestor_doble(orden, monkeypatch)
@@ -509,7 +509,7 @@ async def test_si_falla_la_preparacion_del_esquema_la_ingesta_queda_en_503_y_se_
 
 
 async def test_un_error_inesperado_al_preparar_el_esquema_tampoco_impide_el_arranque(monkeypatch):
-    from app.services.ingesta.gestor import iniciar_ingesta
+    from app.modules.ingesta.application.gestor import iniciar_ingesta
 
     orden = []
     _gestor_doble(orden, monkeypatch)
@@ -526,7 +526,7 @@ async def test_un_error_inesperado_al_preparar_el_esquema_tampoco_impide_el_arra
 
 
 async def test_con_configuracion_incompleta_no_se_intenta_migrar(monkeypatch):
-    from app.services.ingesta import gestor as modulo
+    from app.modules.ingesta.application import gestor as modulo
 
     llamadas = []
 
@@ -547,13 +547,13 @@ async def test_con_el_esquema_sin_preparar_solo_la_ingesta_responde_503_y_el_res
     import httpx
     from fastapi import FastAPI
 
-    from app.exception_handlers import register_exception_handlers
+    from app.core.exception_handlers import register_exception_handlers
     from app.migraciones.motor import ErrorMigracion
-    from app.request_id import RequestIDMiddleware
-    from app.routers import documentos
-    from app.services.ingesta.gestor import iniciar_ingesta
-    from app.database import get_db
-    from app.dependencies import get_current_user
+    from app.core.request_id import RequestIDMiddleware
+    from app.modules.ingesta import router as documentos
+    from app.modules.ingesta.application.gestor import iniciar_ingesta
+    from app.core.database import get_db
+    from app.core.dependencies import get_current_user
     from app.models import RolUsuario
 
     _gestor_doble([], monkeypatch)

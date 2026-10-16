@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from app.services.ingesta import deteccion_gri, validacion
-from app.services.ingesta.deteccion_gri import detectar_referencias_gri
+from app.modules.ingesta.domain import deteccion_gri, validacion
+from app.modules.ingesta.domain.deteccion_gri import detectar_referencias_gri
 
 
 def grupos_por_clave(resultado):

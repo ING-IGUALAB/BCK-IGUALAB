@@ -10,8 +10,8 @@ fallback entre ellas.
 """
 import logging
 
-from app.config import settings
-from app.logging_config import paso_de_arranque
+from app.core.config import settings
+from app.core.logging_config import paso_de_arranque
 from app.migraciones.motor import (
     ErrorMigracion,
     EsquemaBase,
@@ -54,8 +54,8 @@ ESQUEMA_VECTORIAL = EsquemaBase(
 
 def _url_vectorial() -> str:
     """URL de la base vectorial, SIN fallback a DATABASE_URL (error controlado si falta)."""
-    from app.database_vectorial import url_vectorial
-    from app.exceptions import ExternalServiceError
+    from app.core.database_vectorial import url_vectorial
+    from app.core.exceptions import ExternalServiceError
 
     try:
         return url_vectorial()

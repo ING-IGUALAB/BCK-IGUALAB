@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.security import HTTPAuthorizationCredentials
 
-import app.dependencies as dependencies
-from app.exceptions import AuthenticationError
+import app.core.dependencies as dependencies
+from app.core.exceptions import AuthenticationError
 from app.models import RolUsuario
 
 

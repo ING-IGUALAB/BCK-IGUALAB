@@ -5,13 +5,13 @@ from app.models import Usuario
 
 import pytest
 
-import app.services.auth_service as auth_service
-from app.exceptions import (
+import app.modules.auth.service as auth_service
+from app.core.exceptions import (
     AuthenticationError,
     BusinessValidationError,
 )
 from app.models import RolUsuario
-from app.security import hash_password
+from app.core.security import hash_password
 
 
 def _resultado_unico(valor):

@@ -41,8 +41,8 @@ from scripts.smoke_embeddings_oci import (  # fija JWT_SECRET_KEY ficticia antes
     _seguro,
     _vector_valido,
 )
-from app.services.ingesta.embeddings import embeber_consulta, embeber_fragmentos  # noqa: E402
-from app.services.ingesta.fragmentacion import iterar_fragmentos  # noqa: E402
+from app.modules.ingesta.domain.embeddings import embeber_consulta, embeber_fragmentos  # noqa: E402
+from app.modules.ingesta.domain.fragmentacion import iterar_fragmentos  # noqa: E402
 
 DOCUMENTOS = {
     "agua": "La empresa redujo el consumo de agua mediante la recirculación y reutilización de aguas residuales.",
@@ -152,7 +152,7 @@ def main(
         imprimir("Prueba remota NO ejecutada: haría llamadas a OCI y consumiría créditos. Use --ejecutar para confirmar.")
         return EXIT_NO_EJECUTADO
     if crear_proveedor is None:
-        from app.services.ingesta.proveedor_oci import ProveedorEmbeddingsOCI as crear_proveedor
+        from app.modules.ingesta.infrastructure.proveedor_oci import ProveedorEmbeddingsOCI as crear_proveedor
     try:
         proveedor = crear_proveedor()
     except Exception as exc:

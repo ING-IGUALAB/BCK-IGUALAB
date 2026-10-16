@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
-from app.audit import registrar_evento
+from app.modules.auditoria.service import registrar_evento
 from app.models import (
     RegistroAuditoria,
     TipoEventoAuditoria,

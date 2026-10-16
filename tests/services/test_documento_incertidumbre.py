@@ -17,7 +17,7 @@ import pytest
 from botocore.exceptions import ClientError, ReadTimeoutError
 from sqlalchemy import text, update
 
-from app.exceptions import ConflictError, ExternalServiceError, ExternalServiceTimeoutError
+from app.core.exceptions import ConflictError, ExternalServiceError, ExternalServiceTimeoutError
 from app.models import TipoDocumento
 from app.models.documento_ingesta import (
     Documento,
@@ -25,9 +25,9 @@ from app.models.documento_ingesta import (
     EstadoProcesamiento,
     ResultadoAnalisis,
 )
-from app.services.ingesta import documento_service as servicio
-from app.services.ingesta.almacenamiento import ConfigAlmacenamiento, EstadoSubida
-from app.services.ingesta.almacenamiento_s3 import AlmacenOriginalesS3
+from app.modules.ingesta.application import documento_service as servicio
+from app.modules.ingesta.domain.almacenamiento import ConfigAlmacenamiento, EstadoSubida
+from app.modules.ingesta.infrastructure.almacenamiento_s3 import AlmacenOriginalesS3
 from tests.ayudantes_ingesta import (
     BOM,
     ClienteS3Versionado,

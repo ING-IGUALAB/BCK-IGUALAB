@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from app.services.ingesta import deteccion_sanciones
-from app.services.ingesta.deteccion_sanciones import detectar_sanciones
+from app.modules.ingesta.domain import deteccion_sanciones
+from app.modules.ingesta.domain.deteccion_sanciones import detectar_sanciones
 
 
 def verificar(texto, resultado):
@@ -527,7 +527,8 @@ def test_determinismo_y_tipo_de_entrada():
 
 
 def test_el_modulo_es_local_sin_llm_ni_red():
-    fuente = Path(deteccion_sanciones.__file__).read_text(encoding="utf-8")
+    paquete = Path(deteccion_sanciones.__file__).parent
+    fuente = "".join(archivo.read_text(encoding="utf-8") for archivo in sorted(paquete.glob("*.py")))
     for prohibido in ("import oci", "import requests", "import httpx", "import socket", "urllib", "openai", "anthropic", "cohere"):
         assert prohibido not in fuente
 

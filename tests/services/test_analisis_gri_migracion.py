@@ -9,7 +9,7 @@ import uuid
 
 import pytest
 
-from app.database import Base
+from app.core.database import Base
 from app.migraciones import motor
 from app.migraciones.catalogo import ESQUEMA_TRANSACCIONAL
 from app.migraciones.motor import EsquemaBase, migrar

@@ -7,11 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.exceptions import ServiceUnavailableError
+from app.core.exceptions import ServiceUnavailableError
 from app.migraciones import catalogo, motor
 from app.migraciones.motor import ErrorMigracion
-from app.services.analisis_gri.arranque import preparar_esquema_analisis
-from app.services.ingesta import gestor as modulo_gestor
+from app.modules.analisis_gri.application.arranque import preparar_esquema_analisis
+from app.modules.ingesta.application import gestor as modulo_gestor
 
 SECRETOS = ("CLAVE-SECRETA", "usuario_secreto", "host-secreto")
 
@@ -107,9 +107,9 @@ def test_el_router_no_importa_proveedores_ni_el_gestor_de_ingesta():
     """El módulo trabaja con datos almacenados: importarlo no arrastra OCI, MinIO/boto3, el cliente de IA ni el gestor."""
     codigo = (
         "import os, sys; os.environ.setdefault('JWT_SECRET_KEY', 'x');"
-        "import app.routers.analisis_gri, app.services.analisis_gri.servicio;"
-        "prohibidos = ['oci', 'boto3', 'botocore', 'openai', 'app.services.ingesta.gestor', 'app.services.ingesta.proveedor_oci',"
-        " 'app.services.ingesta.almacenamiento_s3', 'app.services.ingesta.embeddings', 'app.database_vectorial'];"
+        "import app.modules.analisis_gri.router, app.modules.analisis_gri.application.servicio;"
+        "prohibidos = ['oci', 'boto3', 'botocore', 'openai', 'app.modules.ingesta.application.gestor', 'app.modules.ingesta.infrastructure.proveedor_oci',"
+        " 'app.modules.ingesta.infrastructure.almacenamiento_s3', 'app.modules.ingesta.domain.embeddings', 'app.core.database_vectorial'];"
         "print(sorted(m for m in prohibidos if m in sys.modules))"
     )
     resultado = subprocess.run([sys.executable, "-c", codigo], capture_output=True, text=True, timeout=120, cwd=str(__import__("pathlib").Path(__file__).resolve().parents[1]))

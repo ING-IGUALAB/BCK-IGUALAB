@@ -1,0 +1,4 @@
+# Las muestras estáticas se ejecutan byte a byte: no se normalizan finales de línea ni codificación.
+muestras/estaticas/* -text
+muestras/plantilla-reporte-gri.md text eol=lf
+colecciones/*.json text eol=lf

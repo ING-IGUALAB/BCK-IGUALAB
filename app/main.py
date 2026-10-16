@@ -3,15 +3,22 @@ import logging
 import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import auth, usuarios, empresas, documentos, analisis_gri
-from app.exception_handlers import register_exception_handlers
-from app.logging_config import configure_logging, paso_de_arranque
-from app.request_id import RequestIDMiddleware
-from app.config import settings
+from app.modules.auth import router as auth
+from app.modules.usuarios import router as usuarios
+from app.modules.empresas import router as empresas
+from app.modules.ingesta import router as documentos
+from app.modules.analisis_gri import router as analisis_gri
+from app.modules.asistente import router as asistente
+from app.modules.reportes import router as reportes
+from app.modules.auditoria import router as auditoria
+from app.core.exception_handlers import register_exception_handlers
+from app.core.logging_config import configure_logging, paso_de_arranque
+from app.core.request_id import RequestIDMiddleware
+from app.core.config import settings
 from scripts.crear_tablas import crear_tablas
 from scripts.crear_superadmin_inicial import crear_superadmin_inicial
-from app.services.analisis_gri.arranque import preparar_esquema_analisis
-from app.services.ingesta.gestor import detener_ingesta, iniciar_ingesta
+from app.modules.analisis_gri.application.arranque import preparar_esquema_analisis
+from app.modules.ingesta.application.gestor import detener_ingesta, iniciar_ingesta
 
 configure_logging()
 logger = logging.getLogger("igualab.startup")
@@ -61,6 +68,9 @@ app.include_router(usuarios.router)
 app.include_router(empresas.router)
 app.include_router(documentos.router)
 app.include_router(analisis_gri.router)
+app.include_router(asistente.router)
+app.include_router(reportes.router)
+app.include_router(auditoria.router)
 
 # verificar si corre
 @app.get("/health", tags=["Infraestructura"])

@@ -22,19 +22,19 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from app.config import settings
-from app.database_vectorial import (
+from app.core.config import settings
+from app.core.database_vectorial import (
     cerrar_motor_vectorial,
     obtener_motor_vectorial,
     url_vectorial,
 )
-from app.exceptions import ConflictError, ExternalServiceError
+from app.core.exceptions import ConflictError, ExternalServiceError
 from app.models import SectorEmpresa, TipoDocumento
 from app.models.documento_ingesta import ResultadoAnalisis
-from app.services.ingesta import documento_service as servicio
-from app.services.ingesta import fragmentos_vectoriales as fv
-from app.services.ingesta.embeddings import FragmentoEmbebido, IdentidadEmbeddings, LoteEmbebido
-from app.services.ingesta.fragmentacion import ParametrosFragmentacion, iterar_fragmentos
+from app.modules.ingesta.application import documento_service as servicio
+from app.modules.ingesta.infrastructure import fragmentos_vectoriales as fv
+from app.modules.ingesta.domain.embeddings import FragmentoEmbebido, IdentidadEmbeddings, LoteEmbebido
+from app.modules.ingesta.domain.fragmentacion import ParametrosFragmentacion, iterar_fragmentos
 from tests.ayudantes_ingesta import (
     AlmacenEnMemoria, SesionSQLite, crear_empresa, crear_usuario, metadatos, sha256_de,
 )
@@ -294,7 +294,7 @@ def test_la_falta_de_la_url_vectorial_no_bloquea_el_arranque_de_otros_modulos():
         "import os, dotenv; dotenv.load_dotenv = lambda *a, **k: False; "
         "os.environ.pop('VECTOR_DATABASE_URL', None); "
         "os.environ.update(JWT_SECRET_KEY='x', DATABASE_URL='postgresql+asyncpg://u:p@h/db'); "
-        "import app.main, app.config as c; print(repr(c.settings.VECTOR_DATABASE_URL))"
+        "import app.main, app.core.config as c; print(repr(c.settings.VECTOR_DATABASE_URL))"
     )
     resultado = subprocess.run([sys.executable, "-c", codigo], capture_output=True, text=True, timeout=120)
     assert resultado.returncode == 0, resultado.stderr[-500:]
@@ -638,7 +638,7 @@ async def test_cualquier_fallo_hace_rollback_y_se_propaga_sin_convertirse_en_con
 
 
 async def test_la_dependencia_de_sesion_vectorial_usa_la_url_configurada_y_hace_rollback_ante_errores(url_pgvector_aislado, monkeypatch):
-    from app.database_vectorial import fabrica_sesiones_vectoriales, get_vector_db
+    from app.core.database_vectorial import fabrica_sesiones_vectoriales, get_vector_db
 
     monkeypatch.setattr(settings, "VECTOR_DATABASE_URL", url_pgvector_aislado)
     try:
@@ -656,7 +656,7 @@ async def test_la_dependencia_de_sesion_vectorial_usa_la_url_configurada_y_hace_
 
 
 async def test_sin_url_la_dependencia_de_sesion_falla_de_forma_controlada(monkeypatch):
-    from app.database_vectorial import get_vector_db
+    from app.core.database_vectorial import get_vector_db
 
     monkeypatch.setattr(settings, "VECTOR_DATABASE_URL", None)
     valor_vector_db = get_vector_db()
