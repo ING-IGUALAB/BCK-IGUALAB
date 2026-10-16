@@ -70,7 +70,7 @@ def test_suma_montos_por_moneda():
 # --- compilación PDF real (WeasyPrint) ---------------------------------------------------
 
 def test_compila_pdf_real():
-    pytest.importorskip("weasyprint")
+    pytest.importorskip("weasyprint", exc_type=(ImportError, OSError))
     from app.modules.reportes.infrastructure.pdf import compilar_html_a_pdf
 
     pdf = compilar_html_a_pdf(renderizar(_datos_ejemplo()))
