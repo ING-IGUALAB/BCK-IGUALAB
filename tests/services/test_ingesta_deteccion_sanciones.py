@@ -527,8 +527,9 @@ def test_determinismo_y_tipo_de_entrada():
 
 
 def test_el_modulo_es_local_sin_llm_ni_red():
-    paquete = Path(deteccion_sanciones.__file__).parent
-    fuente = "".join(archivo.read_text(encoding="utf-8") for archivo in sorted(paquete.glob("*.py")))
+    modulo = Path(deteccion_sanciones.__file__)
+    archivos = [modulo] if modulo.is_file() else sorted(modulo.parent.glob("*.py"))
+    fuente = "".join(archivo.read_text(encoding="utf-8") for archivo in archivos)
     for prohibido in ("import oci", "import requests", "import httpx", "import socket", "urllib", "openai", "anthropic", "cohere"):
         assert prohibido not in fuente
 
