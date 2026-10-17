@@ -87,7 +87,7 @@ async def responder_consulta(
 
     # 3) visibilidad transaccional: solo documentos COMPLETADOS con análisis y empresa activa
     ids = {f.documento_id for f in candidatos}
-    recuperables = await documentos_recuperables(db, ambiente, ids) if ids else set()
+    recuperables = await documentos_recuperables(db, ambiente=ambiente, documento_ids=ids) if ids else set()
     fragmentos = [f for f in candidatos if f.documento_id in recuperables]
 
     if not fragmentos:

@@ -102,7 +102,9 @@ def _parchear(monkeypatch, fragmentos, recuperables, *, llm):
     async def _buscar(*a, **k):
         return fragmentos
 
-    async def _recuperables(_db, _ambiente, ids):
+    async def _recuperables(_db, *, ambiente, documento_ids):
+        # Keyword-only a propósito: refleja la firma real y hace fallar el test si el
+        # servicio vuelve a llamar con argumentos posicionales (TypeError en producción).
         return recuperables
 
     async def _empresas(_db, _emp):
