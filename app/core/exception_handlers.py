@@ -185,3 +185,36 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     app.add_exception_handler(SQLAlchemyError, database_exception_handler)
     app.add_exception_handler(Exception, unexpected_exception_handler)
+
+
+class ManejadorExcepcionesMiddleware:
+    """Convierte cualquier excepción que escape del router en la respuesta JSON 500 del contrato,
+    ANTES de que llegue al ServerErrorMiddleware de Starlette.
+
+    Sin este middleware, Starlette responde el 500 desde su ServerErrorMiddleware, que queda FUERA
+    de CORSMiddleware: la respuesta sale sin cabeceras Access-Control-Allow-*, el navegador la
+    bloquea y el cliente ve un falso "No se pudo conectar con el servidor." en lugar del error real.
+    Registrarse DESPUÉS de RequestIDMiddleware y ANTES de CORSMiddleware (así queda dentro de CORS).
+    """
+
+    def __init__(self, app):
+        self._app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        respuesta_iniciada = False
+
+        async def _send(mensaje):
+            nonlocal respuesta_iniciada
+            if mensaje["type"] == "http.response.start":
+                respuesta_iniciada = True
+            await send(mensaje)
+
+        try:
+            await self._app(scope, receive, _send)
+        except Exception as exc:
+            if respuesta_iniciada:
+                raise
+            await unexpected_exception_handler(Request(scope), exc)(scope, receive, send)

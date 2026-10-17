@@ -127,6 +127,17 @@ async def test_sin_evidencia_no_llama_al_llm(monkeypatch):
     assert r.sin_evidencia is True and r.citas == [] and "No tengo evidencia" in r.mensaje
 
 
+async def test_pregunta_en_blanco_es_error_de_validacion():
+    from app.core.exceptions import BusinessValidationError
+
+    with pytest.raises(BusinessValidationError) as excinfo:
+        await responder_consulta(
+            None, None, pregunta="   ", ambiente="development",
+            proveedor_embeddings=EmbeddingsFake(), proveedor_llm=LlmNunca(),
+        )
+    assert excinfo.value.code == "EMPTY_QUESTION"
+
+
 async def test_responde_con_citas_verificadas(monkeypatch):
     f1, f2 = frag("texto uno", seccion=("A",)), frag("texto dos", seccion=("B",))
     llm = _parchear(monkeypatch, [f1, f2], {f1.documento_id, f2.documento_id}, llm=LlmFake("Según [1] y [2]."))

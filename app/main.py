@@ -11,7 +11,7 @@ from app.modules.analisis_gri import router as analisis_gri
 from app.modules.asistente import router as asistente
 from app.modules.reportes import router as reportes
 from app.modules.auditoria import router as auditoria
-from app.core.exception_handlers import register_exception_handlers
+from app.core.exception_handlers import ManejadorExcepcionesMiddleware, register_exception_handlers
 from app.core.logging_config import configure_logging, paso_de_arranque
 from app.core.request_id import RequestIDMiddleware
 from app.core.config import settings
@@ -53,6 +53,9 @@ app = FastAPI(
 
 register_exception_handlers(app)
 app.add_middleware(RequestIDMiddleware)
+# Dentro de CORS (se registra antes que CORSMiddleware, que queda outermost): así un 500
+# inesperado conserva las cabeceras Access-Control-Allow-* y el navegador puede leerlo.
+app.add_middleware(ManejadorExcepcionesMiddleware)
 
 
 app.add_middleware(

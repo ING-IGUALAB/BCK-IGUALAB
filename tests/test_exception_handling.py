@@ -1,11 +1,15 @@
 import uuid
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.core.exception_handlers import register_exception_handlers
+from app.core.exception_handlers import (
+    ManejadorExcepcionesMiddleware,
+    register_exception_handlers,
+)
 from app.core.exceptions import ConflictError
 from app.core.request_id import RequestIDMiddleware
 
@@ -18,6 +22,7 @@ def _test_app() -> FastAPI:
     app = FastAPI()
     register_exception_handlers(app)
     app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(ManejadorExcepcionesMiddleware)
 
     @app.get("/app-error")
     async def app_error():
@@ -117,3 +122,24 @@ def test_database_exception_is_sanitized():
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "INTERNAL_ERROR"
     assert "consulta interna" not in response.text
+
+
+def test_unexpected_exception_keeps_cors_headers():
+    """Un 500 inesperado debe llegar íntegro al navegador: sin cabeceras CORS, el fetch del
+    cliente falla con un falso NETWORK_ERROR ("No se pudo conectar con el servidor.") en
+    lugar de mostrar el error real. Reproduce el stack de app.main."""
+    app = _test_app()
+    origen = "https://dev-igualab.ingsoftware.lat"
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[origen],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/unexpected", headers={"Origin": origen})
+
+    assert response.status_code == 500
+    assert response.headers["access-control-allow-origin"] == origen
+    assert response.json()["error"]["code"] == "INTERNAL_ERROR"

@@ -14,6 +14,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import BusinessValidationError
 from app.models.documento_ingesta import Documento
 from app.models import Empresa
 from app.modules.asistente.domain.citas import procesar_citas
@@ -56,7 +57,11 @@ async def responder_consulta(
     limite: int = LIMITES_POR_DEFECTO,
 ) -> ConsultaResponse:
     """Responde una consulta con citas verificadas contra el corpus."""
-    validar_pregunta(pregunta)
+    try:
+        validar_pregunta(pregunta)
+    except ValueError as exc:
+        # El dominio lanza ValueError genérico; en la frontera HTTP eso sería un 500.
+        raise BusinessValidationError("EMPTY_QUESTION", str(exc)) from None
 
     empresas = await _empresa_ids(db, empresa_id)
     if not empresas:
