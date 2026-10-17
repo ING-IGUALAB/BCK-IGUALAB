@@ -15,6 +15,38 @@ pipeline {
             }
         }
 
+        // --- ETAPA TEMPORAL DE DIAGNÓSTICO (eliminar tras investigar el 500 del chat RAG) ---
+        // Vuelca a la consola del build el traceback de los request_ids indicados, leyéndolo
+        // del contenedor backend VIVO antes de que Deploy lo reinicie. Solo lectura; no toca la app.
+        stage('Diagnóstico logs chat (temporal)') {
+            when {
+                branch 'development'
+            }
+            steps {
+                withCredentials([
+                    file(credentialsId: 'IGUALAB_BACKEND_DEV', variable: 'SECRET_FILE')
+                ]) {
+                    withEnv(['COMPOSE_PROJECT=igualab-backend-development']) {
+                        sh '''
+set +e
+rm -f .env
+cp "$SECRET_FILE" .env
+echo '--- Estado del contenedor backend ---'
+docker compose -p "$COMPOSE_PROJECT" ps -a
+echo '--- Tracebacks de los request_ids pedidos ---'
+docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=600 backend 2>&1 | grep -B3 -A60 -E "04bea0c4-20a6-4f33-918c-9132276e9f9f|416267cc-63db-4f45-8d2f-4ac6a415a7e2"
+if [ $? -ne 0 ]; then
+    echo '--- IDs no encontrados: últimas trazas de error del backend ---'
+    docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=400 backend 2>&1 | grep -B3 -A60 -E "Traceback|Error inesperado|Error de base de datos" | tail -150
+fi
+echo '--- Últimas líneas crudas del backend (contexto) ---'
+docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=60 backend
+'''
+                    }
+                }
+            }
+        }
+
         stage('Tests (Contenedor Python)') {
             agent {
                 dockerfile {
