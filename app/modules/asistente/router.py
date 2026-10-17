@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -25,6 +25,20 @@ from app.modules.ingesta.domain.parametros import PARAMETROS_INGESTA, ambiente_d
 router = APIRouter(prefix="/asistente", tags=["Asistente IA (RAG)"])
 
 VectorDatabaseSession = Annotated[AsyncSession, Depends(get_vector_db)]
+
+
+def esquema_vectorial_listo(request: Request) -> None:
+    """El asistente responde SOBRE el corpus indexado: sin el esquema vectorial preparado
+    (migraciones fallaron o nunca corrieron) la consulta fallaría con un 500 opaco. Responde
+    503 con el MISMO motivo que la ingesta (`app.state.ingesta_error`, fijado en el lifespan)."""
+    if getattr(request.app.state, "ingesta", None) is not None:
+        return
+    codigo, mensaje, detalles = getattr(request.app.state, "ingesta_error", None) or (
+        "INGESTION_NOT_CONFIGURED",
+        "El asistente no está disponible: el esquema de la base vectorial no está preparado.",
+        None,
+    )
+    raise ServiceUnavailableError(codigo, mensaje, details=detalles)
 
 
 def obtener_ambiente() -> str:
@@ -71,10 +85,12 @@ def get_proveedor_embeddings() -> ProveedorEmbeddingsConsulta:
 )
 async def consultar(
     payload: ConsultaRequest,
+    # 401/403 ANTES que 502/503 (esquema/OCI/LLM): la autenticación tiene prioridad.
+    _usuario: AdministradorUser,
     db: DatabaseSession,
+    _esquema: Annotated[None, Depends(esquema_vectorial_listo)],
     db_vectorial: VectorDatabaseSession,
     ambiente: Annotated[str, Depends(obtener_ambiente)],
-    _usuario: AdministradorUser,
     proveedor_embeddings: Annotated[ProveedorEmbeddingsConsulta, Depends(get_proveedor_embeddings)],
     proveedor_llm: Annotated[ProveedorLlm, Depends(get_proveedor_llm)],
 ) -> ConsultaResponse:
