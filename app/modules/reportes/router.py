@@ -5,18 +5,25 @@ from __future__ import annotations
 
 import uuid
 from typing import Annotated
-
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
 from app.core.config import settings
 from app.core.dependencies import AdministradorUser, DatabaseSession
 from app.core.exceptions import ServiceUnavailableError
+
 from app.modules.ingesta.domain.parametros import ambiente_desde_app_env
 from app.modules.reportes.schemas import GenerarReporteRequest, ReporteResumen
 from app.modules.reportes.service import generar_reporte, listar_reportes, obtener_pdf, vista_previa
 
 router = APIRouter(prefix="/reportes", tags=["Reportes de Prospección"])
+
+
+_RESPUESTAS_COMUNES = {
+    401: {"description": "No autenticado o sesión inválida."},
+    403: {"description": "Requiere rol Administrador."},
+    503: {"description": "Servicio no disponible por configuración."},
+}
 
 
 def obtener_ambiente() -> str:
@@ -32,7 +39,14 @@ def obtener_ambiente() -> str:
 Ambiente = Annotated[str, Depends(obtener_ambiente)]
 
 
-@router.post("/vista-previa", summary="Vista previa del reporte (PDF, sin guardar)")
+@router.post(
+    "/vista-previa",
+    summary="Vista previa del reporte (PDF, sin guardar)",
+    responses={
+        **_RESPUESTAS_COMUNES,
+        200: {"content": {"application/pdf": {}}, "description": "PDF del reporte generado."},
+    },
+)
 async def generar_vista_previa(
     payload: GenerarReporteRequest,
     db: DatabaseSession,
@@ -43,7 +57,13 @@ async def generar_vista_previa(
     return Response(content=pdf, media_type="application/pdf")
 
 
-@router.post("", response_model=ReporteResumen, status_code=201, summary="Generar reporte de prospección (PDF)")
+@router.post(
+    "",
+    response_model=ReporteResumen,
+    status_code=201,
+    summary="Generar reporte de prospección (PDF)",
+    responses=_RESPUESTAS_COMUNES,
+)
 async def generar(
     payload: GenerarReporteRequest,
     db: DatabaseSession,
@@ -59,12 +79,24 @@ async def generar(
     )
 
 
-@router.get("", response_model=list[ReporteResumen], summary="Historial de reportes")
+@router.get(
+    "",
+    response_model=list[ReporteResumen],
+    summary="Historial de reportes",
+    responses=_RESPUESTAS_COMUNES,
+)
 async def listar(db: DatabaseSession, usuario: AdministradorUser) -> list[ReporteResumen]:
     return await listar_reportes(db)
 
 
-@router.get("/{reporte_id}/archivo", summary="Descargar el PDF del reporte")
+@router.get(
+    "/{reporte_id}/archivo",
+    summary="Descargar el PDF del reporte",
+    responses={
+        **_RESPUESTAS_COMUNES,
+        200: {"content": {"application/pdf": {}}, "description": "PDF del reporte."},
+    },
+)
 async def descargar(
     reporte_id: uuid.UUID,
     db: DatabaseSession,

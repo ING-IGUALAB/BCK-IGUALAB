@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
-from app.models import ReporteProspeccion, TipoEventoAuditoria
+from app.models import Empresa, ReporteProspeccion, TipoEventoAuditoria, Usuario
 from app.modules.analisis_gri.application.servicio import obtener_analisis_validado
 from app.modules.auditoria.service import registrar_evento
 from app.modules.reportes.domain.plantilla import datos_desde_analisis, renderizar
@@ -22,12 +22,22 @@ from app.modules.reportes.infrastructure.pdf import compilar_html_a_pdf
 from app.modules.reportes.schemas import ReporteResumen
 
 
-def _resumen(r: ReporteProspeccion) -> ReporteResumen:
+async def _nombres(db: AsyncSession, empresa_id: uuid.UUID, usuario_id: uuid.UUID) -> tuple[str, str]:
+    """Devuelve (nombre de la empresa, nombre del usuario) para enriquecer el resumen."""
+    empresa = (await db.execute(select(Empresa.nombre).where(Empresa.id == empresa_id))).scalar_one_or_none()
+    usuario = (await db.execute(select(Usuario.nombre).where(Usuario.id == usuario_id))).scalar_one_or_none()
+    return empresa or "", usuario or ""
+
+
+async def _resumen(db: AsyncSession, r: ReporteProspeccion) -> ReporteResumen:
+    empresa_nombre, generado_por_nombre = await _nombres(db, r.empresa_id, r.generado_por)
     return ReporteResumen(
         id=r.id,
         empresa_id=r.empresa_id,
+        empresa_nombre=empresa_nombre,
         anio=r.anio,
         generado_por=r.generado_por,
+        generado_por_nombre=generado_por_nombre,
         sha256=r.sha256,
         creado_en=r.creado_en,
     )
@@ -87,7 +97,7 @@ async def generar_reporte(
     )
     await db.commit()
     await db.refresh(reporte)
-    return _resumen(reporte)
+    return await _resumen(db, reporte)
 
 
 async def vista_previa(
@@ -110,7 +120,7 @@ async def vista_previa(
 
 async def listar_reportes(db: AsyncSession) -> list[ReporteResumen]:
     filas = (await db.execute(select(ReporteProspeccion).order_by(ReporteProspeccion.creado_en.desc()))).scalars().all()
-    return [_resumen(r) for r in filas]
+    return [await _resumen(db, r) for r in filas]
 
 
 async def obtener_pdf(db: AsyncSession, reporte_id: uuid.UUID, *, usuario_id: uuid.UUID) -> bytes:

@@ -16,6 +16,7 @@ class Cita(BaseModel):
     """Fuente verificada de la respuesta (RN-034). Solo cita fragmentos que existen en el contexto."""
 
     documento_id: uuid.UUID
+    documento_nombre: str = Field(description="Nombre del archivo del documento citado.")
     seccion: str = Field(description="Ruta de encabezados del fragmento citado.")
     anio: int
     empresa_id: uuid.UUID

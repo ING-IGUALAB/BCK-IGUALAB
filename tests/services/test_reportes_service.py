@@ -64,8 +64,12 @@ def _parchear(monkeypatch, *, compilar=b"%PDF-1.4 fake"):
     async def _validado(*a, **k):
         return _analisis()
 
+    async def _nombres(*a, **k):
+        return ("Empresa de prueba", "Usuario de prueba")
+
     monkeypatch.setattr(svc, "obtener_analisis_validado", _validado)
     monkeypatch.setattr(svc, "compilar_html_a_pdf", lambda html, **k: compilar)
+    monkeypatch.setattr(svc, "_nombres", _nombres)
     return svc
 
 

@@ -63,6 +63,11 @@ def get_proveedor_embeddings() -> ProveedorEmbeddingsConsulta:
     "/consultas",
     response_model=ConsultaResponse,
     summary="Consultar al asistente IA sobre el corpus indexado (RAG con citas)",
+    responses={
+        401: {"description": "No autenticado o sesión inválida."},
+        403: {"description": "Requiere rol Administrador."},
+        503: {"description": "Servicio no disponible por configuración."},
+    },
 )
 async def consultar(
     payload: ConsultaRequest,

@@ -14,6 +14,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.documento_ingesta import Documento
 from app.models import Empresa
 from app.modules.asistente.domain.citas import procesar_citas
 from app.modules.asistente.domain.prompt import SISTEMA, construir_prompt_usuario, validar_pregunta
@@ -93,16 +94,25 @@ async def responder_consulta(
 
     # 5) post-verificación de citas (RN-034)
     texto_limpio, citados = procesar_citas(desde_llm, fragmentos)
-    citas = [_a_cita(f) for f in citados]
+    nombres = await _nombres_documentos(db, {f.documento_id for f in citados})
+    citas = [_a_cita(f, nombres.get(f.documento_id, "")) for f in citados]
     return ConsultaResponse(respuesta=texto_limpio, citas=citas, sin_evidencia=False)
 
 
-def _a_cita(f: FragmentoRecuperado) -> Cita:
+async def _nombres_documentos(db: AsyncSession, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    if not ids:
+        return {}
+    filas = (await db.execute(select(Documento.id, Documento.nombre_archivo).where(Documento.id.in_(ids)))).all()
+    return {fila.id: fila.nombre_archivo for fila in filas}
+
+
+def _a_cita(f: FragmentoRecuperado, documento_nombre: str) -> Cita:
     extracto = f.texto_literal.strip()
     if len(extracto) > 300:
         extracto = extracto[:297] + "…"
     return Cita(
         documento_id=f.documento_id,
+        documento_nombre=documento_nombre,
         seccion=f.seccion or "(sin sección)",
         anio=f.anio,
         empresa_id=f.empresa_id,

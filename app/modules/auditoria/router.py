@@ -21,6 +21,10 @@ router = APIRouter(prefix="/auditoria", tags=["Auditoría"])
     "",
     response_model=PaginaEventos,
     summary="Visualizar eventos de auditoría con filtros y paginación",
+    responses={
+        401: {"description": "No autenticado o sesión inválida."},
+        403: {"description": "Requiere rol SuperAdmin."},
+    },
 )
 async def listar(
     db: DatabaseSession,

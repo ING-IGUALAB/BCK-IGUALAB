@@ -108,9 +108,13 @@ def _parchear(monkeypatch, fragmentos, recuperables, *, llm):
     async def _empresas(_db, _emp):
         return [uuid.uuid4()]
 
+    async def _nombres(_db, ids):
+        return {fid: "documento.md" for fid in ids}
+
     monkeypatch.setattr(svc, "buscar_similares", _buscar)
     monkeypatch.setattr(svc, "documentos_recuperables", _recuperables)
     monkeypatch.setattr(svc, "_empresa_ids", _empresas)
+    monkeypatch.setattr(svc, "_nombres_documentos", _nombres)
     return llm
 
 
