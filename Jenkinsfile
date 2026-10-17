@@ -106,6 +106,13 @@ cp "$SECRET_FILE" .env
 set -eu
 docker compose -p "$COMPOSE_PROJECT" down
 docker compose -p "$COMPOSE_PROJECT" up -d --build
+sleep 25
+
+echo '--- Estado del backend ---'
+docker compose -p "$COMPOSE_PROJECT" ps -a
+
+echo '--- Logs de arranque ---'
+docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=200 backend
 
 echo '--- Diagnóstico OCI dentro del backend ---'
 docker compose -p "$COMPOSE_PROJECT" exec -T backend python - <<'PY'
@@ -148,7 +155,7 @@ if ruta.is_file():
 else:
     print("Configuración por archivo: NO DISPONIBLE")
     try:
-        from app.services.ingesta.proveedor_oci import _cargar_identidad
+        from app.modules.ingesta.infrastructure.proveedor_oci import _cargar_identidad
 
         config = _cargar_identidad()
         print("Identidad por variables OCI_*: OK")
@@ -157,12 +164,6 @@ else:
     except Exception as error:
         print("Identidad por variables falló:", type(error).__name__)
 PY
-
-echo '--- Estado del backend ---'
-docker compose -p "$COMPOSE_PROJECT" ps -a
-
-echo '--- Logs de arranque ---'
-docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=200 backend
 '''
                     }
                 }
