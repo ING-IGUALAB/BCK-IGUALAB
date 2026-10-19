@@ -45,7 +45,7 @@ from oci.generative_ai_inference import GenerativeAiInferenceClient
 from oci.generative_ai_inference.models import EmbedTextDetails, OnDemandServingMode
 
 from app.core.config import settings
-from app.modules.ingesta.domain.embeddings import IdentidadEmbeddings
+from app.modules.ingesta.domain.embeddings import IdentidadEmbeddings, ProveedorEmbeddings, ProveedorEmbeddingsConsulta
 from app.modules.ingesta.domain.parametros import PARAMETROS_INGESTA, ParametrosIngesta
 
 DIMENSIONES_EMBED_V4 = (256, 512, 1024, 1536)
@@ -87,7 +87,7 @@ def _cargar_identidad() -> dict:
     return oci.config.from_file(ruta, settings.OCI_CONFIG_PROFILE)
 
 
-class ProveedorEmbeddingsOCI:
+class ProveedorEmbeddingsOCI(ProveedorEmbeddings, ProveedorEmbeddingsConsulta):
     """Proveedor de embeddings respaldado por OCI Generative AI (Cohere Embed 4)."""
 
     def __init__(self, parametros: ParametrosIngesta | None = None) -> None:
@@ -100,7 +100,7 @@ class ProveedorEmbeddingsOCI:
         conexion = parametros.oci_connect_timeout_segundos
         lectura = parametros.oci_read_timeout_segundos
 
-        self.identidad = IdentidadEmbeddings(
+        self._identidad = IdentidadEmbeddings(
             proveedor="oci-cohere",
             modelo=settings.OCI_EMBED_MODEL,
             dimension=dimension,
@@ -115,6 +115,10 @@ class ProveedorEmbeddingsOCI:
             timeout=(conexion, lectura),
             retry_strategy=oci.retry.NoneRetryStrategy(),
         )
+
+    @property
+    def identidad(self) -> IdentidadEmbeddings:
+        return self._identidad
 
     def _detalles(self, textos: Sequence[str], input_type: str) -> EmbedTextDetails:
         return EmbedTextDetails(

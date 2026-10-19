@@ -78,7 +78,6 @@ async def generar_vista_previa(
 
 @router.post(
     "",
-    response_model=ReporteResumen,
     status_code=201,
     summary="Generar reporte de prospección (PDF)",
     description=(
@@ -111,7 +110,6 @@ async def generar(
 
 @router.get(
     "",
-    response_model=list[ReporteResumen],
     summary="Historial de reportes",
     responses=_RESPUESTAS_COMUNES,
 )

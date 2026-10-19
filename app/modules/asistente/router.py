@@ -78,7 +78,6 @@ def get_proveedor_embeddings() -> ProveedorEmbeddingsConsulta:
 
 @router.post(
     "/consultas",
-    response_model=ConsultaResponse,
     summary="Consultar al asistente IA sobre el corpus indexado (RAG con afirmaciones respaldadas)",
     description=(
         "Exige sector, empresa y año. Solo devuelve afirmaciones con referencia válida a un fragmento entregado al modelo y con una "

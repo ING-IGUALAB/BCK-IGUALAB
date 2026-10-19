@@ -41,8 +41,9 @@ def test_ambiente_desde_app_env(monkeypatch):
 
 def test_esquema_vectorial_sin_ingesta_responde_503_con_el_motivo_real():
     error = ("INGESTION_SCHEMA_NOT_READY", "no se pudo preparar el esquema", {"base": "vectorial"})
+    request = _request_con_estado(None, error)
     with pytest.raises(ServiceUnavailableError) as e:
-        esquema_vectorial_listo(_request_con_estado(None, error))
+        esquema_vectorial_listo(request)
     assert e.value.code == "INGESTION_SCHEMA_NOT_READY"
     assert e.value.details == {"base": "vectorial"}
 

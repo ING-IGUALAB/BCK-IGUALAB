@@ -87,7 +87,8 @@ async def test_generar_crea_reporte_con_snapshot_y_sha(monkeypatch):
     res = await generar_reporte(db, ambiente="development", empresa_id=uuid.uuid4(),
                                 anio=2025, usuario_id=uuid.uuid4(),
                                 compilar_pdf=lambda tex, **k: b"%PDF-1.4 fake")
-    assert res.sha256 and len(res.sha256) == 64
+    assert res.sha256
+    assert len(res.sha256) == 64
     assert any(hasattr(o, "snapshot") for o in db.agregados)
 
 
@@ -106,7 +107,8 @@ async def test_generar_rechaza_si_ya_existe_sin_compilar_ni_registrar_nada(monke
     with pytest.raises(ConflictError) as e:
         await generar_reporte(db, ambiente="development", empresa_id=existente.empresa_id,
                               anio=2025, usuario_id=uuid.uuid4(), compilar_pdf=no_debe_compilar)
-    assert e.value.code == "REPORT_ALREADY_EXISTS" and e.value.details["reporte_id"] == str(existente.id)
+    assert e.value.code == "REPORT_ALREADY_EXISTS"
+    assert e.value.details["reporte_id"] == str(existente.id)
     assert db.agregados == []  # ni reporte nuevo ni evento de generación
     assert (existente.pdf, existente.sha256) == (b"ORIGINAL", "x")  # el anterior sigue intacto
 
@@ -119,9 +121,10 @@ async def test_no_validado_lanza_conflicto(monkeypatch):
         raise ConflictError("ANALYSIS_NOT_VALIDATED", "no validado")
 
     monkeypatch.setattr(svc, "obtener_analisis_validado", _no)
+    db, empresa_id, usuario_id = FakeDB(), uuid.uuid4(), uuid.uuid4()
     with pytest.raises(ConflictError):
-        await generar_reporte(FakeDB(), ambiente="development", empresa_id=uuid.uuid4(),
-                              anio=2025, usuario_id=uuid.uuid4(),
+        await generar_reporte(db, ambiente="development", empresa_id=empresa_id,
+                              anio=2025, usuario_id=usuario_id,
                               compilar_pdf=lambda tex, **k: b"%PDF-1.4 fake")
 
 
@@ -153,7 +156,8 @@ async def test_generar_registra_evento_generacion_reporte(monkeypatch):
     await generar_reporte(db, ambiente="development", empresa_id=uuid.uuid4(), anio=2025,
                           usuario_id=uuid.uuid4(), compilar_pdf=lambda tex, **k: b"%PDF-1.4")
     eventos = [o for o in db.agregados if isinstance(o, RegistroAuditoria)]
-    assert eventos and eventos[0].tipo_evento is TipoEventoAuditoria.GENERACION_REPORTE
+    assert eventos
+    assert eventos[0].tipo_evento is TipoEventoAuditoria.GENERACION_REPORTE
     assert eventos[0].resultado == "EXITOSO"
 
 
@@ -165,5 +169,6 @@ async def test_descargar_registra_evento_descarga():
     pdf = await obtener_pdf(db, uuid.uuid4(), usuario_id=uuid.uuid4())
     assert pdf == b"%PDF-1.4"
     eventos = [o for o in db.agregados if isinstance(o, RegistroAuditoria)]
-    assert eventos and eventos[0].tipo_evento is TipoEventoAuditoria.DESCARGA
+    assert eventos
+    assert eventos[0].tipo_evento is TipoEventoAuditoria.DESCARGA
     assert eventos[0].resultado == "EXITOSO"

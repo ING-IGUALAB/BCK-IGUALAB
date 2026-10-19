@@ -42,13 +42,16 @@ def _datos_ejemplo():
 
 def test_renderizar_produce_html_valido():
     html = renderizar(_datos_ejemplo())
-    assert "<!DOCTYPE html>" in html and "Resumen ejecutivo" in html
-    assert "Minera" in html and "305" in html
+    assert "<!DOCTYPE html>" in html
+    assert "Resumen ejecutivo" in html
+    assert "Minera" in html
+    assert "305" in html
 
 
 def test_datos_desde_analisis_construye_conteo_y_puntaje():
     d = datos_desde_analisis(_analisis_fake(), "2026-10-15")
-    assert d["conteo_ok"] == 1 and d["conteo_sub"] == 1
+    assert d["conteo_ok"] == 1
+    assert d["conteo_sub"] == 1
     assert d["puntaje"] == "50"
     assert d["sanciones_total"] == 2
     assert len(d["filas"]) == 2
@@ -74,4 +77,5 @@ def test_compila_pdf_real():
     from app.modules.reportes.infrastructure.pdf import compilar_html_a_pdf
 
     pdf = compilar_html_a_pdf(renderizar(_datos_ejemplo()))
-    assert pdf[:5] == b"%PDF-" and len(pdf) > 1000
+    assert pdf[:5] == b"%PDF-"
+    assert len(pdf) > 1000
