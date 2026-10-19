@@ -415,6 +415,7 @@ async def test_la_aplicacion_real_arranca_sin_configuracion_de_ingesta(monkeypat
 
     monkeypatch.setattr(main, "crear_tablas", AsyncMock())
     monkeypatch.setattr(main, "crear_superadmin_inicial", AsyncMock())
+    monkeypatch.setattr(main, "exigir_esquema_central", AsyncMock())  # su verificación contra PostgreSQL real está en test_esquema_central_postgres
     monkeypatch.setattr("app.core.config.settings.OCI_COMPARTMENT_ID", None)
     monkeypatch.setattr("app.core.config.settings.VECTOR_DATABASE_URL", None)
     monkeypatch.setattr("app.core.config.settings.MINIO_ENDPOINT_URL", None)

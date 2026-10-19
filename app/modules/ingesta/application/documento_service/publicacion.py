@@ -4,7 +4,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError, ExternalServiceError
 from app.modules.auditoria.service import registrar_evento
-from app.models import TipoEventoAuditoria
+from app.models import ResultadoAuditoria, TipoEventoAuditoria
 from app.models.documento_ingesta import Documento, EstadoProcesamiento, EtapaIngesta, ResultadoAnalisis
 from app.modules.ingesta.infrastructure import fragmentos_vectoriales as vectores
 from app.modules.ingesta.domain import validacion
@@ -90,6 +90,7 @@ async def publicar_documento(
         f"Ingesta completada (base transaccional); documento_id={documento_id}; "
         f"resultado={resultado_analisis.value}; publicacion_vectorial=pendiente",
         documento.usuario_id,
+        resultado=ResultadoAuditoria.EXITOSO,
     )
     await db.commit()
     documento = await _cargar(db, documento_id)
@@ -209,5 +210,6 @@ async def publicar_en_base_vectorial(
             TipoEventoAuditoria.INGESTA_DATOS,
             f"Publicación vectorial confirmada; documento_id={documento_id}; fragmentos={total}",
             usuario_id,
+            resultado=ResultadoAuditoria.EXITOSO,
         )
     return registrado

@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Usuario, RolUsuario, Sesion, TipoEventoAuditoria
+from app.models import Usuario, RolUsuario, Sesion, ResultadoAuditoria, TipoEventoAuditoria
 from app.core.security import hash_password, validar_politica_password
 from app.modules.auditoria.service import registrar_evento
 from app.core.exceptions import (
@@ -75,7 +75,7 @@ async def cambiar_estado_usuario(db: AsyncSession, usuario_id: uuid.UUID, habili
     registrar_evento(
         db, TipoEventoAuditoria.CAMBIO_ROL,
         f"{'Habilitó' if habilitar else 'Deshabilitó'} la cuenta de '{usuario.nombre}'",
-        usuario_id=actor.id,
+        usuario_id=actor.id, resultado=ResultadoAuditoria.EXITOSO,
     )
     await db.commit()
     await db.refresh(usuario)
@@ -113,7 +113,7 @@ async def transferir_superadmin(db: AsyncSession, origen: Usuario, destino_id: u
     registrar_evento(
         db, TipoEventoAuditoria.CAMBIO_ROL,
         f"Transfirió el rol SuperAdmin de '{origen.nombre}' a '{destino.nombre}'",
-        usuario_id=origen.id,
+        usuario_id=origen.id, resultado=ResultadoAuditoria.EXITOSO,
     )
     await db.commit()
 

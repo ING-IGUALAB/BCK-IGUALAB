@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Igualab · E2E HTTP del backend (flujos A–G)",
-    "description": "Flujos A (administración y revocación de acceso), B (ingesta y validación GRI), C (duplicado por contenido), D (empresa inactiva), E (reportes de prospección en PDF), F (asistente de IA / RAG) y G (auditoría funcional) sobre el backend desplegado. Sin mocks. B usa OCI real con una muestra mínima. E/F/G requieren a B (ejecutar B→C→E→F→G). Ver pruebas-http/README.md.",
+    "description": "Flujos A (administración y revocación de acceso), B (ingesta y validación GRI), C (duplicado por contenido), D (empresa inactiva), E (reportes de prospección en PDF), F (asistente de IA / RAG) y G (auditoría funcional) sobre el backend desplegado. Sin mocks. B usa OCI real con una muestra mínima. C, E, F y G requieren a B; la carpeta Z cierra los datos de B al final. Ver pruebas-http/README.md.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -1911,7 +1911,7 @@
     },
     {
       "name": "C. Rechazo de duplicado por contenido",
-      "description": "Reenvía EXACTAMENTE los mismos bytes del documento de B con otro nombre de archivo y otro año (así solo coincide el SHA-256, no empresa/año/tipo). Requiere a B: ejecutar `--carpeta B --carpeta C`.",
+      "description": "Reenvía EXACTAMENTE los mismos bytes del documento de B con otro nombre de archivo y otro año (así solo coincide el SHA-256, no empresa/año/tipo). Requiere a B: ejecutar `--carpeta B --carpeta C`. No cierra los datos de B: lo hace Z, al final.",
       "item": [
         {
           "name": "C1 Crear otra operación de ingesta",
@@ -2280,110 +2280,6 @@
               }
             ],
             "url": "{{base_url}}/documentos?empresa_id={{b_empresa_id}}&anio={{anio_c}}"
-          }
-        },
-        {
-          "name": "C7 Cierre: desactivar la empresa de B",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "",
-                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
-                  "const v = (nombre) => pm.variables.get(nombre);",
-                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
-                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
-                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
-                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
-                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
-                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
-                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
-                  "const errorContrato = (estado, codigo) => {",
-                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
-                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
-                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
-                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
-                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
-                  "    pm.expect(j.error.code).to.equal(codigo);",
-                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
-                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
-                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
-                  "  });",
-                  "};",
-                  "",
-                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
-                  "pm.test(\"empresa inactiva\", () => { ((j) => { pm.expect(j.activa).to.equal(false); })(j, v, {}); });"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{b_token_super}}"
-              }
-            ],
-            "url": "{{base_url}}/empresas/{{b_empresa_id}}/desactivar"
-          }
-        },
-        {
-          "name": "C8 Cierre: deshabilitar al Administrador de B",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "",
-                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
-                  "const v = (nombre) => pm.variables.get(nombre);",
-                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
-                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
-                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
-                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
-                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
-                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
-                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
-                  "const errorContrato = (estado, codigo) => {",
-                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
-                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
-                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
-                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
-                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
-                  "    pm.expect(j.error.code).to.equal(codigo);",
-                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
-                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
-                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
-                  "  });",
-                  "};",
-                  "",
-                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
-                  "pm.test(\"cuenta deshabilitada\", () => { ((j) => { pm.expect(j.habilitado).to.equal(false); })(j, v, {}); });"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{b_token_super}}"
-              }
-            ],
-            "url": "{{base_url}}/usuarios/{{b_admin_id}}/deshabilitar"
           }
         }
       ]
@@ -3418,6 +3314,133 @@
           }
         },
         {
+          "name": "E3b Una segunda generación para la misma empresa/año se rechaza → 409 REPORT_ALREADY_EXISTS",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
+                  "const v = (nombre) => pm.variables.get(nombre);",
+                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
+                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
+                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
+                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
+                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
+                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
+                  "const errorContrato = (estado, codigo) => {",
+                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
+                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
+                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
+                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
+                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
+                  "    pm.expect(j.error.code).to.equal(codigo);",
+                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
+                  "  });",
+                  "};",
+                  "",
+                  "errorContrato(409, \"REPORT_ALREADY_EXISTS\");",
+                  "pm.test('detalles de REPORT_ALREADY_EXISTS', () => { ((d, v) => {",
+                  "          pm.expect(d.reporte_id).to.equal(v('e_reporte_id'));",
+                  "          pm.expect(d.empresa_id).to.equal(v('b_empresa_id'));",
+                  "          pm.expect(d.anio).to.equal(Number(v('anio_b')));",
+                  "        })(j.error.details, v); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{b_token_admin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/reportes",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"empresa_id\": \"{{b_empresa_id}}\",\n  \"anio\": \"{{anio_b}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El reporte es inmutable (RN-041): no hay versiones, sustitución ni regeneración. El conflicto identifica el reporte existente."
+          }
+        },
+        {
+          "name": "E3c El reporte original sigue intacto en el historial tras el rechazo (mismo id y sha256)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
+                  "const v = (nombre) => pm.variables.get(nombre);",
+                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
+                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
+                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
+                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
+                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
+                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
+                  "const errorContrato = (estado, codigo) => {",
+                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
+                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
+                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
+                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
+                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
+                  "    pm.expect(j.error.code).to.equal(codigo);",
+                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
+                  "  });",
+                  "};",
+                  "",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"un único reporte de la empresa/año, el original, con su sha256\", () => { ((j, v) => {",
+                  "          const delaEmpresa = j.filter((r) => r.empresa_id === v('b_empresa_id') && r.anio === Number(v('anio_b')));",
+                  "          pm.expect(delaEmpresa).to.have.length(1);",
+                  "          pm.expect(delaEmpresa[0].id).to.equal(v('e_reporte_id'));",
+                  "          pm.expect(delaEmpresa[0].sha256).to.equal(v('e_sha256'));",
+                  "        })(j, v, {}); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{b_token_admin}}"
+              }
+            ],
+            "url": "{{base_url}}/reportes"
+          }
+        },
+        {
           "name": "E4 Vista previa del reporte (misma plantilla, sin guardar) → application/pdf",
           "event": [
             {
@@ -3449,7 +3472,7 @@
                   "};",
                   "",
                   "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
-                  "pm.test(\"la vista previa es un PDF (no persiste: no se comprueba aquí)\", () => { (() => {",
+                  "pm.test(\"la vista previa es un PDF (no persiste ni sustituye el reporte existente: E3c ya lo comprobó)\", () => { (() => {",
                   "          pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/pdf');",
                   "          pm.expect(pm.response.text().slice(0, 5)).to.equal('%PDF-');",
                   "        })(j, v, {}); });"
@@ -3783,10 +3806,10 @@
     },
     {
       "name": "F. Asistente de IA (RAG)",
-      "description": "Sobre el documento publicado de B: un Administrador consulta al asistente y recibe respuesta con citas verificadas; un SuperAdmin no puede (403); sin sesión 401. Requiere a B y OCI+LLM configurados.",
+      "description": "Sobre el documento publicado de B: un Administrador consulta al asistente y recibe respuesta con fuentes verificables (el caso positivo exige evidencia); un año sin documentos declara la ausencia de evidencia; sin sector 422; un SuperAdmin no puede (403); sin sesión 401. Requiere a B y OCI+LLM configurados.",
       "item": [
         {
-          "name": "F1 Consultar al asistente sobre la empresa/año de B → respuesta con citas",
+          "name": "F1 Consulta positiva con sector, empresa y año de B → respuesta CON evidencia verificable",
           "event": [
             {
               "listen": "test",
@@ -3817,20 +3840,46 @@
                   "};",
                   "",
                   "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
-                  "pm.test(\"ConsultaResponse: respuesta, citas verificadas y bandera de evidencia\", () => { ((j) => {",
-                  "          pm.expect(Object.keys(j)).to.have.members(['respuesta', 'citas', 'sin_evidencia', 'mensaje']);",
+                  "pm.test(\"ConsultaResponse: respuesta, afirmaciones, citas, bandera de evidencia, motivo, mensaje y descartadas\", () => { ((j) => {",
+                  "          pm.expect(Object.keys(j)).to.have.members(['respuesta', 'afirmaciones', 'citas', 'sin_evidencia', 'motivo', 'mensaje', 'afirmaciones_descartadas']);",
                   "          pm.expect(j.respuesta).to.be.a('string');",
+                  "          pm.expect(j.afirmaciones).to.be.an('array');",
                   "          pm.expect(j.citas).to.be.an('array');",
                   "          pm.expect(j.sin_evidencia).to.be.a('boolean');",
-                  "          // Si hay respuesta fundamentada, debe traer citas con su documento y sección.",
-                  "          if (!j.sin_evidencia) {",
-                  "            pm.expect(j.citas.length).to.be.above(0);",
-                  "            j.citas.forEach((c) => {",
-                  "              pm.expect(esUuid(c.documento_id)).to.equal(true);",
-                  "              pm.expect(c.seccion).to.be.a('string');",
-                  "              pm.expect(c.extracto).to.be.a('string').and.not.empty;",
+                  "        })(j, v, {}); });",
+                  "pm.test(\"hay evidencia: «sin evidencia» no cuenta como éxito del caso positivo\", () => { ((j) => {",
+                  "          pm.expect(j.sin_evidencia, 'se esperaba una respuesta con evidencia; motivo informado: ' + j.motivo).to.equal(false);",
+                  "          pm.expect(j.motivo).to.equal(null);",
+                  "          pm.expect(j.respuesta).to.be.a('string').and.not.empty;",
+                  "          pm.expect(j.afirmaciones.length).to.be.above(0);",
+                  "          pm.expect(j.citas.length).to.be.above(0);",
+                  "        })(j, v, {}); });",
+                  "pm.test(\"cada afirmación enlaza con sus fuentes y su cita textual consta literalmente en el documento enviado\", () => { ((j, v) => {",
+                  "          const normalizar = (t) => String(t).normalize('NFKC').toLowerCase().replace(/\\|/g, ' ').replace(/[*`]/g, '').split(/\\s+/).filter(Boolean).join(' ');",
+                  "          const documento = normalizar(v('texto_b'));",
+                  "          const referencias = j.citas.map((c) => c.referencia);",
+                  "          j.afirmaciones.forEach((a) => {",
+                  "            pm.expect(a.texto).to.be.a('string').and.not.empty;",
+                  "            pm.expect(a.referencias.length).to.be.above(0);",
+                  "            a.referencias.forEach((n) => {",
+                  "              pm.expect(referencias, 'la referencia ' + n + ' figura en citas').to.include(n);",
+                  "              pm.expect(j.respuesta, 'el texto de la respuesta lleva el marcador [' + n + ']').to.include('[' + n + ']');",
                   "            });",
-                  "          }",
+                  "            pm.expect(documento.includes(normalizar(a.cita_textual)), 'la cita textual figura en el documento de B').to.equal(true);",
+                  "          });",
+                  "          const usadas = Array.from(new Set([].concat(...j.afirmaciones.map((a) => a.referencias)))).sort();",
+                  "          pm.expect(referencias.slice().sort(), 'solo se muestran las fuentes que respaldan alguna afirmación').to.deep.equal(usadas);",
+                  "        })(j, v, {}); });",
+                  "pm.test(\"cada fuente identifica documento, empresa y año de B\", () => { ((j, v) => {",
+                  "          j.citas.forEach((c) => {",
+                  "            pm.expect(c.documento_id).to.equal(v('b_documento_id'));",
+                  "            pm.expect(c.documento_nombre).to.equal(v('nombre_b'));",
+                  "            pm.expect(c.empresa_id).to.equal(v('b_empresa_id'));",
+                  "            pm.expect(c.empresa_nombre).to.equal('E2E ' + v('run_id') + ' Empresa B');",
+                  "            pm.expect(c.anio).to.equal(Number(v('anio_b')));",
+                  "            pm.expect(c.seccion).to.be.a('string');",
+                  "            pm.expect(c.extracto).to.be.a('string').and.not.empty;",
+                  "          });",
                   "        })(j, v, {}); });"
                 ]
               }
@@ -3855,7 +3904,216 @@
             "url": "{{base_url}}/asistente/consultas",
             "body": {
               "mode": "raw",
+              "raw": "{\n  \"pregunta\": \"¿Según qué estándar GRI se reporta el consumo energético de la organización?\",\n  \"sector\": \"ENERGIA\",\n  \"empresa_id\": \"{{b_empresa_id}}\",\n  \"anio\": \"{{anio_b}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Caso positivo: la muestra de B dice que el consumo energético se reporta según GRI 302-1, así que el asistente DEBE responder con fuentes. Una respuesta «sin evidencia» NO es éxito aquí (la ausencia de evidencia se prueba en F1d). Depende de que OCI y el proveedor de chat respondan; si el modelo no respalda su respuesta, el caso falla a propósito."
+          }
+        },
+        {
+          "name": "F1d Consulta de un año sin documentos → ausencia de evidencia explícita (SIN_FRAGMENTOS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
+                  "const v = (nombre) => pm.variables.get(nombre);",
+                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
+                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
+                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
+                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
+                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
+                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
+                  "const errorContrato = (estado, codigo) => {",
+                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
+                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
+                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
+                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
+                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
+                  "    pm.expect(j.error.code).to.equal(codigo);",
+                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
+                  "  });",
+                  "};",
+                  "",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"sin_evidencia con su motivo y mensaje; sin respuesta, afirmaciones ni fuentes\", () => { ((j) => {",
+                  "          pm.expect(j.sin_evidencia).to.equal(true);",
+                  "          pm.expect(j.motivo).to.equal('SIN_FRAGMENTOS');",
+                  "          pm.expect(j.mensaje).to.be.a('string').and.not.empty;",
+                  "          pm.expect(j.respuesta).to.equal('');",
+                  "          pm.expect(j.afirmaciones).to.have.length(0);",
+                  "          pm.expect(j.citas).to.have.length(0);",
+                  "        })(j, v, {}); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{b_token_admin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/asistente/consultas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pregunta\": \"¿Según qué estándar GRI se reporta el consumo energético de la organización?\",\n  \"sector\": \"ENERGIA\",\n  \"empresa_id\": \"{{b_empresa_id}}\",\n  \"anio\": \"{{anio_c}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Caso de ausencia de evidencia determinista: B no tiene documentos del año del intento duplicado de C (C2 fue rechazado), así que no hay fragmentos y el servicio no consulta al modelo."
+          }
+        },
+        {
+          "name": "F1b Sin sector no hay consulta → 422 (la selección es obligatoria)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
+                  "const v = (nombre) => pm.variables.get(nombre);",
+                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
+                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
+                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
+                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
+                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
+                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
+                  "const errorContrato = (estado, codigo) => {",
+                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
+                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
+                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
+                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
+                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
+                  "    pm.expect(j.error.code).to.equal(codigo);",
+                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
+                  "  });",
+                  "};",
+                  "",
+                  "errorContrato(422, 'REQUEST_VALIDATION_ERROR');",
+                  "pm.test('422 describe qué campo falló, sin devolver el valor enviado (no hay \"input\")', () => {",
+                  "  pm.expect(j.error.details).to.be.an('array').that.is.not.empty;",
+                  "  j.error.details.forEach((d) => {",
+                  "    pm.expect(Object.keys(d)).to.have.members(['location', 'message', 'type']);",
+                  "  });",
+                  "  pm.expect(j.error.details.some((d) => d.location.includes(\"sector\"))).to.equal(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{b_token_admin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/asistente/consultas",
+            "body": {
+              "mode": "raw",
               "raw": "{\n  \"pregunta\": \"¿Qué indicadores GRI reporta la empresa?\",\n  \"empresa_id\": \"{{b_empresa_id}}\",\n  \"anio\": \"{{anio_b}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "F1c Sector que no corresponde a la empresa → 400 COMPANY_SECTOR_MISMATCH",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
+                  "const v = (nombre) => pm.variables.get(nombre);",
+                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
+                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
+                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
+                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
+                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
+                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
+                  "const errorContrato = (estado, codigo) => {",
+                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
+                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
+                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
+                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
+                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
+                  "    pm.expect(j.error.code).to.equal(codigo);",
+                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
+                  "  });",
+                  "};",
+                  "",
+                  "errorContrato(400, \"COMPANY_SECTOR_MISMATCH\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{b_token_admin}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/asistente/consultas",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pregunta\": \"¿Qué indicadores GRI reporta la empresa?\",\n  \"sector\": \"PETROLEO\",\n  \"empresa_id\": \"{{b_empresa_id}}\",\n  \"anio\": \"{{anio_b}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3919,7 +4177,7 @@
             "url": "{{base_url}}/asistente/consultas",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"pregunta\": \"¿Qué GRI reporta?\"\n}",
+              "raw": "{\n  \"pregunta\": \"¿Qué GRI reporta?\",\n  \"sector\": \"ENERGIA\",\n  \"empresa_id\": \"{{b_empresa_id}}\",\n  \"anio\": \"{{anio_b}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3980,7 +4238,7 @@
             "url": "{{base_url}}/asistente/consultas",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"pregunta\": \"x\"\n}",
+              "raw": "{\n  \"pregunta\": \"x\",\n  \"sector\": \"ENERGIA\",\n  \"empresa_id\": \"{{b_empresa_id}}\",\n  \"anio\": \"{{anio_b}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -4038,6 +4296,7 @@
                   "            pm.expect(e.tipo_evento).to.be.a('string').and.not.empty;",
                   "            pm.expect(e.detalle).to.be.a('string');",
                   "            pm.expect(esFecha(e.fecha_hora_utc)).to.equal(true);",
+                  "            pm.expect([null, 'EXITOSO', 'FALLIDO', 'DENEGADO'], 'resultado (nulo solo en eventos anteriores a la migración 0005)').to.include(e.resultado);",
                   "          });",
                   "        })(j, v, {}); });"
                 ]
@@ -4166,6 +4425,62 @@
           }
         },
         {
+          "name": "G3b El intento denegado del Administrador quedó registrado (ACCESO_DENEGADO, DENEGADO) a nombre de su cuenta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
+                  "const v = (nombre) => pm.variables.get(nombre);",
+                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
+                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
+                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
+                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
+                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
+                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
+                  "const errorContrato = (estado, codigo) => {",
+                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
+                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
+                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
+                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
+                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
+                  "    pm.expect(j.error.code).to.equal(codigo);",
+                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
+                  "  });",
+                  "};",
+                  "",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"al menos un evento de acceso denegado del Administrador, con resultado DENEGADO\", () => { ((j, v) => {",
+                  "          pm.expect(j.items.length).to.be.above(0);",
+                  "          j.items.forEach((e) => { pm.expect(e.usuario_id).to.equal(v('b_admin_id')); pm.expect(e.resultado).to.equal('DENEGADO'); });",
+                  "        })(j, v, {}); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{b_token_super}}"
+              }
+            ],
+            "url": "{{base_url}}/auditoria?tipo_evento=Acceso+denegado&usuario_id={{b_admin_id}}",
+            "description": "Requiere que G3 se haya ejecutado con una sesión VIGENTE del Administrador de B: su cierre ocurre en Z, después de G."
+          }
+        },
+        {
           "name": "G4 Sin sesión no hay auditoría → 401",
           "event": [
             {
@@ -4214,12 +4529,183 @@
           }
         }
       ]
+    },
+    {
+      "name": "Z. Cierre de los datos sintéticos de B",
+      "description": "Desactiva la empresa de B y deshabilita a su Administrador cuando ya terminaron todos los flujos que los usan (C, E, F, G). Va siempre al final y el ejecutor la añade cuando B forma parte de la selección. Solo toca datos creados por esta ejecución.",
+      "item": [
+        {
+          "name": "Z1 Cierre: desactivar la empresa de B",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
+                  "const v = (nombre) => pm.variables.get(nombre);",
+                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
+                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
+                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
+                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
+                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
+                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
+                  "const errorContrato = (estado, codigo) => {",
+                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
+                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
+                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
+                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
+                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
+                  "    pm.expect(j.error.code).to.equal(codigo);",
+                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
+                  "  });",
+                  "};",
+                  "",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"empresa de esta ejecución, inactiva\", () => { ((j, v) => { pm.expect(j.id).to.equal(v('b_empresa_id')); pm.expect(j.activa).to.equal(false); })(j, v, {}); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{b_token_super}}"
+              }
+            ],
+            "url": "{{base_url}}/empresas/{{b_empresa_id}}/desactivar"
+          }
+        },
+        {
+          "name": "Z2 Cierre: deshabilitar al Administrador de B",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
+                  "const v = (nombre) => pm.variables.get(nombre);",
+                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
+                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
+                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
+                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
+                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
+                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
+                  "const errorContrato = (estado, codigo) => {",
+                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
+                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
+                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
+                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
+                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
+                  "    pm.expect(j.error.code).to.equal(codigo);",
+                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
+                  "  });",
+                  "};",
+                  "",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test(\"cuenta de esta ejecución, deshabilitada\", () => { ((j, v) => { pm.expect(j.id).to.equal(v('b_admin_id')); pm.expect(j.habilitado).to.equal(false); })(j, v, {}); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{b_token_super}}"
+              }
+            ],
+            "url": "{{base_url}}/usuarios/{{b_admin_id}}/deshabilitar"
+          }
+        },
+        {
+          "name": "Z3 La sesión del Administrador de B quedó revocada → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "",
+                  "const j = (() => { try { return pm.response.json(); } catch (e) { return null; } })();",
+                  "const v = (nombre) => pm.variables.get(nombre);",
+                  "const set = (nombre, valor) => { if (valor !== undefined && valor !== null) { pm.collectionVariables.set(nombre, String(valor)); if (!/token|pwd|password/i.test(nombre)) { pm.environment.set(nombre, String(valor)); } } };",
+                  "const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+                  "const esUuid = (x) => typeof x === 'string' && UUID.test(x);",
+                  "const esFecha = (x) => typeof x === 'string' && !Number.isNaN(Date.parse(x));",
+                  "const esHex64 = (x) => typeof x === 'string' && /^[0-9a-f]{64}$/.test(x);",
+                  "const esJwt = (x) => typeof x === 'string' && x.split('.').length === 3 && x.length > 40;",
+                  "const sinSecretos = (cuerpo) => !/password|passwd|contrase|secret|hash/i.test(Object.keys(cuerpo || {}).join(','));",
+                  "const errorContrato = (estado, codigo) => {",
+                  "  pm.test('HTTP ' + estado, () => pm.response.to.have.status(estado));",
+                  "  pm.test('error ' + codigo + ' con el contrato {error:{code,message,details,request_id}}', () => {",
+                  "    pm.expect(j, 'el cuerpo debe ser JSON').to.be.an('object');",
+                  "    pm.expect(Object.keys(j)).to.have.members(['error']);",
+                  "    pm.expect(Object.keys(j.error)).to.have.members(['code', 'message', 'details', 'request_id']);",
+                  "    pm.expect(j.error.code).to.equal(codigo);",
+                  "    pm.expect(j.error.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(esUuid(j.error.request_id), 'request_id es un UUID').to.equal(true);",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID'), 'la cabecera X-Request-ID coincide con el cuerpo').to.equal(j.error.request_id);",
+                  "  });",
+                  "};",
+                  "",
+                  "errorContrato(401, 'INVALID_SESSION');",
+                  "pm.test('401 anuncia el esquema Bearer', () => pm.expect(pm.response.headers.get('WWW-Authenticate')).to.equal('Bearer'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{b_token_admin}}"
+              }
+            ],
+            "url": "{{base_url}}/empresas?solo_activas=true",
+            "description": "Comprueba que el cierre tuvo efecto (misma regla que A7). Si esta petición se ejecutara antes que E, F o G, esos flujos recibirían este 401."
+          }
+        }
+      ]
     }
   ],
   "variable": [
     {
       "key": "base_url",
       "value": "http://localhost:8000"
+    },
+    {
+      "key": "requisitos_carpetas",
+      "value": "{\"C\":[\"B\"],\"E\":[\"B\"],\"F\":[\"B\"],\"G\":[\"B\"],\"Z\":[\"B\"]}"
+    },
+    {
+      "key": "cierres_carpetas",
+      "value": "{\"B\":\"Z\"}"
     }
   ]
 }

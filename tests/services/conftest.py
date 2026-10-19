@@ -119,9 +119,13 @@ def url_pg_aislado(tmp_path_factory):
 async def fabrica_pg(url_pg_aislado):
     """`async_sessionmaker` sobre el clúster aislado, con las tablas vacías en cada prueba."""
     motor = create_async_engine(url_pg_aislado, pool_size=12, max_overflow=0)
-    tablas = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
     async with motor.begin() as conexion:
-        await conexion.execute(text(f"TRUNCATE {tablas} CASCADE"))
+        # Solo las tablas que existen en el clúster: `create_all` se ejecutó con los modelos cargados en ese momento y un test
+        # posterior puede importar más (p. ej. `app.main` registra `analisis_gri_*`); nombrarlas aquí rompía el fixture según el orden.
+        existentes = {fila[0] for fila in await conexion.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))}
+        tablas = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables if t.name in existentes)
+        if tablas:
+            await conexion.execute(text(f"TRUNCATE {tablas} CASCADE"))
     try:
         yield async_sessionmaker(motor, expire_on_commit=False)
     finally:

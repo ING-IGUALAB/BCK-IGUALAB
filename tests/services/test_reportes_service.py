@@ -1,4 +1,5 @@
-"""Tests del servicio de Reportes (Módulo 7) con dobles: genera, snapshot y un reporte por empresa/año."""
+"""Tests del servicio de Reportes (Módulo 7) con dobles (FakeDB): genera, snapshot, eventos y descarga. La garantía de inmutabilidad
+(restricción única, disparador, carrera) se prueba con PostgreSQL real en `test_reportes_postgres.py`: un doble no la demuestra."""
 from __future__ import annotations
 
 import uuid
@@ -31,12 +32,16 @@ class FakeDB:
     def __init__(self, existente=None):
         self.existente = existente
         self.agregados = []
+        self.revertido = False
 
     def add(self, obj):
         self.agregados.append(obj)
 
     async def commit(self):
         pass
+
+    async def rollback(self):
+        self.revertido = True
 
     async def refresh(self, obj):
         # simula los defaults del motor (id, creado_en)
@@ -50,6 +55,9 @@ class FakeDB:
 
         class R:
             def scalar_one_or_none(self):
+                return db.existente
+
+            def first(self):
                 return db.existente
 
         return R()
@@ -83,17 +91,24 @@ async def test_generar_crea_reporte_con_snapshot_y_sha(monkeypatch):
     assert any(hasattr(o, "snapshot") for o in db.agregados)
 
 
-async def test_generar_actualiza_si_ya_existe(monkeypatch):
+async def test_generar_rechaza_si_ya_existe_sin_compilar_ni_registrar_nada(monkeypatch):
+    from app.core.exceptions import ConflictError
+
     _parchear(monkeypatch)
-    existente = SimpleNamespace(empresa_id=uuid.uuid4(), anio=2025, pdf=b"", sha256="x",
+    existente = SimpleNamespace(empresa_id=uuid.uuid4(), anio=2025, pdf=b"ORIGINAL", sha256="x",
                                 snapshot={}, generado_por=uuid.uuid4(), id=uuid.uuid4(),
-                                creado_en=None)
+                                creado_en=datetime(2026, 10, 1, tzinfo=timezone.utc))
     db = FakeDB(existente=existente)
-    res = await generar_reporte(db, ambiente="development", empresa_id=existente.empresa_id,
-                                anio=2025, usuario_id=uuid.uuid4(),
-                                compilar_pdf=lambda tex, **k: b"%PDF-1.4 fake")
-    assert res.id == existente.id  # mismo registro (un reporte por empresa/año, RN-041)
-    assert existente.sha256 != "x"  # regenerado
+
+    def no_debe_compilar(*a, **k):
+        raise AssertionError("un reporte existente se rechaza antes de compilar")
+
+    with pytest.raises(ConflictError) as e:
+        await generar_reporte(db, ambiente="development", empresa_id=existente.empresa_id,
+                              anio=2025, usuario_id=uuid.uuid4(), compilar_pdf=no_debe_compilar)
+    assert e.value.code == "REPORT_ALREADY_EXISTS" and e.value.details["reporte_id"] == str(existente.id)
+    assert db.agregados == []  # ni reporte nuevo ni evento de generación
+    assert (existente.pdf, existente.sha256) == (b"ORIGINAL", "x")  # el anterior sigue intacto
 
 
 async def test_no_validado_lanza_conflicto(monkeypatch):
@@ -139,6 +154,7 @@ async def test_generar_registra_evento_generacion_reporte(monkeypatch):
                           usuario_id=uuid.uuid4(), compilar_pdf=lambda tex, **k: b"%PDF-1.4")
     eventos = [o for o in db.agregados if isinstance(o, RegistroAuditoria)]
     assert eventos and eventos[0].tipo_evento is TipoEventoAuditoria.GENERACION_REPORTE
+    assert eventos[0].resultado == "EXITOSO"
 
 
 async def test_descargar_registra_evento_descarga():
@@ -150,3 +166,4 @@ async def test_descargar_registra_evento_descarga():
     assert pdf == b"%PDF-1.4"
     eventos = [o for o in db.agregados if isinstance(o, RegistroAuditoria)]
     assert eventos and eventos[0].tipo_evento is TipoEventoAuditoria.DESCARGA
+    assert eventos[0].resultado == "EXITOSO"

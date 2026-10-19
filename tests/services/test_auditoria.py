@@ -35,7 +35,7 @@ def _fila(i):
     return type("F", (), {
         "id": uuid.uuid4(), "usuario_id": uuid.uuid4(),
         "tipo_evento": TipoEventoAuditoria.INICIO_SESION,
-        "detalle": f"evento {i}", "fecha_hora_utc": None,
+        "detalle": f"evento {i}", "fecha_hora_utc": None, "resultado": "EXITOSO" if i % 2 else None,
     })()
 
 

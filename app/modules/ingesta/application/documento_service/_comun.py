@@ -42,7 +42,7 @@ from app.core.exceptions import (
     NotFoundError,
 )
 from app.modules.auditoria.service import registrar_evento
-from app.models import TipoEventoAuditoria, Usuario
+from app.models import ResultadoAuditoria, TipoEventoAuditoria, Usuario
 from app.models.documento_ingesta import (
     Documento,
     EstadoProcesamiento,
@@ -195,12 +195,12 @@ def _es_violacion_de_reserva(exc: IntegrityError) -> bool:
 
 
 async def auditar_aparte(
-    db: AsyncSession, tipo: TipoEventoAuditoria, detalle: str, usuario_id: uuid.UUID | None
+    db: AsyncSession, tipo: TipoEventoAuditoria, detalle: str, usuario_id: uuid.UUID | None, *, resultado: ResultadoAuditoria
 ) -> bool:
     """Registra un evento de auditoría en su propia transacción. Nunca lanza: devuelve si se guardó.
     El detalle solo lleva identificadores y códigos (jamás contenido del documento ni credenciales)."""
     try:
-        registrar_evento(db, tipo, detalle[:500], usuario_id)
+        registrar_evento(db, tipo, detalle[:500], usuario_id, resultado=resultado)
         await db.commit()
         return True
     except Exception as exc:

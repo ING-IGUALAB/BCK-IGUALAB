@@ -71,7 +71,7 @@ from app.core.exceptions import (
     PayloadTooLargeError,
     codigo_seguro,
 )
-from app.models import TipoEventoAuditoria
+from app.models import ResultadoAuditoria, TipoEventoAuditoria
 from app.models.documento_ingesta import VIGENCIA_PREDETERMINADA, EtapaIngesta, ResultadoAnalisis
 from app.schemas import MetadatosIngestaRequest
 from app.modules.ingesta.application import documento_service as servicio
@@ -339,7 +339,8 @@ async def ingerir_documento(
             sha = documento_validado.sha256 if documento_validado is not None else None
             if isinstance(exc, _RECHAZOS_DEL_CLIENTE):
                 await servicio.auditar_aparte(
-                    db, TipoEventoAuditoria.RECHAZO_DOCUMENTO, _detalle_rechazo(exc, metadatos, sha), usuario_id
+                    db, TipoEventoAuditoria.RECHAZO_DOCUMENTO, _detalle_rechazo(exc, metadatos, sha), usuario_id,
+                    resultado=ResultadoAuditoria.FALLIDO,
                 )
             else:
                 await servicio.auditar_aparte(
@@ -347,6 +348,7 @@ async def ingerir_documento(
                     TipoEventoAuditoria.INGESTA_DATOS,
                     f"Ingesta no iniciada; codigo={codigo_seguro(exc)}; empresa_id={metadatos.empresa_id}",
                     usuario_id,
+                    resultado=ResultadoAuditoria.FALLIDO,
                 )
             raise
 

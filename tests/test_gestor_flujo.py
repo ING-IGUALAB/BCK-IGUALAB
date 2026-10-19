@@ -605,6 +605,7 @@ async def test_el_lifespan_real_prepara_el_esquema_tras_los_modulos_existentes_y
 
     monkeypatch.setattr(main, "crear_tablas", crear_tablas)
     monkeypatch.setattr(main, "crear_superadmin_inicial", superadmin)
+    monkeypatch.setattr(main, "exigir_esquema_central", AsyncMock())  # su verificación contra PostgreSQL real está en test_esquema_central_postgres
     monkeypatch.setattr("app.migraciones.catalogo.asegurar_esquema_ingesta", preparar)
     _gestor_doble(orden, monkeypatch)
     async with main.app.router.lifespan_context(main.app):

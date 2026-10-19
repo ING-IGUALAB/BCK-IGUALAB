@@ -34,9 +34,16 @@ ESQUEMA_TRANSACCIONAL = EsquemaBase(
             ("analisis_gri_control", "analisis_gri_estados", "analisis_gri_historial", "analisis_gri_validaciones"),
             carpeta="transaccional",
         ),
+        # Auditoría con resultado y solo inserción (RN-043/044/045) y reportes inmutables (RN-041). Sin `objetos` A PROPÓSITO: las
+        # tablas ya existen (create_all) y los disparadores no forman parte de la firma, así que no hay adopción posible; el SQL
+        # es idempotente (ver su cabecera).
+        Migracion(5, "auditoria_resultado_y_solo_insercion", "0005_auditoria_resultado_y_solo_insercion.sql", (), carpeta="transaccional"),
     ),
     # Los crea el arranque de los módulos existentes (`crear_tablas`), que corre ANTES que esta preparación.
-    prerrequisitos=(("tabla", "usuarios"), ("tabla", "empresas"), ("tipo", "sector_empresa")),
+    prerrequisitos=(
+        ("tabla", "usuarios"), ("tabla", "empresas"), ("tipo", "sector_empresa"),
+        ("tabla", "auditoria"), ("tabla", "reportes_prospeccion"), ("tipo", "tipoeventoauditoria"),
+    ),
 )
 
 ESQUEMA_VECTORIAL = EsquemaBase(

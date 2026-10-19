@@ -7,6 +7,10 @@ que el análisis queda disponible aunque la ingesta no esté configurada. Si ya 
 
 Si falla, la aplicación arranca igual: los demás módulos siguen disponibles y `/analisis-gri` responde 503
 `ANALYSIS_SCHEMA_NOT_READY` (sin URLs ni credenciales).
+
+EXCEPCIÓN. Este paso lleva TODA la base transaccional al último esquema, incluida la migración 0005 (auditoría) que necesita el
+inicio de sesión. Si falla antes de aplicarla, la degradación del módulo GRI NO basta: el `lifespan` ejecuta después
+`app.migraciones.compatibilidad.exigir_esquema_central`, que detiene el arranque si el esquema central es incompatible.
 """
 import logging
 

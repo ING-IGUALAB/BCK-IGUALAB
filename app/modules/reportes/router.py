@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
@@ -13,6 +14,7 @@ from app.core.dependencies import AdministradorUser, DatabaseSession
 from app.core.exceptions import ServiceUnavailableError
 
 from app.modules.ingesta.domain.parametros import ambiente_desde_app_env
+from app.modules.reportes.infrastructure.pdf import compilar_html_a_pdf
 from app.modules.reportes.schemas import GenerarReporteRequest, ReporteResumen
 from app.modules.reportes.service import generar_reporte, listar_reportes, obtener_pdf, vista_previa
 
@@ -39,11 +41,27 @@ def obtener_ambiente() -> str:
 Ambiente = Annotated[str, Depends(obtener_ambiente)]
 
 
+def obtener_compilador_pdf() -> Callable[[str], bytes]:
+    """Motor HTML→PDF. Dependencia para poder sustituirlo en las pruebas HTTP sin WeasyPrint."""
+    return compilar_html_a_pdf
+
+
+CompiladorPdf = Annotated[Callable[[str], bytes], Depends(obtener_compilador_pdf)]
+
+_ERRORES_DE_ANALISIS = {
+    404: {"description": "Empresa inexistente (`COMPANY_NOT_FOUND`)."},
+    409: {"description": "El análisis GRI no tiene una validación vigente (`ANALYSIS_NOT_VALIDATED`)."},
+    502: {"description": "No se pudo compilar el PDF (`PDF_GENERATION_ERROR`)."},
+}
+
+
 @router.post(
     "/vista-previa",
     summary="Vista previa del reporte (PDF, sin guardar)",
+    description="No crea, modifica ni sustituye ningún reporte, exista o no uno para la empresa y el año.",
     responses={
         **_RESPUESTAS_COMUNES,
+        **_ERRORES_DE_ANALISIS,
         200: {"content": {"application/pdf": {}}, "description": "PDF del reporte generado."},
     },
 )
@@ -52,8 +70,9 @@ async def generar_vista_previa(
     db: DatabaseSession,
     ambiente: Ambiente,
     usuario: AdministradorUser,
+    compilar: CompiladorPdf,
 ) -> Response:
-    pdf = await vista_previa(db, ambiente=ambiente, empresa_id=payload.empresa_id, anio=payload.anio)
+    pdf = await vista_previa(db, ambiente=ambiente, empresa_id=payload.empresa_id, anio=payload.anio, compilar_pdf=compilar)
     return Response(content=pdf, media_type="application/pdf")
 
 
@@ -62,13 +81,23 @@ async def generar_vista_previa(
     response_model=ReporteResumen,
     status_code=201,
     summary="Generar reporte de prospección (PDF)",
-    responses=_RESPUESTAS_COMUNES,
+    description=(
+        "Genera el reporte de la empresa y el año a partir del análisis GRI validado. El reporte es INMUTABLE (LTX:RN-041): si ya "
+        "existe uno para la misma empresa y año responde 409 `REPORT_ALREADY_EXISTS` (con `details.reporte_id`) y no cambia nada; "
+        "no hay versiones, sustitución, eliminación ni regeneración."
+    ),
+    responses={
+        **_RESPUESTAS_COMUNES,
+        **_ERRORES_DE_ANALISIS,
+        409: {"description": "`REPORT_ALREADY_EXISTS` (ya hay un reporte de la empresa y el año) o `ANALYSIS_NOT_VALIDATED`."},
+    },
 )
 async def generar(
     payload: GenerarReporteRequest,
     db: DatabaseSession,
     ambiente: Ambiente,
     usuario: AdministradorUser,
+    compilar: CompiladorPdf,
 ) -> ReporteResumen:
     return await generar_reporte(
         db,
@@ -76,6 +105,7 @@ async def generar(
         empresa_id=payload.empresa_id,
         anio=payload.anio,
         usuario_id=usuario.id,
+        compilar_pdf=compilar,
     )
 
 
@@ -92,8 +122,10 @@ async def listar(db: DatabaseSession, usuario: AdministradorUser) -> list[Report
 @router.get(
     "/{reporte_id}/archivo",
     summary="Descargar el PDF del reporte",
+    description="Entrega el PDF almacenado al generarse (sin recompilar); su SHA-256 es el de `ReporteResumen.sha256`.",
     responses={
         **_RESPUESTAS_COMUNES,
+        404: {"description": "El reporte no existe (`REPORT_NOT_FOUND`)."},
         200: {"content": {"application/pdf": {}}, "description": "PDF del reporte."},
     },
 )

@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import BusinessValidationError, es_codigo_valido
-from app.models import TipoEventoAuditoria
+from app.models import ResultadoAuditoria, TipoEventoAuditoria
 from app.models.documento_ingesta import Documento, EstadoCompensacion, EstadoProcesamiento, EtapaIngesta, ResultadoAnalisis
 from ._comun import _ahora, _cargar, _condiciones_ejecutor, _conflicto_de_estado, _entero_no_negativo, _exigir_instante, _exigir_token, _json_seguro, _terminar_lectura, _transicion, auditar_aparte
 
@@ -90,6 +90,7 @@ async def fallar_documento(
         f"Ingesta fallida; documento_id={documento_id}; motivo={motivo}; "
         f"origen={'recuperacion' if vencido_antes_de is not None else 'ejecutor'}",
         usuario_id,
+        resultado=ResultadoAuditoria.FALLIDO,
     )
     return documento
 

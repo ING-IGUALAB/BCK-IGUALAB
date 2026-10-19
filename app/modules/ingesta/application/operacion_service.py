@@ -23,7 +23,7 @@ from sqlalchemy.orm import defer
 
 from app.modules.auditoria.service import registrar_evento
 from app.core.exceptions import ConflictError, NotFoundError, es_codigo_valido
-from app.models import Empresa, TipoDocumento, TipoEventoAuditoria
+from app.models import Empresa, ResultadoAuditoria, TipoDocumento, TipoEventoAuditoria
 from app.models.documento_ingesta import (
     Documento,
     EstadoCompensacion,
@@ -75,7 +75,8 @@ async def crear_operacion(db: AsyncSession, *, usuario_id: uuid.UUID, ambiente: 
     operacion = OperacionIngesta(id=uuid.uuid4(), ambiente=ambiente, usuario_id=usuario_id)
     db.add(operacion)
     registrar_evento(
-        db, TipoEventoAuditoria.INGESTA_DATOS, f"Operación de ingesta creada; operacion_id={operacion.id}", usuario_id
+        db, TipoEventoAuditoria.INGESTA_DATOS, f"Operación de ingesta creada; operacion_id={operacion.id}", usuario_id,
+        resultado=ResultadoAuditoria.EXITOSO,
     )
     await db.commit()
     return OperacionCreadaResponse(

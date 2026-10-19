@@ -1,16 +1,28 @@
 /**
- * Colección E2E por HTTP: los CUATRO flujos confirmados del backend sobre el sistema DESPLEGADO (sin dobles ni mocks).
+ * Colección E2E por HTTP: los siete flujos del backend sobre el sistema DESPLEGADO (sin dobles ni mocks).
  *
  *  A. Administración y revocación de acceso.
  *  B. Ingesta y validación GRI (ingiere un Markdown sintético: usa OCI real con una muestra mínima).
- *  C. Rechazo de duplicado por contenido (usa el documento completado de B: ejecutar B→C en la misma corrida).
+ *  C. Rechazo de duplicado por contenido (usa el documento completado de B).
  *  D. Rechazo de ingesta para una empresa inactiva.
+ *  E. Reportes de prospección (PDF)  ·  F. Asistente de IA (RAG)  ·  G. Auditoría funcional (los tres usan los datos de B).
+ *  Z. Cierre de los datos sintéticos de B (no es un flujo funcional: ver abajo).
  *
- * Cada flujo prepara sus propios datos con el identificador de ejecución `run_id` (A y D son independientes; C necesita a B
- * y por eso se ejecuta `--carpeta B --carpeta C`). Todo ID, token, versión y huella sale de la respuesta anterior.
+ * Cada flujo prepara sus propios datos con el identificador de ejecución `run_id`. A y D son independientes; C, E, F y G necesitan
+ * a B (REQUISITOS_E2E). Todo ID, token, versión y huella sale de la respuesta anterior de ESTA ejecución.
  * No hay endpoints de borrado: ver README «Datos que quedan». Nunca se transfiere el rol SuperAdmin.
+ *
+ * CIERRE DE B (H07). La empresa y el Administrador de B se desactivan/deshabilitan en la carpeta Z, que va SIEMPRE al final: antes lo
+ * hacía C, y la sesión revocada del Administrador (401) y la empresa inactiva (400) rompían a E, F y G. El ejecutor resuelve la
+ * selección con estos dos mapas, que viajan en el JSON como variables de la colección: exige los requisitos antes de la primera
+ * petición y añade Z al final siempre que B forme parte de la selección.
  */
 import { T, carpeta, coleccion, peticion } from './dsl.mjs';
+
+/** Carpeta (por letra) → carpetas cuyos datos necesita. Una selección sin ellas falla antes de enviar nada. */
+export const REQUISITOS_E2E = { C: ['B'], E: ['B'], F: ['B'], G: ['B'], Z: ['B'] };
+/** Carpeta (por letra) → carpeta de cierre que el ejecutor añade AL FINAL cuando la primera está seleccionada. */
+export const CIERRES_E2E = { B: 'Z' };
 
 const SOLO_HTTP =
   'Evidencia solo por HTTP: los contratos no permiten demostrar la ausencia física de objetos en MinIO ni de vectores en pgvector; ' +
@@ -439,7 +451,7 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
 // ---- C. Rechazo de duplicado por contenido ------------------------------------------------------------------------------
 
 const flujoC = carpeta('C. Rechazo de duplicado por contenido',
-  'Reenvía EXACTAMENTE los mismos bytes del documento de B con otro nombre de archivo y otro año (así solo coincide el SHA-256, no empresa/año/tipo). Requiere a B: ejecutar `--carpeta B --carpeta C`.',
+  'Reenvía EXACTAMENTE los mismos bytes del documento de B con otro nombre de archivo y otro año (así solo coincide el SHA-256, no empresa/año/tipo). Requiere a B: ejecutar `--carpeta B --carpeta C`. No cierra los datos de B: lo hace Z, al final.',
   [
     peticion({
       nombre: 'C1 Crear otra operación de ingesta', metodo: 'POST', ruta: '/documentos/operaciones', token: 'b_token_super',
@@ -514,14 +526,6 @@ const flujoC = carpeta('C. Rechazo de duplicado por contenido',
     peticion({
       nombre: 'C6 Tampoco hay documentos en el año del intento (ni COMPLETADO ni de otro estado)', ruta: '/documentos', consulta: { empresa_id: '{{b_empresa_id}}', anio: '{{anio_c}}' }, token: 'b_token_super',
       pruebas: [T.estado(200), T.prueba('cero documentos', (j) => { pm.expect(j.total).to.equal(0); pm.expect(j.items).to.deep.equal([]); })],
-    }),
-    peticion({
-      nombre: 'C7 Cierre: desactivar la empresa de B', metodo: 'PATCH', ruta: '/empresas/{{b_empresa_id}}/desactivar', token: 'b_token_super',
-      pruebas: [T.estado(200), T.prueba('empresa inactiva', (j) => { pm.expect(j.activa).to.equal(false); })],
-    }),
-    peticion({
-      nombre: 'C8 Cierre: deshabilitar al Administrador de B', metodo: 'PATCH', ruta: '/usuarios/{{b_admin_id}}/deshabilitar', token: 'b_token_super',
-      pruebas: [T.estado(200), T.prueba('cuenta deshabilitada', (j) => { pm.expect(j.habilitado).to.equal(false); })],
     }),
   ]);
 
@@ -610,7 +614,7 @@ const flujoD = carpeta('D. Rechazo de ingesta para una empresa inactiva',
   ]);
 
 // ---- E. Reportes de prospección (PDF) ------------------------------------------------------------------------------------
-// Requiere a B (su análisis queda VALIDADO en B15). Ejecutar `--carpeta B --carpeta E`.
+// Requiere a B (su análisis queda VALIDADO en B15) con la empresa activa y el Administrador habilitado: Z los cierra después. Ejecutar `--carpeta B --carpeta E`.
 
 const flujoE = carpeta('E. Reportes de prospección (PDF)',
   'Sobre el análisis VALIDADO de B: un Administrador genera el reporte, lo lista, descarga el PDF y pide la vista previa; un SuperAdmin no puede (403); sin sesión 401; y una empresa sin análisis validado se rechaza (409). Requiere a B.',
@@ -655,11 +659,35 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
       ],
     }),
     peticion({
+      nombre: 'E3b Una segunda generación para la misma empresa/año se rechaza → 409 REPORT_ALREADY_EXISTS', metodo: 'POST', ruta: '/reportes', token: 'b_token_admin',
+      json: { empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
+      descripcion: 'El reporte es inmutable (RN-041): no hay versiones, sustitución ni regeneración. El conflicto identifica el reporte existente.',
+      pruebas: [
+        T.error(409, 'REPORT_ALREADY_EXISTS', (d, v) => {
+          pm.expect(d.reporte_id).to.equal(v('e_reporte_id'));
+          pm.expect(d.empresa_id).to.equal(v('b_empresa_id'));
+          pm.expect(d.anio).to.equal(Number(v('anio_b')));
+        }),
+      ],
+    }),
+    peticion({
+      nombre: 'E3c El reporte original sigue intacto en el historial tras el rechazo (mismo id y sha256)', ruta: '/reportes', token: 'b_token_admin',
+      pruebas: [
+        T.estado(200),
+        T.prueba('un único reporte de la empresa/año, el original, con su sha256', (j, v) => {
+          const delaEmpresa = j.filter((r) => r.empresa_id === v('b_empresa_id') && r.anio === Number(v('anio_b')));
+          pm.expect(delaEmpresa).to.have.length(1);
+          pm.expect(delaEmpresa[0].id).to.equal(v('e_reporte_id'));
+          pm.expect(delaEmpresa[0].sha256).to.equal(v('e_sha256'));
+        }),
+      ],
+    }),
+    peticion({
       nombre: 'E4 Vista previa del reporte (misma plantilla, sin guardar) → application/pdf', metodo: 'POST', ruta: '/reportes/vista-previa', token: 'b_token_admin',
       json: { empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
       pruebas: [
         T.estado(200),
-        T.prueba('la vista previa es un PDF (no persiste: no se comprueba aquí)', () => {
+        T.prueba('la vista previa es un PDF (no persiste ni sustituye el reporte existente: E3c ya lo comprobó)', () => {
           pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/pdf');
           pm.expect(pm.response.text().slice(0, 5)).to.equal('%PDF-');
         }),
@@ -690,45 +718,99 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
   ]);
 
 // ---- F. Asistente de IA (RAG) --------------------------------------------------------------------------------------------
-// Requiere a B (su documento queda COMPLETADO y publicado). Ejecutar `--carpeta B --carpeta F`.
+// Requiere a B (su documento queda COMPLETADO y publicado, con empresa activa y Administrador habilitado). Ejecutar `--carpeta B --carpeta F`.
 // Necesita embeddings (OCI) y LLM configurados en el entorno; si faltan, el endpoint responde 503 y la corrida lo refleja.
 
 const flujoF = carpeta('F. Asistente de IA (RAG)',
-  'Sobre el documento publicado de B: un Administrador consulta al asistente y recibe respuesta con citas verificadas; un SuperAdmin no puede (403); sin sesión 401. Requiere a B y OCI+LLM configurados.',
+  'Sobre el documento publicado de B: un Administrador consulta al asistente y recibe respuesta con fuentes verificables (el caso positivo exige evidencia); un año sin documentos declara la ausencia de evidencia; sin sector 422; un SuperAdmin no puede (403); sin sesión 401. Requiere a B y OCI+LLM configurados.',
   [
     peticion({
-      nombre: 'F1 Consultar al asistente sobre la empresa/año de B → respuesta con citas', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_admin',
-      json: { pregunta: '¿Qué indicadores GRI reporta la empresa?', empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
+      nombre: 'F1 Consulta positiva con sector, empresa y año de B → respuesta CON evidencia verificable', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_admin',
+      descripcion: 'Caso positivo: la muestra de B dice que el consumo energético se reporta según GRI 302-1, así que el asistente DEBE responder con fuentes. Una respuesta «sin evidencia» NO es éxito aquí (la ausencia de evidencia se prueba en F1d). Depende de que OCI y el proveedor de chat respondan; si el modelo no respalda su respuesta, el caso falla a propósito.',
+      json: { pregunta: '¿Según qué estándar GRI se reporta el consumo energético de la organización?', sector: 'ENERGIA', empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
       pruebas: [
         T.estado(200),
-        T.prueba('ConsultaResponse: respuesta, citas verificadas y bandera de evidencia', (j) => {
-          pm.expect(Object.keys(j)).to.have.members(['respuesta', 'citas', 'sin_evidencia', 'mensaje']);
+        T.prueba('ConsultaResponse: respuesta, afirmaciones, citas, bandera de evidencia, motivo, mensaje y descartadas', (j) => {
+          pm.expect(Object.keys(j)).to.have.members(['respuesta', 'afirmaciones', 'citas', 'sin_evidencia', 'motivo', 'mensaje', 'afirmaciones_descartadas']);
           pm.expect(j.respuesta).to.be.a('string');
+          pm.expect(j.afirmaciones).to.be.an('array');
           pm.expect(j.citas).to.be.an('array');
           pm.expect(j.sin_evidencia).to.be.a('boolean');
-          // Si hay respuesta fundamentada, debe traer citas con su documento y sección.
-          if (!j.sin_evidencia) {
-            pm.expect(j.citas.length).to.be.above(0);
-            j.citas.forEach((c) => {
-              pm.expect(esUuid(c.documento_id)).to.equal(true);
-              pm.expect(c.seccion).to.be.a('string');
-              pm.expect(c.extracto).to.be.a('string').and.not.empty;
+        }),
+        T.prueba('hay evidencia: «sin evidencia» no cuenta como éxito del caso positivo', (j) => {
+          pm.expect(j.sin_evidencia, 'se esperaba una respuesta con evidencia; motivo informado: ' + j.motivo).to.equal(false);
+          pm.expect(j.motivo).to.equal(null);
+          pm.expect(j.respuesta).to.be.a('string').and.not.empty;
+          pm.expect(j.afirmaciones.length).to.be.above(0);
+          pm.expect(j.citas.length).to.be.above(0);
+        }),
+        T.prueba('cada afirmación enlaza con sus fuentes y su cita textual consta literalmente en el documento enviado', (j, v) => {
+          const normalizar = (t) => String(t).normalize('NFKC').toLowerCase().replace(/\|/g, ' ').replace(/[*`]/g, '').split(/\s+/).filter(Boolean).join(' ');
+          const documento = normalizar(v('texto_b'));
+          const referencias = j.citas.map((c) => c.referencia);
+          j.afirmaciones.forEach((a) => {
+            pm.expect(a.texto).to.be.a('string').and.not.empty;
+            pm.expect(a.referencias.length).to.be.above(0);
+            a.referencias.forEach((n) => {
+              pm.expect(referencias, 'la referencia ' + n + ' figura en citas').to.include(n);
+              pm.expect(j.respuesta, 'el texto de la respuesta lleva el marcador [' + n + ']').to.include('[' + n + ']');
             });
-          }
+            pm.expect(documento.includes(normalizar(a.cita_textual)), 'la cita textual figura en el documento de B').to.equal(true);
+          });
+          const usadas = Array.from(new Set([].concat(...j.afirmaciones.map((a) => a.referencias)))).sort();
+          pm.expect(referencias.slice().sort(), 'solo se muestran las fuentes que respaldan alguna afirmación').to.deep.equal(usadas);
+        }),
+        T.prueba('cada fuente identifica documento, empresa y año de B', (j, v) => {
+          j.citas.forEach((c) => {
+            pm.expect(c.documento_id).to.equal(v('b_documento_id'));
+            pm.expect(c.documento_nombre).to.equal(v('nombre_b'));
+            pm.expect(c.empresa_id).to.equal(v('b_empresa_id'));
+            pm.expect(c.empresa_nombre).to.equal('E2E ' + v('run_id') + ' Empresa B');
+            pm.expect(c.anio).to.equal(Number(v('anio_b')));
+            pm.expect(c.seccion).to.be.a('string');
+            pm.expect(c.extracto).to.be.a('string').and.not.empty;
+          });
         }),
       ],
     }),
     peticion({
-      nombre: 'F2 Un SuperAdmin no usa el asistente → 403', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_super',
-      json: { pregunta: '¿Qué GRI reporta?' }, pruebas: [T.prohibido()],
+      nombre: 'F1d Consulta de un año sin documentos → ausencia de evidencia explícita (SIN_FRAGMENTOS)', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_admin',
+      descripcion: 'Caso de ausencia de evidencia determinista: B no tiene documentos del año del intento duplicado de C (C2 fue rechazado), así que no hay fragmentos y el servicio no consulta al modelo.',
+      json: { pregunta: '¿Según qué estándar GRI se reporta el consumo energético de la organización?', sector: 'ENERGIA', empresa_id: '{{b_empresa_id}}', anio: '{{anio_c}}' },
+      pruebas: [
+        T.estado(200),
+        T.prueba('sin_evidencia con su motivo y mensaje; sin respuesta, afirmaciones ni fuentes', (j) => {
+          pm.expect(j.sin_evidencia).to.equal(true);
+          pm.expect(j.motivo).to.equal('SIN_FRAGMENTOS');
+          pm.expect(j.mensaje).to.be.a('string').and.not.empty;
+          pm.expect(j.respuesta).to.equal('');
+          pm.expect(j.afirmaciones).to.have.length(0);
+          pm.expect(j.citas).to.have.length(0);
+        }),
+      ],
     }),
     peticion({
-      nombre: 'F3 Sin sesión no hay asistente → 401', metodo: 'POST', ruta: '/asistente/consultas', json: { pregunta: 'x' }, pruebas: [T.sinSesion()],
+      nombre: 'F1b Sin sector no hay consulta → 422 (la selección es obligatoria)', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_admin',
+      json: { pregunta: '¿Qué indicadores GRI reporta la empresa?', empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
+      pruebas: [T.validacion('sector')],
+    }),
+    peticion({
+      nombre: 'F1c Sector que no corresponde a la empresa → 400 COMPANY_SECTOR_MISMATCH', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_admin',
+      json: { pregunta: '¿Qué indicadores GRI reporta la empresa?', sector: 'PETROLEO', empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
+      pruebas: [T.error(400, 'COMPANY_SECTOR_MISMATCH')],
+    }),
+    peticion({
+      nombre: 'F2 Un SuperAdmin no usa el asistente → 403', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_super',
+      json: { pregunta: '¿Qué GRI reporta?', sector: 'ENERGIA', empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' }, pruebas: [T.prohibido()],
+    }),
+    peticion({
+      nombre: 'F3 Sin sesión no hay asistente → 401', metodo: 'POST', ruta: '/asistente/consultas',
+      json: { pregunta: 'x', sector: 'ENERGIA', empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' }, pruebas: [T.sinSesion()],
     }),
   ]);
 
 // ---- G. Auditoría funcional ----------------------------------------------------------------------------------------------
-// El SuperAdmin consulta los eventos sensibles generados por los flujos anteriores. Ejecutar tras B/E.
+// El SuperAdmin consulta los eventos sensibles generados por los flujos anteriores. Requiere a B (sesión vigente del Administrador para G3/G3b).
 
 const flujoG = carpeta('G. Auditoría funcional',
   'Un SuperAdmin consulta el panel de auditoría con filtros y paginación; un Administrador no puede (403); sin sesión 401.',
@@ -748,6 +830,7 @@ const flujoG = carpeta('G. Auditoría funcional',
             pm.expect(e.tipo_evento).to.be.a('string').and.not.empty;
             pm.expect(e.detalle).to.be.a('string');
             pm.expect(esFecha(e.fecha_hora_utc)).to.equal(true);
+            pm.expect([null, 'EXITOSO', 'FALLIDO', 'DENEGADO'], 'resultado (nulo solo en eventos anteriores a la migración 0005)').to.include(e.resultado);
           });
         }),
       ],
@@ -766,7 +849,41 @@ const flujoG = carpeta('G. Auditoría funcional',
       nombre: 'G3 Un Administrador no accede a la auditoría → 403', ruta: '/auditoria', token: 'b_token_admin', pruebas: [T.prohibido()],
     }),
     peticion({
+      nombre: 'G3b El intento denegado del Administrador quedó registrado (ACCESO_DENEGADO, DENEGADO) a nombre de su cuenta', ruta: '/auditoria', token: 'b_token_super',
+      consulta: { tipo_evento: 'Acceso denegado', usuario_id: '{{b_admin_id}}' },
+      descripcion: 'Requiere que G3 se haya ejecutado con una sesión VIGENTE del Administrador de B: su cierre ocurre en Z, después de G.',
+      pruebas: [
+        T.estado(200),
+        T.prueba('al menos un evento de acceso denegado del Administrador, con resultado DENEGADO', (j, v) => {
+          pm.expect(j.items.length).to.be.above(0);
+          j.items.forEach((e) => { pm.expect(e.usuario_id).to.equal(v('b_admin_id')); pm.expect(e.resultado).to.equal('DENEGADO'); });
+        }),
+      ],
+    }),
+    peticion({
       nombre: 'G4 Sin sesión no hay auditoría → 401', ruta: '/auditoria', pruebas: [T.sinSesion()],
+    }),
+  ]);
+
+// ---- Z. Cierre de los datos sintéticos de B ------------------------------------------------------------------------------
+// No es un flujo funcional: deja inertes la empresa y el Administrador de B DESPUÉS de todos sus consumidores (C, E, F, G).
+// No hay endpoints de borrado; solo se usan los de desactivar/deshabilitar y solo sobre los datos creados por esta ejecución.
+
+const cierreB = carpeta('Z. Cierre de los datos sintéticos de B',
+  'Desactiva la empresa de B y deshabilita a su Administrador cuando ya terminaron todos los flujos que los usan (C, E, F, G). Va siempre al final y el ejecutor la añade cuando B forma parte de la selección. Solo toca datos creados por esta ejecución.',
+  [
+    peticion({
+      nombre: 'Z1 Cierre: desactivar la empresa de B', metodo: 'PATCH', ruta: '/empresas/{{b_empresa_id}}/desactivar', token: 'b_token_super',
+      pruebas: [T.estado(200), T.prueba('empresa de esta ejecución, inactiva', (j, v) => { pm.expect(j.id).to.equal(v('b_empresa_id')); pm.expect(j.activa).to.equal(false); })],
+    }),
+    peticion({
+      nombre: 'Z2 Cierre: deshabilitar al Administrador de B', metodo: 'PATCH', ruta: '/usuarios/{{b_admin_id}}/deshabilitar', token: 'b_token_super',
+      pruebas: [T.estado(200), T.prueba('cuenta de esta ejecución, deshabilitada', (j, v) => { pm.expect(j.id).to.equal(v('b_admin_id')); pm.expect(j.habilitado).to.equal(false); })],
+    }),
+    peticion({
+      nombre: 'Z3 La sesión del Administrador de B quedó revocada → 401', ruta: '/empresas', consulta: { solo_activas: 'true' }, token: 'b_token_admin',
+      descripcion: 'Comprueba que el cierre tuvo efecto (misma regla que A7). Si esta petición se ejecutara antes que E, F o G, esos flujos recibirían este 401.',
+      pruebas: [T.sinSesion()],
     }),
   ]);
 
@@ -775,7 +892,11 @@ export const coleccionE2E = coleccion({
   descripcion:
     'Flujos A (administración y revocación de acceso), B (ingesta y validación GRI), C (duplicado por contenido), D (empresa inactiva), ' +
     'E (reportes de prospección en PDF), F (asistente de IA / RAG) y G (auditoría funcional) sobre el backend desplegado. ' +
-    'Sin mocks. B usa OCI real con una muestra mínima. E/F/G requieren a B (ejecutar B→C→E→F→G). Ver pruebas-http/README.md.',
-  variables: { base_url: 'http://localhost:8000' },
-  items: [flujoA, flujoB, flujoC, flujoD, flujoE, flujoF, flujoG],
+    'Sin mocks. B usa OCI real con una muestra mínima. C, E, F y G requieren a B; la carpeta Z cierra los datos de B al final. Ver pruebas-http/README.md.',
+  variables: {
+    base_url: 'http://localhost:8000',
+    requisitos_carpetas: JSON.stringify(REQUISITOS_E2E),
+    cierres_carpetas: JSON.stringify(CIERRES_E2E),
+  },
+  items: [flujoA, flujoB, flujoC, flujoD, flujoE, flujoF, flujoG, cierreB],
 });

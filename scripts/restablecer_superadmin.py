@@ -116,7 +116,7 @@ async def restablecer(correo: str, password: str) -> dict[str, int]:
 
     from app.modules.auditoria.service import registrar_evento
     from app.core.database import AsyncSessionLocal
-    from app.models import Sesion, TipoEventoAuditoria, TokenRecuperacion
+    from app.models import ResultadoAuditoria, Sesion, TipoEventoAuditoria, TokenRecuperacion
     from app.core.security import hash_password
 
     async with AsyncSessionLocal() as db:
@@ -136,7 +136,9 @@ async def restablecer(correo: str, password: str) -> dict[str, int]:
             )
             # El proyecto no tiene un tipo de evento propio para esto; se usa el de administración de cuentas
             # (el mismo de habilitar/deshabilitar y transferir el SuperAdmin) sin añadir valores al enum de la BD.
-            registrar_evento(db, TipoEventoAuditoria.CAMBIO_ROL, DETALLE_AUDITORIA, usuario_id=usuario.id)
+            registrar_evento(
+                db, TipoEventoAuditoria.CAMBIO_ROL, DETALLE_AUDITORIA, usuario_id=usuario.id, resultado=ResultadoAuditoria.EXITOSO
+            )
         return {"sesiones_revocadas": sesiones.rowcount, "tokens_invalidados": tokens.rowcount}
 
 

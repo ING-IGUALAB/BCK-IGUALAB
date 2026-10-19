@@ -87,7 +87,11 @@ async def test_el_lifespan_registra_los_seis_pasos_en_orden_con_su_duracion(monk
 
     monkeypatch.setattr(main, "crear_tablas", crear_tablas)
     monkeypatch.setattr(main, "crear_superadmin_inicial", superadmin)
+    async def esquema_central_compatible(url, **kwargs):
+        pass  # solo se sustituye la consulta a PostgreSQL (cubierta en test_esquema_central_postgres); el paso y su log son los reales
+
     monkeypatch.setattr(catalogo, "migrar", migrar_doble)
+    monkeypatch.setattr("app.migraciones.compatibilidad.verificar_esquema_central", esquema_central_compatible)
     monkeypatch.setattr(catalogo.settings, "DATABASE_URL", "postgresql+asyncpg://usuario_secreto:CLAVE-SECRETA@host-secreto/bd")
     monkeypatch.setattr(catalogo.settings, "VECTOR_DATABASE_URL", "postgresql+asyncpg://usuario_secreto:CLAVE-SECRETA@host-secreto/vec")
     gestor = _gestor_doble([], monkeypatch)
@@ -105,6 +109,7 @@ async def test_el_lifespan_registra_los_seis_pasos_en_orden_con_su_duracion(monk
         "Arranque | 4/6 Migraciones transaccionales | inicio", "Arranque | 4/6 Migraciones transaccionales | fin en",
         "Arranque | 5/6 Migraciones vectoriales | inicio", "Arranque | 5/6 Migraciones vectoriales | fin en",
         "Arranque | 6/6 Inicio del gestor y recuperación | inicio", "Arranque | 6/6 Inicio del gestor y recuperación | fin en",
+        "Arranque | Compatibilidad del esquema central | inicio", "Arranque | Compatibilidad del esquema central | fin en",
         "Arranque | lifespan | fin en",
     ]
     assert len(registros) == len(esperado)

@@ -4,6 +4,9 @@
 El router solo coordina: la lógica está en `app.modules.asistente.service`. Reutiliza la
 recuperación vectorial (`buscar_similares`) y la visibilidad transaccional (`documentos_recuperables`).
 Requiere embeddings (OCI) y chat (DeepSeek) configurados; si falta alguno responde 503.
+
+CONTRATO (LTX:RN-037): la consulta exige `sector`, `empresa_id` y `anio`; el backend comprueba en la base que la empresa existe, está
+activa y es del sector, y limita la recuperación a ese ambiente, empresa, año y sector. No hay búsqueda global.
 """
 from __future__ import annotations
 
@@ -76,11 +79,21 @@ def get_proveedor_embeddings() -> ProveedorEmbeddingsConsulta:
 @router.post(
     "/consultas",
     response_model=ConsultaResponse,
-    summary="Consultar al asistente IA sobre el corpus indexado (RAG con citas)",
+    summary="Consultar al asistente IA sobre el corpus indexado (RAG con afirmaciones respaldadas)",
+    description=(
+        "Exige sector, empresa y año. Solo devuelve afirmaciones con referencia válida a un fragmento entregado al modelo y con una "
+        "cita literal presente en ese fragmento; las que no se pueden respaldar se omiten y, si no queda ninguna, `sin_evidencia` "
+        "es verdadero con su `motivo`. Verificar la cita literal no prueba que el pasaje implique la afirmación."
+    ),
     responses={
+        400: {"description": "Pregunta vacía, empresa inactiva (`COMPANY_INACTIVE`) o de otro sector (`COMPANY_SECTOR_MISMATCH`)."},
         401: {"description": "No autenticado o sesión inválida."},
         403: {"description": "Requiere rol Administrador."},
+        404: {"description": "La empresa no existe (`COMPANY_NOT_FOUND`)."},
+        422: {"description": "Falta o es inválido `sector`, `empresa_id` o `anio` (`REQUEST_VALIDATION_ERROR`)."},
+        502: {"description": "Falló el proveedor de embeddings o de chat."},
         503: {"description": "Servicio no disponible por configuración."},
+        504: {"description": "El proveedor de embeddings no respondió a tiempo."},
     },
 )
 async def consultar(
@@ -101,6 +114,7 @@ async def consultar(
         ambiente=ambiente,
         proveedor_embeddings=proveedor_embeddings,
         proveedor_llm=proveedor_llm,
+        sector=payload.sector,
         empresa_id=payload.empresa_id,
         anio=payload.anio,
     )

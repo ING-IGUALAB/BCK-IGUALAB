@@ -17,6 +17,7 @@ from app.core.request_id import RequestIDMiddleware
 from app.core.config import settings
 from scripts.crear_tablas import crear_tablas
 from scripts.crear_superadmin_inicial import crear_superadmin_inicial
+from app.migraciones.compatibilidad import exigir_esquema_central
 from app.modules.analisis_gri.application.arranque import preparar_esquema_analisis
 from app.modules.ingesta.application.gestor import detener_ingesta, iniciar_ingesta
 
@@ -37,9 +38,12 @@ async def lifespan(app: FastAPI):
     # Recursos de ingesta (pasos 3 a 6, registrados dentro): una vez, y cierre ordenado. Si falta configuración o falla la
     # preparación del esquema la aplicación arranca igual.
     await iniciar_ingesta(app)
-    logger.info("Arranque | lifespan | fin en %.2f s (ingesta %s)", time.monotonic() - inicio,
-                "habilitada" if getattr(app.state, "ingesta", None) is not None else "NO disponible")
     try:
+        # A diferencia de los pasos anteriores, ESTE sí detiene el arranque: con el esquema central incompatible (migración 0005
+        # sin aplicar) el inicio de sesión devuelve 500, y no se anuncia disponibilidad (/health) en ese estado.
+        await exigir_esquema_central()
+        logger.info("Arranque | lifespan | fin en %.2f s (ingesta %s)", time.monotonic() - inicio,
+                    "habilitada" if getattr(app.state, "ingesta", None) is not None else "NO disponible")
         yield
     finally:
         await detener_ingesta(app)
