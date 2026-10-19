@@ -259,8 +259,9 @@ async def test_la_base_rechaza_modificar_o_eliminar_eventos_de_auditoria(m8, sen
     antes = [tuple(f) for f in await _sql(m8, "SELECT id, detalle, resultado FROM auditoria")]
     assert antes
     async with m8.fabrica() as db:
+        consulta = text(sentencia)
         with pytest.raises(DBAPIError) as e:
-            await db.execute(text(sentencia))
+            await db.execute(consulta)
         assert "solo inserción" in str(e.value.orig)
     assert [tuple(f) for f in await _sql(m8, "SELECT id, detalle, resultado FROM auditoria")] == antes
 

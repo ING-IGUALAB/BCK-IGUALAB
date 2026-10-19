@@ -108,8 +108,9 @@ async def test_restablecer_levanta_el_bloqueo_y_la_cuenta_entra_de_inmediato_con
 
 async def test_la_contrasena_igual_al_correo_real_de_la_cuenta_se_rechaza_y_el_token_sigue_valido(m1):
     token = await solicitar(m1)
+    clave_igual_al_correo = CORREO.title()  # «Cuenta@pruebas.example.com»: cumple la complejidad, es el correo
     with pytest.raises(BusinessValidationError) as e:
-        await restablecer(m1, token, CORREO.title())  # «Cuenta@pruebas.example.com»: cumple la complejidad, es el correo
+        await restablecer(m1, token, clave_igual_al_correo)
     assert e.value.code == "PASSWORD_POLICY_VIOLATION"
     assert any("correo" in x for x in e.value.details["errors"])
     async with m1.fabrica() as db:

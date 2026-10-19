@@ -6,7 +6,7 @@ from __future__ import annotations
 from app.core.exceptions import ExternalServiceError
 
 
-def compilar_html_a_pdf(html: str, *, timeout_segundos: float = 60.0) -> bytes:
+def compilar_html_a_pdf(html: str) -> bytes:
     """Convierte el HTML del reporte a PDF con WeasyPrint y devuelve los bytes."""
     try:
         import weasyprint

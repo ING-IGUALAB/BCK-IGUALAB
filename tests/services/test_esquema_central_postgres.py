@@ -258,9 +258,10 @@ async def test_con_un_rol_sin_permisos_la_migracion_falla_y_el_lifespan_real_no_
     assert capturado.value.detalles["sqlstate"] == "42501"  # permiso insuficiente
 
     # ...pero el arranque real NO continúa: lanza en lugar de servir /health con el login roto.
+    arranque_de_la_aplicacion = main.app.router.lifespan_context(main.app)
     with pytest.raises(ErrorMigracion) as arranque:
-        async with main.app.router.lifespan_context(main.app):
-            pytest.fail("la aplicación anunció disponibilidad con el esquema central incompatible")
+        async with arranque_de_la_aplicacion:
+            pass  # si el arranque no lanza, pytest.raises falla: la aplicación anunció disponibilidad con el esquema incompatible
     assert arranque.value.codigo == CODIGO
     assert "columna:auditoria.resultado" in arranque.value.detalles["faltan"]
     assert main.app.state.analisis_error is not None  # la causa también quedó visible para el módulo GRI

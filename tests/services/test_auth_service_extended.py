@@ -393,15 +393,18 @@ async def test_restablecer_password_consume_el_token_revoca_sesiones_y_levanta_e
     await auth_service.restablecer_password(db, "token", "NuevaClave1!")
 
     assert usuario.password_hash == "nuevo-hash"
-    assert usuario.intentos_fallidos == 0 and usuario.bloqueado_hasta is None  # LTX:RN-012
+    assert usuario.intentos_fallidos == 0  # LTX:RN-012
+    assert usuario.bloqueado_hasta is None
     assert all(sesion.revocada is True for sesion in sesiones)
     assert db.execute.await_count == 4
 
     consumo = db.execute.await_args_list[1].args[0]
-    assert consumo.is_update and consumo.table.name == "tokens_recuperacion"
+    assert consumo.is_update
+    assert consumo.table.name == "tokens_recuperacion"
     assert "usado" in str(consumo.whereclause)  # condicional: solo consume un token todavía no usado
     otros = db.execute.await_args_list[2].args[0]
-    assert otros.is_update and otros.table.name == "tokens_recuperacion"
+    assert otros.is_update
+    assert otros.table.name == "tokens_recuperacion"
 
     db.get.assert_awaited_once_with(Usuario, usuario.id)
     db.commit.assert_awaited_once()
@@ -418,7 +421,8 @@ async def test_restablecer_password_no_cambia_nada_si_otro_consumio_el_token_ant
         await auth_service.restablecer_password(db, "token", "NuevaClave1!")
 
     assert captured.value.code == "INVALID_OR_EXPIRED_RESET_TOKEN"
-    assert usuario.password_hash != "nuevo-hash" and usuario.intentos_fallidos == 5
+    assert usuario.password_hash != "nuevo-hash"
+    assert usuario.intentos_fallidos == 5
     db.rollback.assert_awaited_once()
     db.commit.assert_not_awaited()
 

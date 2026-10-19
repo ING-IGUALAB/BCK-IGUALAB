@@ -288,7 +288,8 @@ async def test_la_base_rechaza_modificar_o_eliminar_un_reporte(m7, sentencia):
     assert (await generar(m7)).status_code == 201
     antes = await reportes_guardados(m7)
     async with m7.fabrica() as db:
+        consulta = text(sentencia)
         with pytest.raises(DBAPIError) as e:
-            await db.execute(text(sentencia))
+            await db.execute(consulta)
         assert "solo inserción" in str(e.value.orig)
     assert await reportes_guardados(m7) == antes

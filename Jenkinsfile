@@ -197,6 +197,198 @@ else:
         print("Identidad por variables falló:", type(error).__name__)
 PY
 '''
+                        // ===== INICIO DIAGNÓSTICO TEMPORAL: BASE VECTORIAL (retirar: borrar todo hasta FIN) =====
+                        // Solo lectura, dentro del contenedor backend ya levantado. Imprime etapa, duración, clase de error y SQLSTATE;
+                        // nunca URLs completas, usuario, contraseña ni str(exc). Su resultado NO cambia el del despliegue.
+                        catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                            sh(returnStatus: true, script: '''
+set +e
+set +x
+echo '--- DIAGNÓSTICO TEMPORAL: conectividad a las bases (solo lectura; no altera el resultado del despliegue) ---'
+if command -v timeout >/dev/null 2>&1; then LIMITE='timeout 200'; else LIMITE=''; fi
+$LIMITE docker compose -p "$COMPOSE_PROJECT" exec -T backend python -u - <<'PY'
+import asyncio
+import os
+import socket
+import sys
+import time
+
+import asyncpg
+from sqlalchemy.engine import make_url
+
+PLAZO_DNS = 5.0
+PLAZO_TCP = 10.0
+PLAZO_PG = 30.0
+PLAZO_SELECT = 10.0
+PLAZO_CIERRE = 5.0
+PLAZO_APP = 10.0
+MAX_DIRECCIONES = 2
+SSL_CONOCIDOS = ("disable", "allow", "prefer", "require", "verify-ca", "verify-full")
+
+
+def linea(base, texto):
+    print("[DIAG-BD] " + base + " | " + texto, flush=True)
+
+
+def causa(exc):
+    # Solo clases, SQLSTATE y errno: el mensaje de la excepcion puede contener host, usuario o la URL.
+    clases, sqlstate, errno = [], None, None
+    actual = exc
+    for _ in range(5):
+        if actual is None:
+            break
+        clases.append(type(actual).__name__)
+        if sqlstate is None and isinstance(getattr(actual, "sqlstate", None), str):
+            sqlstate = actual.sqlstate[:5]
+        if errno is None and isinstance(getattr(actual, "errno", None), int):
+            errno = actual.errno
+        actual = actual.__cause__ or actual.__context__
+    return "clase=%s sqlstate=%s errno=%s cadena=%s" % (
+        clases[0], sqlstate or "n/a", "n/a" if errno is None else errno, ">".join(clases),
+    )
+
+
+async def etapa(base, nombre, plazo, crear):
+    inicio = time.monotonic()
+    try:
+        async with asyncio.timeout(plazo):
+            valor = await crear()
+    except Exception as exc:
+        duracion = time.monotonic() - inicio
+        linea(base, "%s: FALLA tras %.2f s (plazo %.0f s) %s" % (nombre, duracion, plazo, causa(exc)))
+        return False, duracion, None
+    duracion = time.monotonic() - inicio
+    linea(base, "%s: OK en %.2f s (plazo %.0f s)" % (nombre, duracion, plazo))
+    return True, duracion, valor
+
+
+def abrir_tcp(ip, puerto):
+    async def abrir():
+        _, escritor = await asyncio.open_connection(ip, puerto)
+        escritor.close()
+        try:
+            await escritor.wait_closed()
+        except Exception:
+            pass
+    return abrir
+
+
+async def sondear(base, url, definida):
+    resultado = {}
+    linea(base, "variable definida en el entorno del contenedor: %s" % ("si" if definida else "NO (se usa el valor por defecto de la aplicacion)"))
+    if not isinstance(url, str) or not url.strip():
+        linea(base, "URL NO CONFIGURADA")
+        return {"destino": None, "resultado": "sin configuracion"}
+    try:
+        destino = make_url(url.strip())
+    except Exception as exc:
+        linea(base, "URL no interpretable " + causa(exc))
+        return {"destino": None, "resultado": "URL no interpretable"}
+    host = destino.host or "localhost"
+    puerto = destino.port or 5432
+    ssl = destino.query.get("ssl")
+    linea(base, "destino host=%s puerto=%s base=%s controlador=%s ssl=%s otros_parametros=%s" % (
+        host, puerto, destino.database, destino.drivername,
+        ssl if ssl in SSL_CONOCIDOS else ("otro" if ssl else "no"),
+        ",".join(sorted(k for k in destino.query if k != "ssl")) or "ninguno",
+    ))
+    resultado["destino"] = (host, puerto, destino.database)
+
+    bucle = asyncio.get_running_loop()
+    ok_dns, dur_dns, direcciones = await etapa(
+        base, "1/4 DNS", PLAZO_DNS, lambda: bucle.getaddrinfo(host, puerto, type=socket.SOCK_STREAM)
+    )
+    resultado["dns"] = "OK %.2f s" % dur_dns if ok_dns else "FALLA %.2f s" % dur_dns
+    ok_tcp = False
+    if ok_dns:
+        familias = ["IPv6" if d[0] == socket.AF_INET6 else "IPv4" for d in direcciones]
+        linea(base, "1/4 DNS: %d direccion(es), orden de intento: %s" % (len(familias), ",".join(familias)))
+        tcp = []
+        for numero, d in enumerate(direcciones[:MAX_DIRECCIONES], 1):
+            ok, dur, _ = await etapa(
+                base, "2/4 TCP direccion %d (%s)" % (numero, familias[numero - 1]), PLAZO_TCP, abrir_tcp(d[4][0], puerto)
+            )
+            tcp.append("%s %s %.2f s" % (familias[numero - 1], "OK" if ok else "FALLA", dur))
+            ok_tcp = ok_tcp or ok
+        resultado["tcp"] = "; ".join(tcp)
+    else:
+        linea(base, "2/4 TCP: omitida (no se resolvio el nombre)")
+        resultado["tcp"] = "omitida"
+
+    try:
+        from app.migraciones.motor import _argumentos_de_conexion
+        argumentos = _argumentos_de_conexion(url, base)
+    except Exception as exc:
+        linea(base, "3/4 PostgreSQL: no se pudo preparar la configuracion efectiva " + causa(exc))
+        resultado["pg"] = "sin configuracion"
+        return resultado
+
+    conexion = None
+    try:
+        ok_pg, dur_pg, conexion = await etapa(
+            base, "3/4 PostgreSQL connect", PLAZO_PG, lambda: asyncpg.connect(**argumentos, timeout=PLAZO_PG)
+        )
+        if ok_pg and dur_pg > PLAZO_APP:
+            linea(base, "EVIDENCIA: conecto en %.2f s, MAS que los %.0f s que la aplicacion concede al arrancar (evaluar ampliar ese plazo)" % (dur_pg, PLAZO_APP))
+        elif ok_pg:
+            linea(base, "conecto en %.2f s: DENTRO de los %.0f s que la aplicacion concede al arrancar" % (dur_pg, PLAZO_APP))
+        elif dur_pg >= PLAZO_PG - 1:
+            linea(base, "NO conecto dentro de %.0f s (la aplicacion concede %.0f s): ampliar el plazo no bastaria con este valor" % (PLAZO_PG, PLAZO_APP))
+        resultado["pg"] = ("OK " if ok_pg else "FALLA ") + "%.2f s" % dur_pg
+        if ok_pg:
+            ok_sel, dur_sel, valor = await etapa(
+                base, "4/4 SELECT 1", PLAZO_SELECT, lambda: conexion.fetchval("SELECT 1", timeout=PLAZO_SELECT)
+            )
+            resultado["select"] = ("OK " if ok_sel and valor == 1 else "FALLA ") + "%.2f s" % dur_sel
+        else:
+            linea(base, "4/4 SELECT 1: omitida (no hay conexion)")
+            resultado["select"] = "omitida"
+    finally:
+        if conexion is not None:
+            try:
+                async with asyncio.timeout(PLAZO_CIERRE):
+                    await conexion.close()
+            except Exception:
+                conexion.terminate()
+    return resultado
+
+
+async def main():
+    print("[DIAG-BD] python %s | asyncpg %s" % (sys.version.split()[0], asyncpg.__version__), flush=True)
+    try:
+        from app.core.config import settings
+        efectivas = {"vectorial": settings.VECTOR_DATABASE_URL, "transaccional": settings.DATABASE_URL}
+        app_env = settings.APP_ENV
+    except Exception as exc:
+        linea("entorno", "no se pudo leer la configuracion de la aplicacion " + causa(exc))
+        efectivas = {"vectorial": os.environ.get("VECTOR_DATABASE_URL"), "transaccional": os.environ.get("DATABASE_URL")}
+        app_env = os.environ.get("APP_ENV")
+    linea("entorno", "APP_ENV efectivo=%s | APP_ENV en el entorno del contenedor=%s" % (app_env, os.environ.get("APP_ENV", "(no definida)")))
+    variables = {"vectorial": "VECTOR_DATABASE_URL", "transaccional": "DATABASE_URL"}
+    resultados = {}
+    # Primero la vectorial (objeto del diagnostico) y luego la transaccional como control.
+    for base in ("vectorial", "transaccional"):
+        resultados[base] = await sondear(base, efectivas[base], bool(os.environ.get(variables[base])))
+    print("[DIAG-BD] ---------------- RESUMEN ----------------", flush=True)
+    for base, r in resultados.items():
+        linea(base, "dns=%s | tcp=[%s] | pg=%s | select=%s" % (
+            r.get("dns", "n/a"), r.get("tcp", "n/a"), r.get("pg", "n/a"), r.get("select", "n/a"),
+        ))
+    destinos = [r.get("destino") for r in resultados.values()]
+    linea("comparacion", "misma combinacion host/puerto/base en ambas: %s" % ("si" if destinos[0] is not None and destinos[0] == destinos[1] else "no"))
+    linea("comparacion", "mismo host y puerto en ambas: %s" % ("si" if None not in destinos and destinos[0][:2] == destinos[1][:2] else "no"))
+
+
+try:
+    asyncio.run(main())
+except BaseException as exc:
+    print("[DIAG-BD] el diagnostico termino con error " + causa(exc), flush=True)
+PY
+echo "--- Fin del diagnóstico temporal (código de salida: $?; no afecta al despliegue) ---"
+exit 0
+''')
+                        }
+                        // ===== FIN DIAGNÓSTICO TEMPORAL: BASE VECTORIAL =====
                     }
                 }
             }

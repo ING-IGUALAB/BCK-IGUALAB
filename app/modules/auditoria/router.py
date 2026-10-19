@@ -33,7 +33,6 @@ SuperAdminAuditoria = Annotated[Usuario, Depends(exigir_superadmin_registrando_i
 
 @router.get(
     "",
-    response_model=PaginaEventos,
     summary="Visualizar eventos de auditoría con filtros y paginación",
     responses={
         401: {"description": "No autenticado o sesión inválida."},

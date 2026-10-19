@@ -42,9 +42,9 @@ MOTIVO_RESPUESTA_NO_INTERPRETABLE = "RESPUESTA_NO_INTERPRETABLE"
 MOTIVO_FUERA_DE_DOMINIO = "FUERA_DE_DOMINIO"
 
 _MARCADOR = re.compile(r"\[\s*\d{1,3}\s*\]")
-_CERCA_JSON = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL | re.IGNORECASE)
+_CERCA = "```"
 # Cifras: números con o sin separadores de miles/decimales («1 200», «1,200», «12,5», «305-1» son «1200», «1200», «125», «305» y «1»).
-_CIFRA = re.compile(r"\d{1,3}(?:[ .,]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?")
+_CIFRA = re.compile(r"(?:\d{1,3}(?:[ .,]\d{3})+|\d+)(?:[.,]\d+)?")
 _ANIO = re.compile(r"(?:19|20)\d{2}")
 
 
@@ -80,14 +80,22 @@ def cifras(texto: str) -> set[str]:
     return resultado
 
 
+def _sin_cerca_json(candidato: str) -> str:
+    """El contenido de una cerca ``` (con `json` opcional tras la apertura); sin cerca completa, el texto tal cual. Sin regex:
+    dos cuantificadores de espacios alrededor de un cuerpo libre retroceden de forma cuadrática ante un texto largo con muchos espacios."""
+    if len(candidato) < 2 * len(_CERCA) or not (candidato.startswith(_CERCA) and candidato.endswith(_CERCA)):
+        return candidato
+    interior = candidato[len(_CERCA):-len(_CERCA)]
+    if interior[:4].casefold() == "json":
+        interior = interior[4:]
+    return interior.strip()
+
+
 def interpretar_respuesta(texto: object) -> dict | None:
     """El objeto JSON de la respuesta del modelo (tolera una cerca ```json y texto alrededor), o `None` si no hay uno."""
     if not isinstance(texto, str):
         return None
-    candidato = texto.strip()
-    cerca = _CERCA_JSON.match(candidato)
-    if cerca:
-        candidato = cerca.group(1)
+    candidato = _sin_cerca_json(texto.strip())
     for intento in (candidato, candidato[candidato.find("{"):candidato.rfind("}") + 1]):
         try:
             dato = json.loads(intento)

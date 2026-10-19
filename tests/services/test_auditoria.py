@@ -42,7 +42,9 @@ def _fila(i):
 async def test_listar_sin_filtros_devuelve_pagina():
     db = FakeDB(2, [_fila(1), _fila(2)])
     r = await listar_eventos(db)
-    assert r["total"] == 2 and r["pagina"] == 1 and r["tamano"] == 20
+    assert r["total"] == 2
+    assert r["pagina"] == 1
+    assert r["tamano"] == 20
     assert len(r["items"]) == 2
 
 
@@ -50,11 +52,14 @@ async def test_listar_con_filtros_y_paginacion():
     db = FakeDB(50, [_fila(1)])
     r = await listar_eventos(db, tipo_evento=TipoEventoAuditoria.INGESTA_DATOS,
                              usuario_id=uuid.uuid4(), pagina=3, tamano=10)
-    assert r["total"] == 50 and r["pagina"] == 3 and r["tamano"] == 10
+    assert r["total"] == 50
+    assert r["pagina"] == 3
+    assert r["tamano"] == 10
     assert len(r["items"]) == 1
 
 
 async def test_listar_vacio():
     db = FakeDB(0, [])
     r = await listar_eventos(db)
-    assert r["total"] == 0 and r["items"] == []
+    assert r["total"] == 0
+    assert r["items"] == []
