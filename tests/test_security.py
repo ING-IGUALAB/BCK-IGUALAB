@@ -3,7 +3,7 @@ import uuid
 import pytest
 
 from app.models import RolUsuario
-from app.security import (
+from app.core.security import (
     crear_access_token,
     decodificar_token,
     generar_token_recuperacion,

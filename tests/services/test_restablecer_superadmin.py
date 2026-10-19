@@ -10,9 +10,9 @@ import dotenv
 import pytest
 from sqlalchemy import select
 
-from app import audit
+from app.modules.auditoria import service as audit
 from app.models import RegistroAuditoria, RolUsuario, Sesion, TipoEventoAuditoria, TokenRecuperacion, Usuario
-from app.security import verificar_password
+from app.core.security import verificar_password
 from scripts import restablecer_superadmin as script
 from tests.ayudantes_ingesta import crear_usuario
 
@@ -62,7 +62,7 @@ def test_el_env_qa_manda_sobre_la_terminal_y_neutraliza_el_load_dotenv_de_la_app
     valores = script.cargar_entorno_qa()
     assert os.environ["DATABASE_URL"] == VALORES_QA["DATABASE_URL"]
     assert valores["APP_ENV"] == "qa"
-    assert dotenv.load_dotenv() is False  # `app.config` ya no puede cargar `.env` (desarrollo)
+    assert dotenv.load_dotenv() is False  # `app.core.config` ya no puede cargar `.env` (desarrollo)
 
 
 def test_un_entorno_distinto_de_qa_aborta():
@@ -106,10 +106,10 @@ def test_una_contrasena_valida_se_acepta(monkeypatch):
 
 @pytest.fixture
 def sesion_local(monkeypatch, fabrica_pg):
-    """El script abre sus sesiones con `app.database.AsyncSessionLocal`: apunta al clúster temporal."""
-    import app.database
+    """El script abre sus sesiones con `app.core.database.AsyncSessionLocal`: apunta al clúster temporal."""
+    import app.core.database
 
-    monkeypatch.setattr(app.database, "AsyncSessionLocal", fabrica_pg)
+    monkeypatch.setattr(app.core.database, "AsyncSessionLocal", fabrica_pg)
     return fabrica_pg
 
 
@@ -208,9 +208,9 @@ async def test_el_modo_lectura_no_modifica_nada_ni_pide_contrasena(sesion_local,
     usuario_id = await preparar_cuenta(sesion_local)
     monkeypatch.setattr(script, "ARCHIVO_ENV", escribir_env(entorno_aislado / ".env.qa"))
     monkeypatch.setattr(script.getpass, "getpass", lambda *_: pytest.fail("no debe pedir contraseña sin --ejecutar"))
-    import app.config
+    import app.core.config
 
-    monkeypatch.setattr(app.config.settings, "APP_ENV", "qa")
+    monkeypatch.setattr(app.core.config.settings, "APP_ENV", "qa")
 
     assert await script.principal(ejecutar=False) == 0
 
@@ -228,9 +228,9 @@ async def test_con_ejecutar_pide_la_contrasena_aplica_el_cambio_y_no_la_imprime(
     usuario_id = await preparar_cuenta(sesion_local)
     monkeypatch.setattr(script, "ARCHIVO_ENV", escribir_env(entorno_aislado / ".env.qa"))
     monkeypatch.setattr(script.getpass, "getpass", lambda *_: PASSWORD_NUEVA)
-    import app.config
+    import app.core.config
 
-    monkeypatch.setattr(app.config.settings, "APP_ENV", "qa")
+    monkeypatch.setattr(app.core.config.settings, "APP_ENV", "qa")
 
     assert await script.principal(ejecutar=True) == 0
 

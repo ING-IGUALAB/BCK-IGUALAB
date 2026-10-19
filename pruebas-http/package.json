@@ -13,6 +13,7 @@
   "scripts": {
     "generar": "node colecciones/fuentes/generar.mjs",
     "verificar-colecciones": "node colecciones/fuentes/generar.mjs --verificar",
+    "probar-ejecutor": "node --test scripts/pruebas/seleccion.test.mjs",
     "integracion": "node scripts/ejecutar.mjs --coleccion integracion",
     "e2e": "node scripts/ejecutar.mjs --coleccion e2e"
   },

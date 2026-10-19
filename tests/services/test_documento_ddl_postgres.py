@@ -20,8 +20,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.database import Base
-from app.models import Empresa, RolUsuario, SectorEmpresa, Usuario
+from app.core.database import Base
+from app.models import Empresa, RegistroAuditoria, ReporteProspeccion, RolUsuario, SectorEmpresa, Usuario
 from app.models.documento_ingesta import Documento
 from scripts.generar_ddl_documentos import generar_ddl
 
@@ -75,7 +75,11 @@ async def _crear_base_con_prerequisitos(url_pg_aislado: str) -> Esquema:
     motor = create_async_engine(url)
     try:
         async with motor.begin() as conexion:  # solo los prerrequisitos que ya existen en los ambientes
-            await conexion.run_sync(Base.metadata.create_all, tables=[Usuario.__table__, Empresa.__table__])
+            await conexion.run_sync(
+                Base.metadata.create_all,
+                # `auditoria` y `reportes_prospeccion` también existen antes de las migraciones (las crea `create_all` al arrancar)
+                tables=[Usuario.__table__, Empresa.__table__, RegistroAuditoria.__table__, ReporteProspeccion.__table__],
+            )
             # `create_all(tables=...)` crea los enumerados de TODO el MetaData cargado, también los de
             # `documentos`; en los ambientes reales esos tipos no existen. Se retiran para que el DDL
             # generado los cree como lo haría en un ambiente real.

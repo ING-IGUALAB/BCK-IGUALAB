@@ -10,8 +10,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from app.exception_handlers import register_exception_handlers, status_for_exception
-from app.exceptions import (
+from app.core.exception_handlers import register_exception_handlers, status_for_exception
+from app.core.exceptions import (
     AccountDisabledError,
     AccountLockedError,
     AppException,
@@ -26,10 +26,10 @@ from app.exceptions import (
     PayloadTooLargeError,
     ServiceUnavailableError,
 )
-from app.request_id import RequestIDMiddleware
+from app.core.request_id import RequestIDMiddleware
 from app.schemas import MetadatosIngestaRequest
-from app.services.ingesta.analisis_ingesta import AnalisisIngestaError
-from app.services.ingesta.coordinador import PublicacionVectorialPendiente
+from app.modules.ingesta.application.analisis_ingesta import AnalisisIngestaError
+from app.modules.ingesta.application.coordinador import PublicacionVectorialPendiente
 
 
 class ConflictoEspecifico(ConflictError):

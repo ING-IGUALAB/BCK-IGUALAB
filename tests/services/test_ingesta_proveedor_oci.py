@@ -13,14 +13,14 @@ from types import SimpleNamespace
 import oci
 import pytest
 
-from app.exceptions import ExternalServiceError, ExternalServiceTimeoutError
-from app.services.ingesta import proveedor_oci
-from app.services.ingesta.embeddings import (
+from app.core.exceptions import ExternalServiceError, ExternalServiceTimeoutError
+from app.modules.ingesta.infrastructure import proveedor_oci
+from app.modules.ingesta.domain.embeddings import (
     IdentidadEmbeddings,
     embeber_consulta,
     embeber_fragmentos,
 )
-from app.services.ingesta.fragmentacion import ParametrosFragmentacion, iterar_fragmentos
+from app.modules.ingesta.domain.fragmentacion import ParametrosFragmentacion, iterar_fragmentos
 
 SECRETO = "SECRETO-OCI-FICTICIO"
 TEXTO_DOCUMENTAL = "TEXTO-DOCUMENTAL-CONFIDENCIAL"
@@ -104,7 +104,7 @@ def test_configuracion_invalida_se_rechaza_antes_de_construir_el_cliente(oci_fal
 
 
 def test_los_plazos_del_sdk_salen_de_los_parametros_de_codigo_y_se_pueden_sustituir(oci_falso):
-    from app.services.ingesta.parametros import ParametrosIngesta
+    from app.modules.ingesta.domain.parametros import ParametrosIngesta
 
     proveedor_oci.ProveedorEmbeddingsOCI(ParametrosIngesta(oci_connect_timeout_segundos=3, oci_read_timeout_segundos=4.5))
     assert oci_falso.argumentos["timeout"] == (3.0, 4.5)

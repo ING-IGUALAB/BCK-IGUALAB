@@ -13,12 +13,12 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
-from app.config import settings
-from app.exceptions import ConflictError, NotFoundError
+from app.core.config import settings
+from app.core.exceptions import ConflictError, NotFoundError
 from app.models import TipoDocumento
 from app.models.analisis_gri import EstadoGri
 from app.models.documento_ingesta import EstadoProcesamiento
-from app.services.analisis_gri import servicio
+from app.modules.analisis_gri.application import servicio
 from tests.ayudantes_analisis_gri import (
     MD_GRI_204_305,
     MD_GRI_204_Y_302,

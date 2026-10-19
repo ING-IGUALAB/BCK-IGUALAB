@@ -6,7 +6,7 @@ from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, Index, String, 
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.core.database import Base
 
 
 class SectorEmpresa(str, enum.Enum):

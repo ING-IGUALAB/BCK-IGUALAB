@@ -6,10 +6,10 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select
-from app.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal
 from app.models import Usuario, RolUsuario
-from app.security import hash_password, validar_politica_password
-from app.logging_config import configure_logging
+from app.core.security import hash_password, validar_politica_password
+from app.core.logging_config import configure_logging
 
 logger = logging.getLogger("igualab.startup")
 

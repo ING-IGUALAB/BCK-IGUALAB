@@ -40,7 +40,7 @@ class Abortar(Exception):
 def cargar_entorno_qa() -> dict[str, str]:
     """Carga SOLO `.env.qa` en el entorno del proceso, antes de importar la aplicación.
 
-    `app.config` llama a `load_dotenv()` al importarse y cargaría `.env` (desarrollo) para lo que falte; se neutraliza
+    `app.core.config` llama a `load_dotenv()` al importarse y cargaría `.env` (desarrollo) para lo que falte; se neutraliza
     para que ninguna variable pueda venir de otro entorno."""
     import dotenv
 
@@ -72,7 +72,7 @@ def verificar_destino(valores: dict[str, str]) -> None:
 
 def pedir_password(correo: str) -> str:
     """Pide la contraseña dos veces sin eco y aplica la política del proyecto."""
-    from app.security import validar_politica_password
+    from app.core.security import validar_politica_password
 
     primera = getpass.getpass("Nueva contraseña (no se mostrará): ")
     segunda = getpass.getpass("Repita la nueva contraseña: ")
@@ -103,7 +103,7 @@ async def buscar_superadmin(db, correo: str, bloquear: bool = False):
 
 async def verificar(correo: str) -> bool:
     """Modo lectura: confirma que el usuario existe y es SuperAdmin. Devuelve si la cuenta está habilitada."""
-    from app.database import AsyncSessionLocal
+    from app.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
         usuario = await buscar_superadmin(db, correo)
@@ -114,10 +114,10 @@ async def restablecer(correo: str, password: str) -> dict[str, int]:
     """Aplica todos los cambios en una sola transacción (si algo falla, no se aplica nada)."""
     from sqlalchemy import update
 
-    from app.audit import registrar_evento
-    from app.database import AsyncSessionLocal
-    from app.models import Sesion, TipoEventoAuditoria, TokenRecuperacion
-    from app.security import hash_password
+    from app.modules.auditoria.service import registrar_evento
+    from app.core.database import AsyncSessionLocal
+    from app.models import ResultadoAuditoria, Sesion, TipoEventoAuditoria, TokenRecuperacion
+    from app.core.security import hash_password
 
     async with AsyncSessionLocal() as db:
         async with db.begin():
@@ -136,7 +136,9 @@ async def restablecer(correo: str, password: str) -> dict[str, int]:
             )
             # El proyecto no tiene un tipo de evento propio para esto; se usa el de administración de cuentas
             # (el mismo de habilitar/deshabilitar y transferir el SuperAdmin) sin añadir valores al enum de la BD.
-            registrar_evento(db, TipoEventoAuditoria.CAMBIO_ROL, DETALLE_AUDITORIA, usuario_id=usuario.id)
+            registrar_evento(
+                db, TipoEventoAuditoria.CAMBIO_ROL, DETALLE_AUDITORIA, usuario_id=usuario.id, resultado=ResultadoAuditoria.EXITOSO
+            )
         return {"sesiones_revocadas": sesiones.rowcount, "tokens_invalidados": tokens.rowcount}
 
 
@@ -146,7 +148,7 @@ async def principal(ejecutar: bool) -> int:
     correo = valores["SUPERADMIN_CORREO"].strip().lower()
 
     # Recién ahora se importa la aplicación (usa las variables de .env.qa ya cargadas).
-    from app.config import settings
+    from app.core.config import settings
 
     if settings.APP_ENV.strip().lower() != ENTORNO_ESPERADO:
         raise Abortar("La configuración cargada no corresponde a QA. No se hace nada.")

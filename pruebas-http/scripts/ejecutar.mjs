@@ -21,6 +21,7 @@ import {
 } from './lib/configuracion.mjs';
 import { esperarBackend } from './lib/espera.mjs';
 import { prepararMuestras } from './lib/muestras.mjs';
+import { resolverSeleccion } from './lib/seleccion.mjs';
 import { buscarSecretos, crearRegistro, datosCreados, escribirResumen } from './lib/resultados.mjs';
 
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -28,18 +29,6 @@ const RAIZ = resolve(aqui, '..');
 
 function contarPeticiones(nodo) {
   return nodo.request ? 1 : (nodo.item ?? []).reduce((suma, hijo) => suma + contarPeticiones(hijo), 0);
-}
-
-/** `--carpeta B` resuelve a la carpeta de primer nivel cuyo nombre empieza por «B.» (o coincide exactamente). */
-function resolverCarpetas(coleccion, pedidas) {
-  const nombres = coleccion.item.filter((n) => !n.request).map((n) => n.name);
-  return pedidas.map((pedida) => {
-    const coincidencias = nombres.filter((n) => n === pedida || n.startsWith(`${pedida}. `) || n.startsWith(`${pedida} `));
-    if (coincidencias.length !== 1) {
-      throw new ErrorDeEjecucion(`--carpeta «${pedida}» no identifica una única carpeta. Disponibles: ${nombres.join(' | ')}`, SALIDA.CONFIGURACION);
-    }
-    return coincidencias[0];
-  });
 }
 
 function ejecutarNewman(opciones) {
@@ -60,12 +49,14 @@ async function principal() {
   registrar(`Credenciales: SuperAdmin ${configuracion.superadminCorreo} (contraseña no mostrada).`);
 
   const coleccion = JSON.parse(readFileSync(join(RAIZ, 'colecciones', configuracion.archivoColeccion), 'utf8'));
-  const carpetas = resolverCarpetas(coleccion, configuracion.carpetas);
+  // Requisitos y cierre de la selección: se resuelven y validan ANTES de la primera petición (ver scripts/lib/seleccion.mjs).
+  const { carpetas, agregadas } = resolverSeleccion(coleccion, configuracion.carpetas);
   const esperadas = carpetas.length
     ? coleccion.item.filter((n) => carpetas.includes(n.name)).reduce((suma, n) => suma + contarPeticiones(n), 0)
     : contarPeticiones(coleccion);
   if (esperadas === 0) throw new ErrorDeEjecucion('La selección no contiene ninguna petición.', SALIDA.GUARDA);
-  registrar(`Peticiones a ejecutar: ${esperadas}${carpetas.length ? ` (carpetas: ${carpetas.join(' | ')})` : ' (colección completa)'}`);
+  registrar(`Peticiones a ejecutar: ${esperadas}${carpetas.length ? ` (carpetas, en orden de ejecución: ${carpetas.join(' | ')})` : ' (colección completa)'}`);
+  if (agregadas.length) registrar(`Cierre añadido automáticamente al final de la selección: ${agregadas.join(' | ')}`);
 
   await esperarBackend({ baseUrl: configuracion.baseUrl, esperaSegundos: configuracion.esperaSegundos, registrar });
 

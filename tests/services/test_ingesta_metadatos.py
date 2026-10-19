@@ -8,11 +8,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.exception_handlers import register_exception_handlers
+from app.core.exception_handlers import register_exception_handlers
 from app.models import TipoDocumento
-from app.request_id import RequestIDMiddleware
+from app.core.request_id import RequestIDMiddleware
 from app.schemas import MetadatosIngestaRequest
-from app.services.ingesta import reglas
+from app.modules.ingesta.domain import reglas
 
 AHORA_FIJO = datetime(2026, 10, 5, 12, 0, tzinfo=timezone.utc)
 

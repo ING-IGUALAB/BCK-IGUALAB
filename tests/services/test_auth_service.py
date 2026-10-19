@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from app.exceptions import AuthenticationError
-from app.services import auth_service
+from app.core.exceptions import AuthenticationError
+from app.modules.auth import service as auth_service
 
 
 def _fake_db_sin_usuario():

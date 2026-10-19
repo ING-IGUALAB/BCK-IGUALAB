@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from app.services.ingesta.vista_markdown import construir_vista
+from app.modules.ingesta.domain.vista_markdown import construir_vista
 
 NL = "\n"
 BARRA = "\\"

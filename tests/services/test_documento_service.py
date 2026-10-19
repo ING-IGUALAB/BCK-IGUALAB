@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.exception_handlers import register_exception_handlers
-from app.exceptions import (
+from app.core.exception_handlers import register_exception_handlers
+from app.core.exceptions import (
     AuthorizationError,
     BusinessValidationError,
     ConflictError,
@@ -32,16 +32,16 @@ from app.models.documento_ingesta import (
     EstadoProcesamiento,
     ResultadoAnalisis,
 )
-from app.request_id import RequestIDMiddleware
+from app.core.request_id import RequestIDMiddleware
 from app.schemas import MetadatosIngestaRequest
-from app.services.ingesta import documento_service as servicio
-from app.services.ingesta.almacenamiento import (
+from app.modules.ingesta.application import documento_service as servicio
+from app.modules.ingesta.domain.almacenamiento import (
     EstadoSubida,
     ReferenciaOriginal,
     SubidaConocida,
     generar_clave_original,
 )
-from app.services.ingesta.reglas import TAMANO_MAXIMO_BYTES
+from app.modules.ingesta.domain.reglas import TAMANO_MAXIMO_BYTES
 from tests.ayudantes_ingesta import (
     BOM,
     AlmacenEnMemoria,

@@ -8,14 +8,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.exceptions import InternalProcessingError
+from app.core.exceptions import InternalProcessingError
 from app.models.analisis_gri import EstadoGri, TipoIdentidadGri
 from app.models.documento_ingesta import ResultadoAnalisis
 from app.models.documentos import TipoDocumento
-from app.schemas_analisis import ActorResumen, EstadoFlujo, EstadoPuntaje, MotivoNoVigente
-from app.services.analisis_gri import calculo
-from app.services.analisis_gri.calculo import DocumentoBase, EstadoAsignado
-from app.services.ingesta.analisis_ingesta import analizar_texto
+from app.modules.analisis_gri.schemas import ActorResumen, EstadoFlujo, EstadoPuntaje, MotivoNoVigente
+from app.modules.analisis_gri.domain import calculo
+from app.modules.analisis_gri.domain.calculo import DocumentoBase, EstadoAsignado
+from app.modules.ingesta.application.analisis_ingesta import analizar_texto
 from tests.ayudantes_analisis_gri import MD_GRI_204_305, MD_GRI_204_Y_302, MD_OBSERVADO, MD_SOLO_SANCIONES
 
 ACTOR = ActorResumen(id=uuid.uuid4(), nombre="Admin")

@@ -15,9 +15,10 @@ No sustituyen las pruebas pytest (`tests/`) ni las E2E de interfaz del frontend.
 pruebas-http/
 ├─ colecciones/
 │  ├─ igualab-integracion.postman_collection.json   158 peticiones, 377 aserciones
-│  ├─ igualab-e2e.postman_collection.json            50 peticiones: los 4 flujos (A, B, C, D)
+│  ├─ igualab-e2e.postman_collection.json            73 peticiones: los 7 flujos (A a G) + el cierre Z
 │  └─ fuentes/                                       código que GENERA los JSON (DSL legible); editar aquí
-├─ scripts/ejecutar.mjs (+ lib/)                     ejecutor: valida, espera el backend, prepara muestras, corre Newman, informa
+├─ scripts/ejecutar.mjs (+ lib/)                     ejecutor: valida, resuelve la selección, espera el backend, prepara muestras, corre Newman, informa
+├─ scripts/pruebas/seleccion.test.mjs                comprobaciones estáticas del orden/dependencias de la colección y de la selección (sin backend)
 ├─ scripts/ejecutar-local.ps1                        atajo para el entorno local aislado (Windows)
 ├─ muestras/                                         plantilla sintética GRI y archivos fijos para los rechazos
 ├─ entorno/ejemplo.env, ejemplo.postman_environment.json   solo NOMBRES de variables, sin valores
@@ -32,16 +33,54 @@ Autenticación, usuarios, empresas, documentos y análisis GRI: éxito con estru
 404 y 409 representativos. **No ingiere documentos ni usa OCI**: solo crea cuentas y empresas sintéticas y prueba rechazos que ocurren
 antes de cualquier servicio externo. **Nunca transfiere el rol SuperAdmin** (solo prueba los rechazos de la transferencia).
 
-### Colección E2E (`--coleccion e2e`): los cuatro flujos confirmados
+### Colección E2E (`--coleccion e2e`): flujos A–D confirmados y E–G (reportes, asistente, auditoría)
 | Flujo | Pasos | Qué demuestra |
 |---|---|---|
 | **A** Administración y revocación de acceso | SuperAdmin → crea Administrador → éste inicia sesión y accede → SuperAdmin lo deshabilita → **la misma petición con el token anterior da 401** | La revocación es inmediata. Solo usa la cuenta que crea; no transfiere el rol. |
-| **B** Ingesta y validación GRI | Empresa activa → operación → ingesta de un Markdown sintético (**OCI real**, muestra mínima) → COMPLETADO + publicado → Administrador consulta el análisis → asigna estado a cada identidad devuelta → consulta versión y huella actuales → valida | Puntaje esperado calculado desde los estados **realmente asignados**; validación vigente; historial; citas y procedencia exactas (`texto[inicio:fin]`). No usa sanciones: **no depende de CP37**. |
-| **C** Duplicado por contenido | Mismos bytes que B, otro nombre de archivo y **otro año** → `409 DOCUMENT_ALREADY_INGESTED` con `details.criterio = ["sha256"]` | El original sigue COMPLETADO y disponible; no hay otro documento; la operación queda `RECHAZADA`; no es una ingesta exitosa. |
+| **B** Ingesta y validación GRI | Empresa activa → operación → ingesta de un Markdown sintético (**OCI real**, muestra mínima) → COMPLETADO + publicado → Administrador consulta el análisis → asigna estado a cada identidad devuelta → consulta versión y huella actuales → valida | Puntaje esperado calculado desde los estados **realmente asignados**; validación vigente; historial; citas y procedencia exactas (`texto[inicio:fin]`). No usa sanciones: **no depende de CP37**. **Deja activas la empresa y la cuenta del Administrador** para C, E, F y G; las cierra Z. |
+| **C** Duplicado por contenido | Mismos bytes que B, otro nombre de archivo y **otro año** → `409 DOCUMENT_ALREADY_INGESTED` con `details.criterio = ["sha256"]` | El original sigue COMPLETADO y disponible; no hay otro documento; la operación queda `RECHAZADA`; no es una ingesta exitosa. **No cierra los datos de B.** |
 | **D** Empresa inactiva | Empresa → desactivarla → ingerir un Markdown válido y exclusivo → `400 COMPANY_INACTIVE` | La empresa sigue inactiva; no hay documento ni análisis utilizable; la operación informa el rechazo. |
+| **E** Reportes de prospección (PDF) | Sobre el análisis VALIDADO de B: el Administrador genera el reporte → lista → descarga → vista previa; **una segunda generación da `409 REPORT_ALREADY_EXISTS`** y el original sigue intacto (mismo id y sha256) | El reporte es inmutable (LTX:RN-041). Un SuperAdmin recibe 403, sin sesión 401, empresa sin análisis validado 409. |
+| **F** Asistente de IA (RAG) | Consulta con **sector, empresa y año obligatorios** (sin sector 422; sector que no corresponde 400). **F1 (positivo) exige evidencia**: `sin_evidencia=false`, afirmaciones con referencias que figuran en `citas`, cita textual literal del documento de B y fuentes con documento, empresa y año. **F1d** (año sin documentos) exige la ausencia de evidencia explícita `SIN_FRAGMENTOS` | Necesita OCI y el proveedor de chat. La respuesta del modelo no es determinista: si no respalda su respuesta, F1 **falla a propósito**; «sin evidencia» no cuenta como éxito del caso positivo. |
+| **G** Auditoría funcional | El SuperAdmin consulta (con `resultado`), filtra y comprueba que el intento denegado del Administrador (G3) quedó registrado (G3b) | Un Administrador con sesión **vigente** recibe 403 y su intento se registra (LTX:RN-045). |
+| **Z** Cierre de los datos de B | Desactiva la empresa de B, deshabilita a su Administrador y comprueba que su sesión quedó revocada (**401**) | No es un flujo funcional: deja inertes los datos sintéticos de B **después** de todos sus consumidores. Va siempre al final. |
 
-**B prepara el documento que usa C.** Para ejecutarlos sin depender de corridas anteriores: `--carpeta B --carpeta C` (en ese orden). **A y D
-preparan sus propios datos** y se pueden ejecutar solos. `--carpeta` acepta la letra («B») o el nombre completo.
+> **Orden y dependencias (H07, corregido en las fuentes).** Antes, C7/C8 cerraban la empresa y al Administrador de B en medio de la colección, así que
+> E, F y G recibían el 401 de la sesión revocada y el 400 de la empresa inactiva: fallos ajenos a lo que esas pruebas comprueban. Ahora el cierre es la
+> carpeta **Z**, última de la colección completa (`A → B → C → D → E → F → G → Z`). Las expectativas no cambiaron: una sesión revocada sigue
+> recibiendo 401 (A7, Z3) y una sesión válida con rol incorrecto 403 (G3). **Estado:** corregido y verificado de forma **estática** (orden, dependencias y
+> selecciones; ver «Comprobar el ejecutor»); las peticiones **no** se han ejecutado contra un backend. Eso lo hará Jenkins en QA.
+
+### Selecciones admitidas (`--carpeta`)
+Cada ejecución crea sus propios datos y **no reutiliza** IDs, tokens ni datos de otra: una carpeta que necesita a B solo se ejecuta si B va en la misma
+selección. `--carpeta` acepta la letra («B») o el nombre completo y se pueden repetir. Newman ejecuta siempre en el orden de la colección, sin importar
+el orden de los argumentos. El ejecutor valida la selección **antes de la primera petición** y, si falta un requisito, termina con código 2 indicando qué falta.
+
+| Selección | Qué se ejecuta, en orden | Notas |
+|---|---|---|
+| *(ninguna)* | A, B, C, D, E, F, G, **Z** | Lo que ejecuta Jenkins. |
+| `A` · `D` · `A` + `D` | A · D · A, D | Independientes: crean sus propios datos y no usan OCI. |
+| `B` | B, **Z** | Z se añade solo (se avisa en el log). |
+| `B` + `C` | B, C, Z | Duplicado por contenido con exactamente los mismos bytes de B. |
+| `B` + `E` · `B` + `F` · `B` + `G` | B, (E \| F \| G), Z | E/F/G usan la empresa y el Administrador de B, aún activos. |
+| `B` + cualquier combinación de `C`, `E`, `F`, `G` | B, las elegidas, Z | |
+| `B` + `Z` | B, Z | Igual que `B`. |
+| `C`, `E`, `F`, `G` o `Z` **sin** `B` | *(no se ejecuta nada)* | Código 2: «… necesita los datos de B». |
+
+### Cierre de los datos sintéticos
+La empresa y el Administrador de B permanecen **activos y habilitados** mientras haya carpetas seleccionadas que los necesiten; Z los desactiva/deshabilita
+al final y verifica la revocación. Solo usa los IDs y tokens de **esta** ejecución, no borra nada ni usa SQL (no hay endpoints de borrado) y nunca toca
+cuentas o empresas ajenas ni el rol SuperAdmin. La empresa de E7 se desactiva dentro de E (E9) y las cuentas/empresa de A y D, dentro de A y D. El
+documento COMPLETADO de B y el reporte de E no se pueden retirar por HTTP (ver «Datos que quedan»). Si una corrida se interrumpe antes de Z, la empresa y
+la cuenta de B quedan activas: `resumen.json` lista sus IDs (`E2E <run_id>`).
+
+### Comprobar el ejecutor sin backend
+```bash
+npm run verificar-colecciones   # los JSON coinciden con sus fuentes
+npm run probar-ejecutor         # orden, dependencias y selecciones (41 comprobaciones, sin peticiones)
+```
+Son validaciones **estáticas**: demuestran el orden y las dependencias, no que los flujos pasen. Un flujo solo se da por pasado cuando una ejecución real
+(Jenkins en QA o `ejecutar.mjs` contra un entorno aislado) lo ejecutó con todas sus aserciones en verde.
 
 > **Evidencia solo por HTTP.** Los contratos no permiten demostrar la ausencia *física* de objetos en MinIO ni de vectores en pgvector para un
 > documento rechazado. C y D demuestran que **no hay documento, no hay análisis y la operación está RECHAZADA**; **no afirman** haber
@@ -78,8 +117,9 @@ export IGUALAB_PRUEBAS_ENTORNO=local IGUALAB_API_URL=http://127.0.0.1:8000
 export IGUALAB_E2E_SUPERADMIN_CORREO=...      # y la contraseña con:  read -rs IGUALAB_E2E_SUPERADMIN_PASSWORD; export IGUALAB_E2E_SUPERADMIN_PASSWORD
 node scripts/ejecutar.mjs --coleccion integracion
 node scripts/ejecutar.mjs --coleccion e2e --carpeta A --carpeta D         # sin OCI
-node scripts/ejecutar.mjs --coleccion e2e --carpeta B --carpeta C         # usa OCI real
-node scripts/ejecutar.mjs --coleccion e2e                                 # A, B, C y D
+node scripts/ejecutar.mjs --coleccion e2e --carpeta B --carpeta C         # usa OCI real; se añade Z (cierre de B)
+node scripts/ejecutar.mjs --coleccion e2e --carpeta B --carpeta E --carpeta F --carpeta G   # OCI + proveedor de chat; se añade Z
+node scripts/ejecutar.mjs --coleccion e2e                                 # los siete flujos y Z, en orden
 node scripts/ejecutar.mjs --coleccion e2e --sin-ejecutar                  # solo valida configuración, disponibilidad y muestras
 ```
 
@@ -116,7 +156,7 @@ No hay endpoints de borrado ni se usa SQL. Cada corrida completa deja, **por dis
 | Colección | Cuentas | Empresas | Documentos |
 |---|---|---|---|
 | Integración | 2 Administradores (se **deshabilitan** al final) | 2 (se **desactivan** al final) | 0 (deja 6 operaciones `RECHAZADA`/`CREADA` sin documento) |
-| E2E (A+B+C+D) | 3 Administradores (A, B y D; los tres terminan deshabilitados) | 2 (B se desactiva al final de C; D nace inactiva) | **1 COMPLETADO** (flujo B), con sus fragmentos en pgvector y su original en MinIO; más 2 operaciones `RECHAZADA` (C y D) |
+| E2E (A a G + Z) | 3 Administradores (A, B y D; los tres terminan deshabilitados: B en Z) | 3 (B se desactiva en Z; D nace inactiva; la de E se desactiva en E9) | **1 COMPLETADO** (flujo B), con sus fragmentos en pgvector y su original en MinIO; más 2 operaciones `RECHAZADA` (C y D) y **1 reporte inmutable** (E), que tampoco se puede retirar por HTTP |
 
 Para limitarlo: solo corre en `qa`; `disableConcurrentBuilds`; cada corrida usa una muestra mínima (≈ 450 bytes, unos pocos fragmentos); las cuentas y empresas
 quedan inertes (deshabilitadas/inactivas); el contenido varía por corrida (SHA-256 distinto) para no chocar con duplicados. El **documento** de B no se
@@ -141,7 +181,7 @@ Si una corrida falla a mitad, pueden quedar cuentas habilitadas o empresas activ
      -v "$PWD/resultados-uat:/resultados" \
      igualab-pruebas-http:uat node /opt/pruebas-http/scripts/ejecutar.mjs --coleccion e2e --resultados /resultados
    ```
-   Para mostrar un flujo concreto añada `--carpeta A` (revocación, sin OCI) o `--carpeta D` (rechazo, sin OCI). B→C usa OCI real con una muestra mínima.
+   Para mostrar un flujo concreto añada `--carpeta A` (revocación, sin OCI) o `--carpeta D` (rechazo, sin OCI). B→C usa OCI real con una muestra mínima (el ejecutor añade Z).
 
 ## Riesgos y límites conocidos
 

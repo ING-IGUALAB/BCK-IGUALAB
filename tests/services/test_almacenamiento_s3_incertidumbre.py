@@ -13,15 +13,15 @@ import pytest
 from botocore.awsrequest import AWSResponse
 from botocore.exceptions import ClientError, ConnectTimeoutError, EndpointConnectionError, ReadTimeoutError
 
-from app.exceptions import ConflictError, ExternalServiceError, ExternalServiceTimeoutError
-from app.services.ingesta import almacenamiento_s3
-from app.services.ingesta.almacenamiento import (
+from app.core.exceptions import ConflictError, ExternalServiceError, ExternalServiceTimeoutError
+from app.modules.ingesta.infrastructure import almacenamiento_s3
+from app.modules.ingesta.domain.almacenamiento import (
     ConfigAlmacenamiento,
     EstadoSubida,
     ReferenciaOriginal,
     generar_clave_original,
 )
-from app.services.ingesta.almacenamiento_s3 import AlmacenOriginalesS3, crear_cliente_s3, listar_versiones_exactas
+from app.modules.ingesta.infrastructure.almacenamiento_s3 import AlmacenOriginalesS3, crear_cliente_s3, listar_versiones_exactas
 from tests.ayudantes_ingesta import ClienteS3Versionado, error_cliente
 
 DATOS = b"\xef\xbb\xbf# Memoria\n"

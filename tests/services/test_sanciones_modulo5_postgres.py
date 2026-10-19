@@ -18,8 +18,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models import TipoDocumento
 from app.models.documento_ingesta import ResultadoAnalisis
-from app.services.ingesta.analisis_ingesta import MOTIVO_SIN_HALLAZGOS, analizar_texto
-from app.services.ingesta.deteccion_sanciones import VERSION_DETECTOR_SANCIONES
+from app.modules.ingesta.application.analisis_ingesta import MOTIVO_SIN_HALLAZGOS, analizar_texto
+from app.modules.ingesta.domain.deteccion_sanciones import VERSION_DETECTOR_SANCIONES
 from tests.ayudantes_analisis_gri import (
     MD_GRI_204_305,
     asegurar_esquema_real,

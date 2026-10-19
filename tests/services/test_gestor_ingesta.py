@@ -15,12 +15,12 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from app.exceptions import ServiceUnavailableError
+from app.core.exceptions import ServiceUnavailableError
 from app.models.documento_ingesta import EstadoCompensacion, EstadoProcesamiento
-from app.services.ingesta import coordinador
-from app.services.ingesta import gestor as modulo_gestor
-from app.services.ingesta.gestor import GestorIngesta
-from app.services.ingesta.parametros import PARAMETROS_INGESTA, ParametrosIngesta
+from app.modules.ingesta.application import coordinador
+from app.modules.ingesta.application import gestor as modulo_gestor
+from app.modules.ingesta.application.gestor import GestorIngesta
+from app.modules.ingesta.domain.parametros import PARAMETROS_INGESTA, ParametrosIngesta
 from tests.ayudantes_coordinador import TEXTO_CON_HALLAZGOS, TEXTO_OBSERVADO
 from tests.ayudantes_http_ingesta import (
     comprobar_error,
@@ -336,7 +336,7 @@ async def test_dos_barridos_simultaneos_nunca_se_solapan(entorno, monkeypatch):
 
 async def test_el_candado_es_por_ambiente(entorno):
     from tests.ayudantes_ingesta import AlmacenEnMemoria
-    from app.services.ingesta.coordinador import DependenciasIngesta
+    from app.modules.ingesta.application.coordinador import DependenciasIngesta
 
     qa = GestorIngesta(
         DependenciasIngesta(entorno.transaccional, entorno.vectorial, AlmacenEnMemoria("qa"), entorno.proveedor),
@@ -366,8 +366,8 @@ async def test_sin_configuracion_el_arranque_no_falla_y_la_ingesta_informa_un_50
     configuracion = SimpleNamespace(**{**CONFIG_VALIDA, "MINIO_ENDPOINT_URL": "http://sin-https.invalid/SECRETO",
                                       "MINIO_SECRET_KEY": "SK-SECRETO-NO-FILTRAR", "MINIO_ACCESS_KEY": "AK-SECRETO-NO-FILTRAR"})
     monkeypatch.setattr(modulo_gestor, "settings", configuracion)
-    monkeypatch.setattr("app.config.settings.OCI_COMPARTMENT_ID", None)
-    monkeypatch.setattr("app.config.settings.VECTOR_DATABASE_URL", None)
+    monkeypatch.setattr("app.core.config.settings.OCI_COMPARTMENT_ID", None)
+    monkeypatch.setattr("app.core.config.settings.VECTOR_DATABASE_URL", None)
 
     with pytest.raises(ServiceUnavailableError) as error:
         modulo_gestor.construir_gestor()
@@ -415,9 +415,10 @@ async def test_la_aplicacion_real_arranca_sin_configuracion_de_ingesta(monkeypat
 
     monkeypatch.setattr(main, "crear_tablas", AsyncMock())
     monkeypatch.setattr(main, "crear_superadmin_inicial", AsyncMock())
-    monkeypatch.setattr("app.config.settings.OCI_COMPARTMENT_ID", None)
-    monkeypatch.setattr("app.config.settings.VECTOR_DATABASE_URL", None)
-    monkeypatch.setattr("app.config.settings.MINIO_ENDPOINT_URL", None)
+    monkeypatch.setattr(main, "exigir_esquema_central", AsyncMock())  # su verificación contra PostgreSQL real está en test_esquema_central_postgres
+    monkeypatch.setattr("app.core.config.settings.OCI_COMPARTMENT_ID", None)
+    monkeypatch.setattr("app.core.config.settings.VECTOR_DATABASE_URL", None)
+    monkeypatch.setattr("app.core.config.settings.MINIO_ENDPOINT_URL", None)
     async with main.app.router.lifespan_context(main.app):
         assert main.app.state.ingesta is None
         assert main.app.state.ingesta_error[0] == "INGESTION_NOT_CONFIGURED"
@@ -439,9 +440,9 @@ async def test_con_configuracion_valida_se_construyen_los_recursos_una_vez_y_se_
     async def cerrar_motor():
         cierres.append("vectorial")
 
-    monkeypatch.setattr("app.services.ingesta.proveedor_oci.ProveedorEmbeddingsOCI", OciFalso)
-    monkeypatch.setattr("app.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
-    monkeypatch.setattr("app.database_vectorial.cerrar_motor_vectorial", cerrar_motor)
+    monkeypatch.setattr("app.modules.ingesta.infrastructure.proveedor_oci.ProveedorEmbeddingsOCI", OciFalso)
+    monkeypatch.setattr("app.core.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
+    monkeypatch.setattr("app.core.database_vectorial.cerrar_motor_vectorial", cerrar_motor)
     gestor = modulo_gestor.construir_gestor(SimpleNamespace(**CONFIG_VALIDA), PARAMETROS_PROPIOS)
     assert gestor.ambiente == "development"
     assert recibidos == [PARAMETROS_PROPIOS]
@@ -462,8 +463,8 @@ async def test_con_configuracion_valida_se_construyen_los_recursos_una_vez_y_se_
 
 
 async def test_sin_parametros_propios_rige_la_configuracion_de_codigo_y_el_entorno_no_la_cambia(entorno, monkeypatch):
-    monkeypatch.setattr("app.services.ingesta.proveedor_oci.ProveedorEmbeddingsOCI", lambda parametros=None: SimpleNamespace(identidad=entorno.proveedor.identidad))
-    monkeypatch.setattr("app.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
+    monkeypatch.setattr("app.modules.ingesta.infrastructure.proveedor_oci.ProveedorEmbeddingsOCI", lambda parametros=None: SimpleNamespace(identidad=entorno.proveedor.identidad))
+    monkeypatch.setattr("app.core.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
     # Variables viejas en los ajustes (p. ej. un secreto de Jenkins no retirado): se ignoran por completo.
     viejas = dict(INGESTA_TAMANO_LOTE="999", INGESTA_VIGENCIA_MINUTOS="1", MINIO_PREFIX="otro", MINIO_READ_TIMEOUT_SECONDS="1")
     gestor = modulo_gestor.construir_gestor(SimpleNamespace(**CONFIG_VALIDA, **viejas))
@@ -479,8 +480,8 @@ async def test_sin_parametros_propios_rige_la_configuracion_de_codigo_y_el_entor
 
 @pytest.mark.parametrize("app_env", ["prod", "production", "QA", "", None])
 async def test_un_app_env_invalido_deja_la_ingesta_sin_servicio_y_no_se_repite(entorno, monkeypatch, app_env):
-    monkeypatch.setattr("app.services.ingesta.proveedor_oci.ProveedorEmbeddingsOCI", lambda parametros=None: SimpleNamespace(identidad=entorno.proveedor.identidad))
-    monkeypatch.setattr("app.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
+    monkeypatch.setattr("app.modules.ingesta.infrastructure.proveedor_oci.ProveedorEmbeddingsOCI", lambda parametros=None: SimpleNamespace(identidad=entorno.proveedor.identidad))
+    monkeypatch.setattr("app.core.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
     valor_simplenamespace = SimpleNamespace(**{**CONFIG_VALIDA, "APP_ENV": app_env})
     with pytest.raises(ServiceUnavailableError) as error:
         modulo_gestor.construir_gestor(valor_simplenamespace)
@@ -492,7 +493,7 @@ async def test_un_app_env_invalido_deja_la_ingesta_sin_servicio_y_no_se_repite(e
 
 @pytest.mark.parametrize("app_env", ["development", "qa", "uat"])
 async def test_el_ambiente_del_gestor_es_app_env(entorno, monkeypatch, app_env):
-    monkeypatch.setattr("app.services.ingesta.proveedor_oci.ProveedorEmbeddingsOCI", lambda parametros=None: SimpleNamespace(identidad=entorno.proveedor.identidad))
-    monkeypatch.setattr("app.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
+    monkeypatch.setattr("app.modules.ingesta.infrastructure.proveedor_oci.ProveedorEmbeddingsOCI", lambda parametros=None: SimpleNamespace(identidad=entorno.proveedor.identidad))
+    monkeypatch.setattr("app.core.database_vectorial.fabrica_sesiones_vectoriales", lambda: entorno.fabrica_vectorial)
     gestor = modulo_gestor.construir_gestor(SimpleNamespace(**{**CONFIG_VALIDA, "APP_ENV": app_env}))
     assert gestor.ambiente == app_env == gestor.dependencias.almacen.ambiente

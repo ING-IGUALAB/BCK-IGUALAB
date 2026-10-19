@@ -17,16 +17,19 @@ from pathlib import Path
 
 import pytest
 
-from app.services.ingesta import vista_markdown
-from app.services.ingesta.analisis_ingesta import analizar_texto
-from app.services.ingesta.deteccion_sanciones import MAX_LONGITUD_CITA, VERSION_DETECTOR_SANCIONES, detectar_sanciones
+from app.modules.ingesta.domain import vista_markdown
+from app.modules.ingesta.application.analisis_ingesta import analizar_texto
+from app.modules.ingesta.domain.deteccion_sanciones import MAX_LONGITUD_CITA, VERSION_DETECTOR_SANCIONES, detectar_sanciones
 
 DATOS = Path(__file__).parent / "datos"
 NL = "\n"
 
 
 def leer(nombre: str) -> str:
-    return (DATOS / nombre).read_bytes().decode("utf-8")
+    """Los documentos de `datos/` se guardan con LF en el repositorio; `core.autocrlf=true` los deja en CRLF al extraerlos en
+    Windows y varias aserciones citan saltos de línea literales (`"\\n"`). Se normaliza aquí para que la prueba no dependa del
+    checkout; que el detector se comporte igual con CRLF real lo fija `test_los_documentos_con_crlf_dan_el_mismo_resultado`."""
+    return (DATOS / nombre).read_bytes().decode("utf-8").replace("\r\n", "\n")
 
 
 def verificar(texto, resultado):
@@ -599,6 +602,24 @@ def _mejor_tiempo(texto: str, ejecuciones: int) -> float:
         detectar_sanciones(texto)
         mejor = min(mejor, time.perf_counter() - inicio)
     return mejor
+
+
+@pytest.mark.parametrize("nombre", ["energia_andina_gri_2024.md", "sanciones_mixtas_gri_2024.md"])
+def test_los_documentos_con_crlf_dan_el_mismo_resultado(nombre):
+    """Un Markdown entregado con finales CRLF (habitual al convertir en Windows) no cambia lo detectado y cada dato sigue siendo
+    un trozo exacto del texto recibido, con sus propios saltos de línea."""
+    lf = leer(nombre)
+    crlf = lf.replace("\n", "\r\n")
+
+    def resumen(texto):
+        resultado = detectar(texto)
+        verificar(texto, resultado)
+        return [
+            (s.en_tabla, s.monto and (s.monto.texto, s.monto.unidad), s.entidad and s.entidad.texto, s.base_deteccion, s.motivos_revision)
+            for s in resultado.sanciones
+        ]
+
+    assert resumen(crlf) == resumen(lf)
 
 
 def test_el_formato_abundante_crece_linealmente_con_el_tamano_del_documento():

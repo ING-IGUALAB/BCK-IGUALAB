@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.ingesta import proveedor_oci
+from app.modules.ingesta.infrastructure import proveedor_oci
 from scripts import smoke_embeddings_oci as smoke
 from tests.services.test_ingesta_proveedor_oci import ClienteFalso, ajustes, vector
 

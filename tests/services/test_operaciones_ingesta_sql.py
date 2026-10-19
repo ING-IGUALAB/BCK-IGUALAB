@@ -161,7 +161,7 @@ async def test_estados_validos_se_aceptan_y_un_documento_solo_se_enlaza_una_vez(
 # ============================================ El arranque no crea las tablas ============================================
 
 async def test_el_arranque_no_crea_operaciones_ni_documentos_aunque_los_modelos_esten_cargados(url_pg_aislado):
-    from app.database import Base
+    from app.core.database import Base
     from app.main import app  # noqa: F401  (importa routers, gestor y modelos: el riesgo es real)
     from scripts import crear_tablas
 

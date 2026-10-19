@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from app.services.ingesta import markdown
+from app.modules.ingesta.domain import markdown
 
 
 @pytest.mark.parametrize(

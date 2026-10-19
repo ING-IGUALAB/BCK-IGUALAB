@@ -8,9 +8,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import text
 
-from app.database import engine, Base
+from app.core.database import engine, Base
 from app import models  # noqa: F401
-from app.logging_config import configure_logging, paso_de_arranque
+from app.core.logging_config import configure_logging, paso_de_arranque
 
 logger = logging.getLogger("igualab.startup")
 

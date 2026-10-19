@@ -12,22 +12,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.exceptions import ConflictError
+from app.core.exceptions import ConflictError
 from app.models import RolUsuario
-from app.services.ingesta import coordinador, operacion_service, validacion
-from app.services.ingesta.coordinador import DependenciasIngesta
-from app.services.ingesta.gestor import GestorIngesta
-from app.services.ingesta.reglas import TAMANO_MAXIMO_BYTES
+from app.modules.ingesta.application import coordinador, operacion_service
+from app.modules.ingesta.domain import validacion
+from app.modules.ingesta.application.coordinador import DependenciasIngesta
+from app.modules.ingesta.application.gestor import GestorIngesta
+from app.modules.ingesta.domain.reglas import TAMANO_MAXIMO_BYTES
 from tests.ayudantes_http_ingesta import comprobar_error, cliente_http, opciones_de_prueba
 from tests.ayudantes_ingesta import AlmacenEnMemoria
 
 import httpx
 from fastapi import FastAPI
 
-from app.dependencies import get_current_user
-from app.exception_handlers import register_exception_handlers
-from app.request_id import RequestIDMiddleware
-from app.routers import documentos
+from app.core.dependencies import get_current_user
+from app.core.exception_handlers import register_exception_handlers
+from app.core.request_id import RequestIDMiddleware
+from app.modules.ingesta import router as documentos
 
 
 @contextlib.asynccontextmanager

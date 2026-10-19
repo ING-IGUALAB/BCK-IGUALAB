@@ -245,7 +245,7 @@ def test_el_arranque_no_crea_documentos_ni_operaciones_aunque_la_aplicacion_carg
     codigo = (
         "import app.main\n"
         "from sqlalchemy import create_engine, inspect\n"
-        "from app.database import Base\n"
+        "from app.core.database import Base\n"
         "import app.models as m\n"
         "from scripts import crear_tablas\n"
         "motor = create_engine('sqlite://')\n"

@@ -13,8 +13,8 @@ import random
 import pytest
 from starlette.datastructures import UploadFile
 
-from app.services.ingesta import validacion
-from app.services.ingesta.fragmentacion import (
+from app.modules.ingesta.domain import validacion
+from app.modules.ingesta.domain.fragmentacion import (
     MAX_CARACTERES_CONTEXTO_PREDETERMINADO,
     MAX_CARACTERES_PREDETERMINADO,
     Fragmento,

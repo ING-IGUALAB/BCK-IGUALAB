@@ -4,9 +4,10 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import ValidationError
 
-from app.audit import registrar_evento
+from app.modules.auditoria.service import registrar_evento
 from app.models import (
     RegistroAuditoria,
+    ResultadoAuditoria,
     TipoEventoAuditoria,
 )
 from app.schemas import RestablecerPasswordRequest
@@ -47,6 +48,7 @@ def test_auditoria_agrega_evento_sin_commit_independiente():
         TipoEventoAuditoria.INICIO_SESION,
         "Login exitoso",
         usuario_id=usuario_id,
+        resultado=ResultadoAuditoria.EXITOSO,
     )
 
     evento = db.add.call_args.args[0]
@@ -58,4 +60,5 @@ def test_auditoria_agrega_evento_sin_commit_independiente():
         == TipoEventoAuditoria.INICIO_SESION
     )
     assert evento.detalle == "Login exitoso"
+    assert evento.resultado == "EXITOSO"
     assert db.commit.call_count == 0
