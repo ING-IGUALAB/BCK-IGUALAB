@@ -253,7 +253,7 @@ def _construir(ambiente: str, anio: int, datos: _Instantanea) -> AnalisisRespons
     # Una validación solo cuenta si hay filas que respaldar; las vacías no existen (CHECK en la base).
     vigente = datos.validacion is not None and not motivos and bool(filas)
     flujo = calculo.determinar_flujo(hay_documentos=hay_documentos, filas=filas, vigente=vigente)
-    sanciones, resumen = calculo.construir_sanciones(datos.documentos)
+    sanciones, resumen, agrupaciones = calculo.construir_sanciones_y_agrupaciones(datos.documentos)
     return AnalisisResponse(
         ambiente=ambiente,
         empresa=EmpresaResumen(id=empresa.id, nombre=empresa.nombre, sector=empresa.sector, activa=empresa.activa),
@@ -267,6 +267,7 @@ def _construir(ambiente: str, anio: int, datos: _Instantanea) -> AnalisisRespons
         filas=filas,
         advertencias=advertencias,
         sanciones=sanciones,
+        agrupaciones_sanciones=agrupaciones,
         resumen_sanciones=resumen,
         puntaje=calculo.calcular_puntaje(filas, vigente=flujo is EstadoFlujo.VALIDADO, hay_documentos=hay_documentos),
         pendientes=calculo.construir_pendientes(

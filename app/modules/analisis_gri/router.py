@@ -69,7 +69,8 @@ _BASE = "/empresas/{empresa_id}/anios/{anio}"
 async def consultar_analisis(
     empresa_id: EmpresaId, anio: Anio, actor: AdministradorUser, db: DatabaseSession, ambiente: Ambiente, _: None = EsquemaListo
 ):
-    """Filas GRI (una por código y edición) con su evidencia, sanciones, advertencias, puntaje ESG, pendientes, versión y estado
+    """Filas GRI (una por código y edición) con su evidencia, menciones de sanciones y sus agrupaciones por documento (con
+    advertencias de posibles duplicados, conflictos e importes por revisar), advertencias, puntaje ESG, pendientes, versión y estado
     de la validación. Solo documentos elegibles del ambiente: COMPLETADOS, con análisis y publicación vectorial confirmada, de una
     empresa activa."""
     return await servicio.consultar_analisis(db, ambiente=ambiente, empresa_id=empresa_id, anio=anio)

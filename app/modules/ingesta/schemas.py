@@ -109,7 +109,8 @@ class DocumentoDetalle(DocumentoResumen):
     analisis: dict[str, Any] | None = Field(
         default=None,
         description="Resultado completo del análisis (grupos GRI, sanciones, motivos, advertencias, versión del "
-        "catálogo). Con citas reales del documento. null si no hay análisis persistido.",
+        "catálogo). Con citas reales del documento. `agrupacion_sanciones` reúne las menciones de sanciones de ESTE documento "
+        "con evidencia explícita; un análisis sin esa clave no se agrupó. null si no hay análisis persistido.",
     )
     actualizado_en: datetime
 

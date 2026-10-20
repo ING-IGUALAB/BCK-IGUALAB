@@ -69,6 +69,12 @@ def analisis_del_detector_anterior(texto: str) -> dict:
     anterior = {**actual, "sanciones": [], "descartes_sanciones": {}}
     anterior["advertencias"] = [a for a in actual["advertencias"] if a["categoria"] != "sanciones"]
     anterior.pop("version_detector_sanciones")
+    # El detector anterior tampoco agrupaba: sin esta clave una lectura NO debe presentarlo como agrupado ni revisado.
+    anterior.pop("agrupacion_sanciones")
+    anterior.pop("version_agrupacion_sanciones")
+    for sancion in anterior["sanciones"]:
+        for clave in ("referencias", "numeral", "infraccion"):
+            sancion.pop(clave, None)
     # Sin sanciones, la clasificación era la de solo GRI: un documento sin estándares catalogados quedaba OBSERVADO.
     anterior["motivos"] = [m for m in actual["motivos"] if m != "sanciones_economicas"] or [MOTIVO_SIN_HALLAZGOS]
     anterior["resultado"] = "CON_HALLAZGOS" if anterior["motivos"] != [MOTIVO_SIN_HALLAZGOS] else "OBSERVADO"
@@ -91,7 +97,15 @@ async def test_las_sanciones_de_los_documentos_de_evidencia_llegan_a_la_consulta
         a = await consultar(c, m5.empresa)
 
     # El conteo es de MENCIONES: dos documentos, tres menciones por suceso descrito en párrafo y tabla.
-    assert a["resumen_sanciones"] == {"total": 6, "cuantificadas": 4, "no_cuantificadas": 2, "por_unidad": {"S/": 2, "soles": 2}}
+    resumen = a["resumen_sanciones"]
+    assert {k: resumen[k] for k in ("total", "cuantificadas", "no_cuantificadas", "por_unidad")} == {
+        "total": 6, "cuantificadas": 4, "no_cuantificadas": 2, "por_unidad": {"S/": 2, "soles": 2}
+    }
+    # Estos documentos no traen identificador de resolución: ninguna mención se agrupa (no se infiere identidad) y sus importes
+    # con separador ambiguo quedan marcados para revisión.
+    assert (resumen["evaluacion_agrupacion"], resumen["agrupaciones_identificadas"], resumen["menciones_sin_evaluar"]) == ("COMPLETA", 0, 0)
+    assert resumen["unidades"] == 6
+    assert {s["agrupacion_id"] is not None for s in a["sanciones"]} == {True}
     por_documento = {
         str(doc_energia.id): [s for s in a["sanciones"] if s["documento_id"] == str(doc_energia.id)],
         str(doc_mixtas.id): [s for s in a["sanciones"] if s["documento_id"] == str(doc_mixtas.id)],
@@ -187,7 +201,11 @@ async def test_corregir_un_analisis_vacio_en_su_lugar_no_toca_estados_historial_
         despues = await consultar(c, m5.empresa)
 
     assert [s["monto"] for s in despues["sanciones"]] == [None]
-    assert despues["resumen_sanciones"] == {"total": 1, "cuantificadas": 0, "no_cuantificadas": 1, "por_unidad": {}}
+    resumen = despues["resumen_sanciones"]
+    assert {k: resumen[k] for k in ("total", "cuantificadas", "no_cuantificadas", "por_unidad")} == {
+        "total": 1, "cuantificadas": 0, "no_cuantificadas": 1, "por_unidad": {}
+    }
+    assert resumen["evaluacion_agrupacion"] == "COMPLETA"  # la corrección trae la agrupación a la vez que las sanciones
     for tabla, filas in antes_tablas.items():
         assert await sql(m5, f"SELECT * FROM {tabla} ORDER BY 1") == filas, tabla
     assert despues["validacion"]["vigente"] is True  # la huella es de id + SHA-256: no cambió
@@ -220,3 +238,29 @@ async def test_un_observado_antiguo_pasa_a_con_hallazgos_solo_si_se_actualiza_la
         await db.commit()
     fila = (await sql(m5, "SELECT resultado_analisis::text AS r, analisis->>'resultado' AS a FROM documentos WHERE id = :i", i=doc.id))[0]
     assert (fila.r, fila.a) == ("CON_HALLAZGOS", "CON_HALLAZGOS")
+
+
+def analisis_con_sanciones_sin_agrupacion(texto: str) -> dict:
+    """Un análisis de un detector anterior a 2026-10-19: con sanciones, pero sin agrupación, referencias, numeral ni infracción."""
+    anterior = analizar_texto(texto).a_dict()
+    anterior["version_detector_sanciones"] = "2026-10-15.1"
+    anterior.pop("agrupacion_sanciones")
+    anterior.pop("version_agrupacion_sanciones")
+    for sancion in anterior["sanciones"]:
+        for clave in ("referencias", "numeral", "infraccion"):
+            sancion.pop(clave, None)
+    return anterior
+
+
+async def test_un_analisis_antiguo_con_sanciones_se_lee_sin_presentarlo_como_agrupado_y_no_se_modifica(m5):
+    doc = await sembrar(m5, analisis=analisis_con_sanciones_sin_agrupacion(leer("sanciones_mixtas_gri_2024.md")))
+    antes = await sql(m5, "SELECT analisis::text FROM documentos WHERE id = :i", i=doc.id)
+    async with cliente_http(construir_app(m5.fabrica, m5.admin)) as c:
+        a = await consultar(c, m5.empresa)
+    assert len(a["sanciones"]) == 4
+    assert all(s["agrupacion_id"] is None and s["referencias"] == [] for s in a["sanciones"])
+    assert a["agrupaciones_sanciones"] == []  # ninguna unidad: no hay agrupación que mostrar
+    resumen = a["resumen_sanciones"]
+    assert (resumen["total"], resumen["evaluacion_agrupacion"], resumen["unidades"]) == (4, "NO_EVALUADA", None)
+    assert (resumen["menciones_sin_evaluar"], resumen["agrupaciones_identificadas"], resumen["posibles_duplicados"]) == (4, 0, 0)
+    assert await sql(m5, "SELECT analisis::text FROM documentos WHERE id = :i", i=doc.id) == antes  # leer no recalcula ni escribe

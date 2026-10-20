@@ -10,6 +10,10 @@ CONVENCIONES
 - Posiciones (`inicio`, `fin`, `cita_inicio`, `cita_fin`): caracteres del texto interpretado del documento, inicio inclusivo y fin
   exclusivo. No hay páginas: el detector no las conoce y no se inventan.
 - Un monto ausente es `monto = null` y `cuantificada = false`; nunca cero. No se suman monedas ni se convierte la UIT.
+- SANCIONES: `sanciones` son MENCIONES (una por aparición en el texto, con su cita y posiciones). `agrupaciones_sanciones` las
+  reúne SOLO dentro de un mismo documento y SOLO con evidencia explícita (autoridad + identificador completo + una distinción
+  coincidente); lo que no se puede asegurar queda separado con una advertencia. Un documento procesado antes de existir la
+  agrupación no trae `agrupacion_id` en sus menciones ni aparece en `agrupaciones_sanciones`: no se presenta como revisado.
 """
 import enum
 import uuid
@@ -166,6 +170,17 @@ class MontoVista(_Modelo):
     unidad_fin: int | None = Field(default=None, description="Posición final (exclusiva) de la moneda; ver `unidad_inicio`.")
 
 
+class ReferenciaFormalVista(_Modelo):
+    """Resolución o expediente que el texto une a la sanción."""
+
+    tipo: str = Field(description="`resolucion` o `expediente`.")
+    texto: str = Field(description="Frase literal («Resolución Directoral N° 0123-2023-OEFA/DFAI»).")
+    identificador: str = Field(description="Solo el identificador literal.")
+    completo: bool = Field(description="Tiene al menos dos componentes; solo un identificador completo sirve para agrupar.")
+    inicio: int
+    fin: int
+
+
 class CalificadorVista(_Modelo):
     codigo: str
     texto: str
@@ -191,6 +206,71 @@ class SancionVista(_Modelo):
     periodo: DatoTexto | None
     calificadores: list[CalificadorVista]
     motivos_revision: list[str]
+    agrupacion_id: str | None = Field(
+        default=None,
+        description="Id de la agrupación (o mención individual) de `agrupaciones_sanciones` a la que pertenece. null = el "
+        "documento se procesó sin agrupación: la mención NO fue evaluada.",
+    )
+    referencias: list[ReferenciaFormalVista] = Field(default_factory=list)
+    numeral: DatoTexto | None = None
+    infraccion: DatoTexto | None = None
+
+
+class EstadoImporte(str, enum.Enum):
+    CUANTIFICADO = "CUANTIFICADO"  # un importe explícito y no ambiguo
+    REQUIERE_REVISION = "REQUIERE_REVISION"  # «Importe que requiere revisión»: separador ambiguo o cifras literales distintas
+    NO_ESPECIFICADO = "NO_ESPECIFICADO"  # el documento dice expresamente que el importe no consta o está por determinar
+    NO_CONSTA = "NO_CONSTA"  # ningún importe unido a la sanción (no es cero)
+
+
+class EvaluacionAgrupacion(str, enum.Enum):
+    NO_APLICA = "NO_APLICA"  # no hay menciones de sanciones
+    NO_EVALUADA = "NO_EVALUADA"  # ningún documento con sanciones trae agrupación
+    PARCIAL = "PARCIAL"  # algún documento no la trae o no se compararon todas sus menciones
+    COMPLETA = "COMPLETA"  # todos los documentos con sanciones se agruparon (no implica «sin ambigüedades»)
+
+
+class CitaSancion(_Modelo):
+    """Una evidencia de una agrupación, con su procedencia. El mismo texto en dos posiciones son dos evidencias."""
+
+    documento_id: uuid.UUID
+    documento_nombre: str
+    seccion: str
+    en_tabla: bool
+    referencia_original: str
+    inicio: int
+    fin: int
+    cita: str
+    cita_inicio: int
+    cita_fin: int
+
+
+class AdvertenciaSancion(_Modelo):
+    codigo: str = Field(description="`POSIBLE_SANCION_DUPLICADA`, `DATOS_EN_CONFLICTO` o `IMPORTE_A_REVISAR`.")
+    mensaje: str = Field(description="«Posible sanción duplicada», «Importe que requiere revisión»…")
+    con: list[str] = Field(default_factory=list, description="Ids de las otras agrupaciones implicadas.")
+    campo: str | None = None
+
+
+class AgrupacionSancion(_Modelo):
+    """Una agrupación de menciones con identidad explícita (`menciones` ≥ 2) o una mención individual. NO es un total
+    definitivo de sanciones únicas: mientras haya advertencias, el conteo puede incluir duplicados o separar de más."""
+
+    id: str
+    documento_id: uuid.UUID
+    documento_nombre: str
+    agrupada: bool = Field(description="True si reúne dos o más menciones.")
+    criterio: str = Field(description="`identidad_explicita` o `mencion_individual`.")
+    coincidencias: list[str] = Field(description="Datos que justificaron agrupar: autoridad, identificador, numeral, infraccion, importe.")
+    menciones: int
+    autoridad: DatoTexto | None = Field(description="Autoridad que sanciona (no la empresa); null si el texto no la identifica.")
+    identificadores: list[ReferenciaFormalVista]
+    numeral: DatoTexto | None
+    infraccion: DatoTexto | None
+    estado_importe: EstadoImporte
+    importes: list[MontoVista] = Field(description="Importes originales de sus menciones (sin convertir ni sumar).")
+    citas: list[CitaSancion]
+    advertencias: list[AdvertenciaSancion]
 
 
 class ResumenSanciones(_Modelo):
@@ -205,6 +285,18 @@ class ResumenSanciones(_Modelo):
         description="Menciones sin monto: el documento no lo da o dice expresamente que no se especifica (nunca es cero)."
     )
     por_unidad: dict[str, int] = Field(description="Cantidad de sanciones por unidad/moneda escrita en el documento.")
+    evaluacion_agrupacion: EvaluacionAgrupacion = EvaluacionAgrupacion.NO_APLICA
+    unidades: int | None = Field(
+        default=None,
+        description="Agrupaciones + menciones individuales de los documentos evaluados. NO es el total de sanciones únicas: "
+        "mientras haya advertencias puede incluir duplicados. null si ningún documento fue evaluado.",
+    )
+    agrupaciones_identificadas: int = Field(default=0, description="Agrupaciones de dos o más menciones con identidad explícita.")
+    menciones_agrupadas: int = 0
+    menciones_sin_evaluar: int = Field(default=0, description="Menciones de documentos procesados sin agrupación (formato anterior).")
+    posibles_duplicados: int = Field(default=0, description="Pares de unidades con «Posible sanción duplicada».")
+    unidades_en_conflicto: int = Field(default=0, description="Unidades con «Datos en conflicto».")
+    importes_a_revisar: int = Field(default=0, description="Unidades con «Importe que requiere revisión».")
 
 
 class PuntajeEsg(_Modelo):
@@ -257,6 +349,11 @@ class AnalisisResponse(_Modelo):
     filas: list[FilaGri]
     advertencias: list[AdvertenciaAnalisis]
     sanciones: list[SancionVista]
+    agrupaciones_sanciones: list[AgrupacionSancion] = Field(
+        default_factory=list,
+        description="Agrupaciones por documento (ver `resumen_sanciones.evaluacion_agrupacion`). Vacía no significa «sin "
+        "sanciones» si hay menciones sin evaluar.",
+    )
     resumen_sanciones: ResumenSanciones
     puntaje: PuntajeEsg
     pendientes: list[Pendiente]
