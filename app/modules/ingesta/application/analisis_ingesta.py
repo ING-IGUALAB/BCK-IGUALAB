@@ -19,6 +19,8 @@ Reglas:
 - Las advertencias de calidad (p. ej. tablas con columnas inconsistentes) viajan en el
   resultado pero NO influyen en la clasificación.
 - No asigna estados de cumplimiento (OK, Baja sustancia, Sub-reportado) ni puntaje ESG.
+- Agrupa las menciones de sanciones DENTRO del documento (`agrupacion_sanciones`, solo con evidencia explícita; ver
+  `agrupacion_sanciones.py`). La agrupación no influye en la clasificación ni en `total`, que sigue contando menciones.
 
 Este módulo NO marca documentos como COMPLETADO, no persiste, no publica fragmentos
 y no está conectado a `documento_service`: es la pieza que invocará el futuro
@@ -31,6 +33,7 @@ from dataclasses import asdict, dataclass
 
 from app.core.exceptions import InternalProcessingError
 from app.models.documento_ingesta import ResultadoAnalisis
+from app.modules.ingesta.domain.agrupacion_sanciones import ResultadoAgrupacion, agrupar_sanciones
 from app.modules.ingesta.domain.catalogo_gri import CatalogoGri, catalogo_predeterminado
 from app.modules.ingesta.domain.deteccion_gri import (
     GrupoEstandarGri,
@@ -86,6 +89,8 @@ class ResultadoAnalisisIngesta:
     gri: ResultadoDeteccionGri
     sanciones: ResultadoSanciones
     advertencias: tuple[AdvertenciaAnalisis, ...]
+    # Agrupación de menciones de sanciones DENTRO de este documento. None = no evaluada (p. ej. un análisis construido a mano).
+    agrupacion: ResultadoAgrupacion | None = None
 
     @property
     def hay_referencias_gri_catalogadas(self) -> bool:
@@ -123,6 +128,10 @@ class ResultadoAnalisisIngesta:
             "descartes_sanciones": dict(self.sanciones.descartes),
             "advertencias": [asdict(a) for a in self.advertencias],
         }
+        if self.agrupacion is not None:
+            # Un análisis persistido SIN esta clave nunca se agrupó: no se presenta como deduplicado ni revisado.
+            datos["version_agrupacion_sanciones"] = self.agrupacion.version
+            datos["agrupacion_sanciones"] = self.agrupacion.a_dict()
         return json.loads(json.dumps(datos, ensure_ascii=False))
 
 
@@ -223,6 +232,10 @@ def analizar_texto(
         sanciones = detector_sanciones(texto)
     except Exception as exc:
         raise _fallo("sanciones", exc) from None
+    try:
+        agrupacion = agrupar_sanciones(sanciones.sanciones)
+    except Exception as exc:
+        raise _fallo("agrupacion_sanciones", exc) from None
 
     motivos = []
     if any(grupo.catalogado for grupo in gri.grupos):
@@ -245,6 +258,7 @@ def analizar_texto(
         gri=gri,
         sanciones=sanciones,
         advertencias=tuple(advertencias),
+        agrupacion=agrupacion,
     )
 
 

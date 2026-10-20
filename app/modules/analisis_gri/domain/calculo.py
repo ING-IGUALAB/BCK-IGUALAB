@@ -35,17 +35,23 @@ from app.modules.analisis_gri.schemas import (
     ActorResumen,
     AdvertenciaAnalisis,
     AdvertenciaFila,
+    AdvertenciaSancion,
+    AgrupacionSancion,
     CalificadorVista,
+    CitaSancion,
     DatoTexto,
     DocumentoElegible,
     EstadoFlujo,
+    EstadoImporte,
     EstadoPuntaje,
+    EvaluacionAgrupacion,
     Evidencia,
     FilaGri,
     MontoVista,
     MotivoNoVigente,
     Pendiente,
     PuntajeEsg,
+    ReferenciaFormalVista,
     ResumenSanciones,
     SancionVista,
 )
@@ -57,6 +63,7 @@ from app.modules.ingesta.application.analisis_ingesta import (
     CATEGORIA_CALIDAD,
     CATEGORIA_GRI,
 )
+from app.modules.ingesta.domain.agrupacion_sanciones import ADV_DATOS_EN_CONFLICTO, ADV_POSIBLE_DUPLICADA
 
 DECIMALES_PRESENTACION = 1
 MAX_REFERENCIAS_ADVERTENCIA = 20
@@ -341,53 +348,188 @@ def _dato(valor: dict | None) -> DatoTexto | None:
     return DatoTexto(texto=valor["texto"], inicio=valor["inicio"], fin=valor["fin"])
 
 
-def construir_sanciones(documentos: list[DocumentoBase]) -> tuple[list[SancionVista], ResumenSanciones]:
+def _referencia_vista(r: dict) -> ReferenciaFormalVista:
+    return ReferenciaFormalVista(
+        tipo=r["tipo"], texto=r["texto"], identificador=r["identificador"], completo=bool(r["completo"]),
+        inicio=r["inicio"], fin=r["fin"],
+    )
+
+
+def _monto_vista(monto: dict) -> MontoVista:
+    return MontoVista(
+        texto=monto["texto"],
+        unidad=monto["unidad"],
+        numero_texto=monto["numero_texto"],
+        separador_ambiguo=bool(monto["separador_ambiguo"]),
+        vinculo=monto["vinculo"],
+        inicio=monto["inicio"],
+        fin=monto["fin"],
+        unidad_inicio=monto.get("unidad_inicio"),  # ausente en análisis de detectores anteriores
+        unidad_fin=monto.get("unidad_fin"),
+    )
+
+
+def _sancion_vista(doc: DocumentoBase, s: dict, agrupacion_id: str | None) -> SancionVista:
+    monto = s.get("monto")
+    return SancionVista(
+        documento_id=doc.id,
+        documento_nombre=doc.nombre_archivo,
+        tipo_termino=s["tipo_termino"],
+        referencia_original=s["referencia_original"],
+        cita=s["cita"],
+        inicio=s["inicio"],
+        fin=s["fin"],
+        cita_inicio=s["cita_inicio"],
+        cita_fin=s["cita_fin"],
+        seccion=s["seccion"],
+        en_tabla=bool(s.get("en_tabla", False)),
+        entidad=_dato(s.get("entidad")),
+        monto=None if monto is None else _monto_vista(monto),
+        cuantificada=monto is not None,
+        periodo=_dato(s.get("periodo")),
+        calificadores=[
+            CalificadorVista(codigo=c["codigo"], texto=c["texto"], inicio=c["inicio"], fin=c["fin"])
+            for c in s.get("calificadores") or []
+        ],
+        motivos_revision=list(s.get("motivos_revision") or []),
+        agrupacion_id=agrupacion_id,
+        # Ausentes en análisis de detectores anteriores a 2026-10-19: no hay dato, no se infiere.
+        referencias=[_referencia_vista(r) for r in s.get("referencias") or []],
+        numeral=_dato(s.get("numeral")),
+        infraccion=_dato(s.get("infraccion")),
+    )
+
+
+def _unidades_de_agrupacion(doc: DocumentoBase, menciones: int) -> list[dict] | None:
+    """Unidades persistidas de la agrupación del documento, validadas (cada mención en exactamente una unidad), o None si el
+    documento se procesó sin agrupación. Una estructura inválida no se corrige: falla como el resto de datos almacenados."""
+    agrupacion = doc.analisis.get("agrupacion_sanciones")
+    if agrupacion is None:
+        return None
+    try:
+        unidades = agrupacion["unidades"]
+        indices = sorted(i for u in unidades for i in u["indices"])
+        valido = indices == list(range(menciones)) and all(
+            u["estado_importe"] in EstadoImporte._value2member_map_ and u["indices"] for u in unidades
+        )
+        if not valido or agrupacion["evaluacion"] not in (EvaluacionAgrupacion.COMPLETA.value, EvaluacionAgrupacion.PARCIAL.value):
+            raise ValueError
+    except (KeyError, TypeError, ValueError):
+        raise _datos_invalidos() from None
+    return unidades
+
+
+def _ids_de_unidades(doc: DocumentoBase, unidades: list[dict]) -> dict[int, str]:
+    """Id de la unidad a la que pertenece cada mención del documento."""
+    return {i: f"{doc.id}:{k}" for k, u in enumerate(unidades) for i in u["indices"]}
+
+
+def _agrupacion_vista(doc: DocumentoBase, posicion: int, unidad: dict, menciones: list[SancionVista]) -> AgrupacionSancion:
+    primera = menciones[0]
+    citas: dict[tuple[int, int, int, int], CitaSancion] = {}
+    for m in menciones:  # la misma evidencia exacta de una misma posición no se repite; el mismo texto en otra posición sí
+        citas.setdefault(
+            (m.cita_inicio, m.cita_fin, m.inicio, m.fin),
+            CitaSancion(
+                documento_id=m.documento_id, documento_nombre=m.documento_nombre, seccion=m.seccion, en_tabla=m.en_tabla,
+                referencia_original=m.referencia_original, inicio=m.inicio, fin=m.fin,
+                cita=m.cita, cita_inicio=m.cita_inicio, cita_fin=m.cita_fin,
+            ),
+        )
+    identificadores = {}
+    for m in menciones:  # una por identificador; sus posiciones quedan en cada mención y en las citas
+        for r in m.referencias:
+            identificadores.setdefault((r.tipo, r.identificador), r)
+    importes = {(m.monto.inicio, m.monto.fin): m.monto for m in menciones if m.monto is not None}
+    return AgrupacionSancion(
+        id=f"{doc.id}:{posicion}",
+        documento_id=doc.id,
+        documento_nombre=doc.nombre_archivo,
+        agrupada=len(menciones) > 1,
+        criterio=unidad["criterio"],
+        coincidencias=list(unidad.get("coincidencias") or []),
+        menciones=len(menciones),
+        autoridad=next((m.entidad for m in menciones if m.entidad is not None), None),
+        identificadores=list(identificadores.values()),
+        numeral=next((m.numeral for m in menciones if m.numeral is not None), primera.numeral),
+        infraccion=next((m.infraccion for m in menciones if m.infraccion is not None), primera.infraccion),
+        estado_importe=EstadoImporte(unidad["estado_importe"]),
+        importes=list(importes.values()),
+        citas=list(citas.values()),
+        advertencias=[
+            AdvertenciaSancion(
+                codigo=a["codigo"], mensaje=a["mensaje"], campo=a.get("campo"),
+                con=[f"{doc.id}:{otra}" for otra in a.get("con") or []],
+            )
+            for a in unidad.get("advertencias") or []
+        ],
+    )
+
+
+def _resumen_agrupacion(
+    agrupaciones: list[AgrupacionSancion], total: int, sin_evaluar: int, parcial: bool
+) -> dict[str, Any]:
+    pares = {
+        frozenset((a.id, otra)) for a in agrupaciones for adv in a.advertencias
+        if adv.codigo == ADV_POSIBLE_DUPLICADA for otra in adv.con
+    }
+    agrupadas = [a for a in agrupaciones if a.agrupada]
+    if total == 0:
+        evaluacion = EvaluacionAgrupacion.NO_APLICA
+    elif not agrupaciones:
+        evaluacion = EvaluacionAgrupacion.NO_EVALUADA
+    elif sin_evaluar or parcial:
+        evaluacion = EvaluacionAgrupacion.PARCIAL
+    else:
+        evaluacion = EvaluacionAgrupacion.COMPLETA
+    return {
+        "evaluacion_agrupacion": evaluacion,
+        "unidades": len(agrupaciones) if agrupaciones else None,
+        "agrupaciones_identificadas": len(agrupadas),
+        "menciones_agrupadas": sum(a.menciones for a in agrupadas),
+        "menciones_sin_evaluar": sin_evaluar,
+        "posibles_duplicados": len(pares),
+        "unidades_en_conflicto": sum(any(x.codigo == ADV_DATOS_EN_CONFLICTO for x in a.advertencias) for a in agrupaciones),
+        "importes_a_revisar": sum(a.estado_importe is EstadoImporte.REQUIERE_REVISION for a in agrupaciones),
+    }
+
+
+def _sanciones_de_documento(doc: DocumentoBase) -> tuple[list[SancionVista], list[AgrupacionSancion] | None, bool]:
+    """(menciones, agrupaciones, parcial) de un documento. `agrupaciones` es None si se procesó sin agrupación."""
+    guardadas = doc.analisis.get("sanciones")
+    if not isinstance(guardadas, list):
+        raise _datos_invalidos()
+    unidades = _unidades_de_agrupacion(doc, len(guardadas))
+    ids = _ids_de_unidades(doc, unidades) if unidades is not None else {}
+    try:
+        menciones = [_sancion_vista(doc, s, ids.get(i)) for i, s in enumerate(guardadas)]
+        if unidades is None:
+            return menciones, None, False
+        agrupaciones = [
+            _agrupacion_vista(doc, k, unidad, [menciones[i] for i in unidad["indices"]]) for k, unidad in enumerate(unidades)
+        ]
+    except (KeyError, TypeError, ValueError):
+        raise _datos_invalidos() from None
+    return menciones, agrupaciones, doc.analisis["agrupacion_sanciones"]["evaluacion"] != EvaluacionAgrupacion.COMPLETA.value
+
+
+def construir_sanciones_y_agrupaciones(
+    documentos: list[DocumentoBase],
+) -> tuple[list[SancionVista], ResumenSanciones, list[AgrupacionSancion]]:
+    """Menciones de sanciones (una por aparición), su resumen y las agrupaciones por documento. Un documento procesado sin
+    agrupación aporta sus menciones con `agrupacion_id = null` y NINGUNA unidad: no se presenta como deduplicado."""
     sanciones: list[SancionVista] = []
+    agrupaciones: list[AgrupacionSancion] = []
+    sin_evaluar = 0
+    parcial = False
     for doc in documentos:
-        guardadas = doc.analisis.get("sanciones")
-        if not isinstance(guardadas, list):
-            raise _datos_invalidos()
-        try:
-            for s in guardadas:
-                monto = s.get("monto")
-                sanciones.append(
-                    SancionVista(
-                        documento_id=doc.id,
-                        documento_nombre=doc.nombre_archivo,
-                        tipo_termino=s["tipo_termino"],
-                        referencia_original=s["referencia_original"],
-                        cita=s["cita"],
-                        inicio=s["inicio"],
-                        fin=s["fin"],
-                        cita_inicio=s["cita_inicio"],
-                        cita_fin=s["cita_fin"],
-                        seccion=s["seccion"],
-                        en_tabla=bool(s.get("en_tabla", False)),
-                        entidad=_dato(s.get("entidad")),
-                        monto=None
-                        if monto is None
-                        else MontoVista(
-                            texto=monto["texto"],
-                            unidad=monto["unidad"],
-                            numero_texto=monto["numero_texto"],
-                            separador_ambiguo=bool(monto["separador_ambiguo"]),
-                            vinculo=monto["vinculo"],
-                            inicio=monto["inicio"],
-                            fin=monto["fin"],
-                            unidad_inicio=monto.get("unidad_inicio"),  # ausente en análisis de detectores anteriores
-                            unidad_fin=monto.get("unidad_fin"),
-                        ),
-                        cuantificada=monto is not None,
-                        periodo=_dato(s.get("periodo")),
-                        calificadores=[
-                            CalificadorVista(codigo=c["codigo"], texto=c["texto"], inicio=c["inicio"], fin=c["fin"])
-                            for c in s.get("calificadores") or []
-                        ],
-                        motivos_revision=list(s.get("motivos_revision") or []),
-                    )
-                )
-        except (KeyError, TypeError, ValueError):
-            raise _datos_invalidos() from None
+        menciones, del_documento, parcial_del_documento = _sanciones_de_documento(doc)
+        sanciones += menciones
+        parcial = parcial or parcial_del_documento
+        if del_documento is None:
+            sin_evaluar += len(menciones)
+        else:
+            agrupaciones += del_documento
     por_unidad: dict[str, int] = defaultdict(int)
     for s in sanciones:
         if s.monto is not None:
@@ -398,7 +540,14 @@ def construir_sanciones(documentos: list[DocumentoBase]) -> tuple[list[SancionVi
         cuantificadas=cuantificadas,
         no_cuantificadas=len(sanciones) - cuantificadas,
         por_unidad=dict(sorted(por_unidad.items())),
+        **_resumen_agrupacion(agrupaciones, len(sanciones), sin_evaluar, parcial),
     )
+    return sanciones, resumen, agrupaciones
+
+
+def construir_sanciones(documentos: list[DocumentoBase]) -> tuple[list[SancionVista], ResumenSanciones]:
+    """Menciones y resumen (contrato anterior). Las agrupaciones las entrega `construir_sanciones_y_agrupaciones`."""
+    sanciones, resumen, _ = construir_sanciones_y_agrupaciones(documentos)
     return sanciones, resumen
 
 

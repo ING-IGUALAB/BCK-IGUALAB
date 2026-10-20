@@ -60,14 +60,32 @@ def test_datos_desde_analisis_construye_conteo_y_puntaje():
 
 
 def test_suma_montos_por_moneda():
-    s = SimpleNamespace(entidad=SimpleNamespace(texto="SUNAFIL"), cita="Motivo",
+    s = SimpleNamespace(entidad=SimpleNamespace(texto="SUNAFIL"), cita="Motivo", cita_inicio=10, cita_fin=16,
+                        documento_nombre="Doc", seccion="p. 1",
+                        monto=SimpleNamespace(texto="S/ 4,200,000", unidad="S/", numero_texto="4200000",
+                                              separador_ambiguo=False))
+    a = _analisis_fake()
+    a.sanciones = [s]
+    a.resumen_sanciones = SimpleNamespace(
+        total=1, cuantificadas=1, no_cuantificadas=0, evaluacion_agrupacion=SimpleNamespace(value="COMPLETA")
+    )
+    d = datos_desde_analisis(a, "x")
+    assert d["money"] == [{"unidad": "S/", "total": "4,200,000"}]
+    assert d["money_disponible"] is True
+
+
+def test_sin_evaluacion_de_agrupacion_no_se_presenta_ningun_total():
+    s = SimpleNamespace(entidad=SimpleNamespace(texto="SUNAFIL"), cita="Motivo", cita_inicio=10, cita_fin=16,
                         documento_nombre="Doc", seccion="p. 1",
                         monto=SimpleNamespace(texto="S/ 4,200,000", unidad="S/", numero_texto="4200000",
                                               separador_ambiguo=False))
     a = _analisis_fake()
     a.sanciones = [s]
     d = datos_desde_analisis(a, "x")
-    assert d["money"] == [{"unidad": "S/", "total": "4,200,000"}]
+    assert d["money"] == []
+    assert d["money_disponible"] is False
+    assert "Total monetario no disponible" in renderizar(d)
+    assert "S/ 4,200,000" in renderizar(d)  # el importe individual se conserva
 
 
 # --- compilación PDF real (WeasyPrint) ---------------------------------------------------

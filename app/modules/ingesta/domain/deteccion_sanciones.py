@@ -110,8 +110,15 @@ Para «sanción» sin adjetivo económico, ese enunciado (o una columna de impor
 
 ALCANCE DEL CONTEO
 `total` cuenta MENCIONES detectadas, no sucesos independientes: el mismo suceso suele aparecer en un párrafo y en una
-tabla y se informa dos veces. No se fusionan menciones aunque coincidan entidad y monto (dos sanciones distintas pueden
-coincidir) ni se afirma que cada mención sea una sanción distinta.
+tabla y se informa dos veces. Este detector NO fusiona menciones aunque coincidan entidad y monto (dos sanciones distintas
+pueden coincidir) ni afirma que cada mención sea una sanción distinta. La agrupación, solo dentro de cada documento y solo con
+evidencia explícita, es un paso posterior (`agrupacion_sanciones`) que consume los datos distintivos de cada mención.
+
+DATOS QUE DISTINGUEN UNA SANCIÓN (2026-10-19)
+`entidad` es la AUTORIDAD que sanciona. Además se extraen, solo si el texto los une a la sanción (oraciones del hallazgo o fila
+de la tabla, también por el encabezado de columna): `referencias` (identificador de resolución o expediente, completo o no),
+`numeral` e `infraccion` codificada (ver `distinciones_sanciones`). Varios distintos en el mismo ámbito no se atribuyen a
+ninguno: `identificador_ambiguo`, `numeral_ambiguo` o `infraccion_ambigua` en `motivos_revision`.
 
 LÍMITES CONOCIDOS
 - Solo español. Términos: multa(s), sanción(es) económica/pecuniaria/monetaria y
@@ -134,12 +141,14 @@ import re
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field, replace
 
+from app.modules.ingesta.domain import distinciones_sanciones as distinciones
 from app.modules.ingesta.domain import markdown
+from app.modules.ingesta.domain.distinciones_sanciones import ReferenciaFormal
 from app.modules.ingesta.domain.vista_markdown import VistaPlana, construir_vista
 
 # Versión de las reglas de detección. Se persiste en el análisis (`version_detector_sanciones`): un análisis guardado sin
 # ella (o con una anterior) lo produjo un detector previo. Sube con cada cambio que pueda alterar el resultado.
-VERSION_DETECTOR_SANCIONES = "2026-10-15.1"
+VERSION_DETECTOR_SANCIONES = "2026-10-19.1"
 
 SEPARADOR_RUTA = " > "
 MAX_LONGITUD_CITA = 900
@@ -173,6 +182,10 @@ MOTIVO_MONTOS_MULTIPLES = "montos_multiples_en_fila"
 MOTIVO_MONTO_NO_ASOCIADO = "monto_no_asociado_con_seguridad"
 MOTIVO_MONTO_NO_ESPECIFICADO = "monto_no_especificado_en_el_documento"
 MOTIVO_SOLO_SALDO = "solo_se_menciona_un_saldo_o_pago_parcial"
+# Varios identificadores, numerales o infracciones en el ámbito de la sanción: no se adivina cuál le corresponde.
+MOTIVO_IDENTIFICADOR_AMBIGUO = "identificador_ambiguo"
+MOTIVO_NUMERAL_AMBIGUO = "numeral_ambiguo"
+MOTIVO_INFRACCION_AMBIGUA = "infraccion_ambigua"
 
 DESCARTE_NEGACION = "negacion"
 DESCARTE_HIPOTETICA = "hipotetica_o_normativa"
@@ -641,6 +654,11 @@ class SancionDetectada:
     fechas_en_contexto: tuple[Dato, ...]
     calificadores: tuple[Calificador, ...]
     motivos_revision: tuple[str, ...]
+    # Distinciones EXPLÍCITAS de la sanción (ver `distinciones_sanciones`). Vacías si el texto no las une a ella; un análisis
+    # persistido por un detector anterior no las trae. `entidad` es la AUTORIDAD que sanciona, no la empresa sancionada.
+    referencias: tuple[ReferenciaFormal, ...] = ()
+    numeral: Dato | None = None
+    infraccion: Dato | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -853,6 +871,7 @@ class _Columna:
     entidad: bool = False
     estado: bool = False
     columna_moneda: bool = False  # la columna contiene la moneda de otra columna
+    distincion: str | None = None  # resolución, expediente, numeral o infracción (ver `distinciones.rol_de_encabezado`)
 
     @property
     def monto(self) -> bool:
@@ -1243,6 +1262,26 @@ class _Analizador:
                 fechas.append(Dato(m.group(), m.start(), m.end()))
         return fechas
 
+    def _distinciones(self, b: _Borrador) -> tuple[distinciones.Distinciones, list[str]]:
+        """Resolución/expediente, numeral e infracción codificada que el texto une a la sanción: las oraciones del hallazgo o,
+        en una tabla bien formada, las celdas de su fila (también por el encabezado de columna). Lo ambiguo no se atribuye."""
+        texto = self.texto
+        if b.unidad.tipo != "fila":
+            referencias, numerales, infracciones = distinciones.buscar_en_rangos(texto, b.oraciones)
+            return distinciones.resolver(referencias, numerales, infracciones)
+        celdas = [(a, z) for a, z in b.unidad.celdas if z > a]
+        referencias, numerales, infracciones = distinciones.buscar_en_rangos(texto, celdas)
+        for (a, z), columna in zip(b.unidad.celdas, self._columnas_de_fila(b.unidad)):
+            if z <= a or columna.distincion is None:
+                continue
+            if columna.distincion == distinciones.DISTINCION_NUMERAL:
+                numerales += distinciones.codigos_de_celda(texto, a, z, columna.distincion)
+            elif columna.distincion == distinciones.DISTINCION_INFRACCION:
+                infracciones += distinciones.codigos_de_celda(texto, a, z, columna.distincion)
+            else:
+                referencias += distinciones.referencias_de_celda(texto, a, z, columna.distincion)
+        return distinciones.resolver(referencias, numerales, infracciones)
+
     def _finalizar(self, b: _Borrador) -> SancionDetectada:
         texto = self.texto
         termino = b.termino
@@ -1260,6 +1299,16 @@ class _Analizador:
             motivos.append(MOTIVO_ENTIDAD_AMBIGUA)
         if b.monto is not None and b.monto.separador_ambiguo:
             motivos.append(MOTIVO_SEPARADOR_AMBIGUO)
+        encontradas, ambiguas = self._distinciones(b)
+        motivos += [
+            motivo
+            for clave, motivo in (
+                ("identificador", MOTIVO_IDENTIFICADOR_AMBIGUO),
+                ("numeral", MOTIVO_NUMERAL_AMBIGUO),
+                ("infraccion", MOTIVO_INFRACCION_AMBIGUA),
+            )
+            if clave in ambiguas
+        ]
         if [x for x in b.base if x != BASE_CARACTER_ECONOMICO] == [BASE_VERBO_TRAMITE]:
             motivos.append(MOTIVO_SOLO_TRAMITE)
         periodo = self._periodo(termino, b.monto, b.clausula, b.oraciones[0][0])
@@ -1282,6 +1331,9 @@ class _Analizador:
             fechas_en_contexto=tuple(fechas),
             calificadores=tuple(calificadores),
             motivos_revision=tuple(dict.fromkeys(motivos)),
+            referencias=encontradas.referencias,
+            numeral=_codigo_a_dato(encontradas.numerales),
+            infraccion=_codigo_a_dato(encontradas.infracciones),
         )
 
     # Recorrido ----------------------------------------------------------------------------------------
@@ -1325,6 +1377,7 @@ class _Analizador:
             entidad=_ENCABEZADO_ENTIDAD.search(encabezado) is not None,
             estado=_ENCABEZADO_ESTADO.search(encabezado) is not None,
             columna_moneda=_ENCABEZADO_COLUMNA_MONEDA.fullmatch(encabezado) is not None,
+            distincion=distinciones.rol_de_encabezado(encabezado),
         )
 
     def _columnas_de_fila(self, unidad: _Unidad) -> tuple[_Columna, ...]:
@@ -1648,6 +1701,10 @@ class _Analizador:
 
 # --- Vuelta al texto original -------------------------------------------------------------------------------------
 
+def _codigo_a_dato(codigos: Sequence[distinciones.CodigoDistintivo]) -> Dato | None:
+    return Dato(codigos[0].texto, codigos[0].inicio, codigos[0].fin) if codigos else None
+
+
 def _a_original(sancion: SancionDetectada, vista: VistaPlana) -> SancionDetectada:
     """Reexpresa un hallazgo calculado sobre la vista de lectura en posiciones y textos del ORIGINAL."""
     original = vista.original
@@ -1676,6 +1733,13 @@ def _a_original(sancion: SancionDetectada, vista: VistaPlana) -> SancionDetectad
     for c in sancion.calificadores:
         x, y = tramo(c.inicio, c.fin)
         calificadores.append(Calificador(c.codigo, original[x:y], x, y))
+    referencias = []
+    for r in sancion.referencias:
+        x, y = tramo(r.inicio, r.fin)
+        i, j = tramo(r.identificador_inicio, r.identificador_fin)
+        referencias.append(replace(
+            r, texto=original[x:y], inicio=x, fin=y, identificador=original[i:j], identificador_inicio=i, identificador_fin=j
+        ))
     # Se construye explícitamente (no con `dataclasses.replace`, que se tipa como «cualquier dataclass»): cada campo queda a la vista.
     return SancionDetectada(
         tipo_termino=sancion.tipo_termino,
@@ -1694,6 +1758,9 @@ def _a_original(sancion: SancionDetectada, vista: VistaPlana) -> SancionDetectad
         fechas_en_contexto=tuple(dato(f) for f in sancion.fechas_en_contexto),
         calificadores=tuple(calificadores),
         motivos_revision=sancion.motivos_revision,
+        referencias=tuple(referencias),
+        numeral=dato(sancion.numeral),
+        infraccion=dato(sancion.infraccion),
     )
 
 
