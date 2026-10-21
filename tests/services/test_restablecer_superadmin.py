@@ -339,8 +339,9 @@ async def test_con_varios_superadmin_el_script_no_elige_ninguno():
 
             return Resultado()
 
+    sesion = Sesion2()
     with pytest.raises(script.Abortar) as capturado:
-        await script.identificar_superadmin(Sesion2())
+        await script.identificar_superadmin(sesion)
     assert "hay 2" in str(capturado.value)
 
 
@@ -352,7 +353,8 @@ async def test_el_correo_de_otra_cuenta_no_se_acepta_y_nada_cambia(qa_simulado, 
     for ejecutar in (False, True):
         with pytest.raises(script.Abortar):
             await script.principal(ejecutar=ejecutar, correo=CORREO_ADMIN)
-    assert (await foto_de(qa_simulado, superadmin_id), await foto_de(qa_simulado, admin_id)) == antes
+    despues = (await foto_de(qa_simulado, superadmin_id), await foto_de(qa_simulado, admin_id))
+    assert despues == antes
 
 
 async def test_restablecer_solo_toca_al_superadmin_y_no_cambia_roles_ni_habilita_a_nadie(qa_simulado, monkeypatch, capsys):
