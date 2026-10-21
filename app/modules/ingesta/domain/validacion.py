@@ -194,9 +194,18 @@ async def obtener_empresa_activa(
     db: AsyncSession,
     empresa_id: uuid.UUID,
     sector_declarado: SectorEmpresa | None = None,
+    *,
+    bloquear: bool = False,
 ) -> Empresa:
-    """El sector se toma de la empresa; el del formulario solo se contrasta."""
-    empresa = await empresa_service.obtener_empresa(db, empresa_id)
+    """El sector se toma de la empresa; el del formulario solo se contrasta.
+
+    `bloquear=True` toma un bloqueo compartido de la fila de la empresa que dura hasta el fin de la transacción del
+    llamador: mientras exista, nadie puede cambiar el sector de la empresa (ver `empresa_service.editar_empresa`), así que
+    el sector que se copie al documento seguirá siendo el de la empresa cuando la reserva se confirme."""
+    if bloquear:
+        empresa = await empresa_service.obtener_empresa_bloqueada(db, empresa_id, para_modificar=False)
+    else:
+        empresa = await empresa_service.obtener_empresa(db, empresa_id)
     if not empresa.activa:
         raise BusinessValidationError(
             "COMPANY_INACTIVE",

@@ -58,6 +58,12 @@ async def reservar_documento(
     El sector se toma de la empresa (el declarado solo se contrasta). `usuario_id`
     debe provenir de la sesión validada, nunca del payload; aquí se comprueba además
     que sea un SuperAdmin habilitado. Una transacción corta, sin llamadas externas.
+
+    Esta es la ÚNICA captura del sector en un documento. La fila de la empresa se lee con un bloqueo compartido que se
+    mantiene hasta el commit que crea el documento: un cambio de sector concurrente espera a ese commit y, al verlo,
+    se rechaza (`COMPANY_SECTOR_CHANGE_BLOCKED`); si el cambio llegó primero, esta reserva espera y copia el sector ya
+    cambiado. En ambos órdenes el documento queda con el sector de su empresa. El bloqueo no abarca la subida a MinIO,
+    OCI ni el procesamiento: termina con esta transacción.
     """
     _validar_entrada(nombre_archivo, sha256, tamano_bytes, ambiente)
     usuario = await db.get(Usuario, usuario_id)
@@ -65,11 +71,16 @@ async def reservar_documento(
         raise AuthorizationError(
             "INGESTION_FORBIDDEN", "Solo un SuperAdmin habilitado puede ingerir documentos."
         )
-    empresa = await validacion.obtener_empresa_activa(db, metadatos.empresa_id, metadatos.sector)
+    try:
+        empresa = await validacion.obtener_empresa_activa(db, metadatos.empresa_id, metadatos.sector, bloquear=True)
+    except Exception:
+        await db.rollback()  # no se deja el bloqueo de la empresa tomado si la empresa no sirve
+        raise
 
     empresa_id, anio, tipo = empresa.id, metadatos.anio, metadatos.tipo
     conflicto = await _buscar_conflicto(db, ambiente, sha256, empresa_id, anio, tipo)
     if conflicto is not None:
+        await db.rollback()  # libera el bloqueo de la empresa antes de rechazar
         raise conflicto
 
     documento_id = uuid.uuid4()
