@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.models import Empresa, SectorEmpresa
+from app.models.documento_ingesta import Documento
 from app.schemas import CrearEmpresaRequest, EditarEmpresaRequest
 
 
@@ -71,11 +72,59 @@ async def obtener_empresa(db: AsyncSession, empresa_id: uuid.UUID) -> Empresa:
     return empresa
 
 
+async def obtener_empresa_bloqueada(
+    db: AsyncSession, empresa_id: uuid.UUID, *, para_modificar: bool
+) -> Empresa:
+    """Lee la empresa tomando un bloqueo de FILA que dura hasta el commit/rollback de la transacción actual.
+
+    `para_modificar=True` (FOR NO KEY UPDATE): quien va a cambiar el sector. `para_modificar=False` (FOR SHARE): quien va a
+    crear un documento que copia el sector. Ambos modos son incompatibles entre sí, pero dos reservas (FOR SHARE) no se
+    bloquean entre ellas y no se frena a nadie más: el FK `documentos.empresa_id` solo toma FOR KEY SHARE, compatible con
+    ambos. `populate_existing` obliga a leer el valor vigente tras la espera aunque la sesión ya tuviera la empresa.
+    En SQLite (pruebas) la cláusula no se emite.
+    """
+    consulta = (
+        select(Empresa)
+        .where(Empresa.id == empresa_id)
+        .with_for_update(read=not para_modificar, key_share=para_modificar)
+        .execution_options(populate_existing=True)
+    )
+    empresa = (await db.execute(consulta)).scalar_one_or_none()
+    if empresa is None:
+        raise NotFoundError("COMPANY_NOT_FOUND", "La empresa no existe.")
+    return empresa
+
+
+async def _tiene_documentos(db: AsyncSession, empresa_id: uuid.UUID) -> bool:
+    """¿Existe alguna fila de `documentos` de la empresa? Sin filtrar por ambiente, año, tipo, resultado, estado ni
+    reserva (un FALLIDO o una reserva liberada también cuentan). Solo la existencia: no se leen contenido ni originales."""
+    consulta = select(Documento.id).where(Documento.empresa_id == empresa_id).limit(1)
+    return (await db.execute(consulta)).first() is not None
+
+
+async def _exigir_sector_modificable(db: AsyncSession, empresa_id: uuid.UUID, sector: SectorEmpresa) -> Empresa:
+    """Con la fila de la empresa BLOQUEADA, rechaza un sector distinto si ya hay documentos. Libera el bloqueo al rechazar."""
+    empresa = await obtener_empresa_bloqueada(db, empresa_id, para_modificar=True)
+    if sector != empresa.sector and await _tiene_documentos(db, empresa_id):
+        await db.rollback()
+        raise ConflictError(
+            "COMPANY_SECTOR_CHANGE_BLOCKED",
+            "No se puede cambiar el sector de una empresa que ya tiene documentos asociados",
+        )
+    return empresa
+
+
 async def editar_empresa(
     db: AsyncSession, empresa_id: uuid.UUID, payload: EditarEmpresaRequest
 ) -> Empresa:
-    empresa = await obtener_empresa(db, empresa_id)
+    """Edita nombre y/o sector. El sector de una empresa con documentos no cambia (409): el rechazo ocurre ANTES de modificar
+    nada, así que una petición mixta tampoco cambia el nombre. Comprobación y UPDATE comparten la transacción con el
+    bloqueo de la fila (ver `obtener_empresa_bloqueada`), el mismo que toma la reserva de documentos."""
     cambios = payload.model_dump(exclude_unset=True)
+    if "sector" in cambios:
+        empresa = await _exigir_sector_modificable(db, empresa_id, cambios["sector"])
+    else:
+        empresa = await obtener_empresa(db, empresa_id)
     if "nombre" in cambios:
         await _validar_nombre_disponible(db, cambios["nombre"], empresa_id)
     for campo, valor in cambios.items():
