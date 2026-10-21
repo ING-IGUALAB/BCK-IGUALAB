@@ -21,12 +21,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 from starlette.datastructures import Headers, UploadFile
 
-from app.exception_handlers import register_exception_handlers
-from app.exceptions import BusinessValidationError, NotFoundError, PayloadTooLargeError
+from app.core.exception_handlers import register_exception_handlers
+from app.core.exceptions import BusinessValidationError, NotFoundError, PayloadTooLargeError
 from app.models import Empresa, SectorEmpresa
-from app.request_id import RequestIDMiddleware
-from app.services.ingesta import validacion
-from app.services.ingesta.reglas import TAMANO_MAXIMO_BYTES
+from app.core.request_id import RequestIDMiddleware
+from app.modules.ingesta.domain import validacion
+from app.modules.ingesta.domain.reglas import TAMANO_MAXIMO_BYTES
 
 BOM = b"\xef\xbb\xbf"
 

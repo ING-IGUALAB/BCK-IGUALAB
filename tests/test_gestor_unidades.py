@@ -2,14 +2,14 @@
 mensajes seguros de configuración y el esquema OpenAPI del contrato. Se ejecutan también en CI (sin PostgreSQL)."""
 import pytest
 
-from app.exceptions import ExternalServiceError
-from app.services.ingesta import gestor as modulo
-from app.services.ingesta.gestor import (
+from app.core.exceptions import ExternalServiceError
+from app.modules.ingesta.application import gestor as modulo
+from app.modules.ingesta.application.gestor import (
     FuenteEnMemoria,
     OpcionesGestor,
     copiar_archivo_acotado,
 )
-from app.services.ingesta.reglas import TAMANO_MAXIMO_BYTES
+from app.modules.ingesta.domain.reglas import TAMANO_MAXIMO_BYTES
 
 
 def lector_de(datos: bytes, bloque_maximo: int | None = None):

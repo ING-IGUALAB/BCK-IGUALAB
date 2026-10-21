@@ -21,17 +21,17 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.exception_handlers import register_exception_handlers
-from app.exceptions import (
+from app.core.exception_handlers import register_exception_handlers
+from app.core.exceptions import (
     AppException,
     AuthenticationError,
     BusinessValidationError,
     ExternalServiceError,
     ExternalServiceTimeoutError,
 )
-from app.request_id import RequestIDMiddleware
-from app.services.ingesta import embeddings, validacion
-from app.services.ingesta.embeddings import (
+from app.core.request_id import RequestIDMiddleware
+from app.modules.ingesta.domain import embeddings, validacion
+from app.modules.ingesta.domain.embeddings import (
     FragmentoEmbebido,
     IdentidadEmbeddings,
     LoteEmbebido,
@@ -40,7 +40,7 @@ from app.services.ingesta.embeddings import (
     embeber_fragmentos,
     validar_respuesta,
 )
-from app.services.ingesta.fragmentacion import (
+from app.modules.ingesta.domain.fragmentacion import (
     Fragmento,
     ParametrosFragmentacion,
     fragmentar,

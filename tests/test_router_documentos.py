@@ -9,14 +9,14 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from app.database import get_db
-from app.dependencies import get_current_user
-from app.exception_handlers import register_exception_handlers
+from app.core.database import get_db
+from app.core.dependencies import get_current_user
+from app.core.exception_handlers import register_exception_handlers
 from app.models import RolUsuario
-from app.request_id import RequestIDMiddleware
-from app.routers import documentos
-from app.schemas_ingesta import EstadoOperacionPublico, OperacionCreadaResponse, OperacionResponse, PaginaDocumentos
-from app.services.ingesta import operacion_service
+from app.core.request_id import RequestIDMiddleware
+from app.modules.ingesta import router as documentos
+from app.modules.ingesta.schemas import EstadoOperacionPublico, OperacionCreadaResponse, OperacionResponse, PaginaDocumentos
+from app.modules.ingesta.application import operacion_service
 from tests.ayudantes_http_ingesta import comprobar_error
 
 ACTOR = SimpleNamespace(id=uuid.uuid4(), rol=RolUsuario.SUPERADMIN)

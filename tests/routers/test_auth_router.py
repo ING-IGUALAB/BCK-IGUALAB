@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.security import HTTPAuthorizationCredentials
 
-import app.routers.auth as auth_router
-from app.exceptions import (
+import app.modules.auth.router as auth_router
+from app.core.exceptions import (
     AuthenticationError,
     BusinessValidationError,
 )

@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 
 from app.models.documento_ingesta import VIGENCIA_PREDETERMINADA
-from app.services.ingesta.coordinador import ConfigCoordinador
-from app.services.ingesta.gestor import OpcionesGestor, configuracion_del_gestor
-from app.services.ingesta.parametros import (
+from app.modules.ingesta.application.coordinador import ConfigCoordinador
+from app.modules.ingesta.application.gestor import OpcionesGestor, configuracion_del_gestor
+from app.modules.ingesta.domain.parametros import (
     AMBIENTES_VALIDOS,
     PARAMETROS_INGESTA,
     ParametrosIngesta,
@@ -106,7 +106,7 @@ def test_ningun_modulo_de_la_aplicacion_lee_las_variables_retiradas():
 
 
 def test_los_ajustes_de_la_aplicacion_ya_no_declaran_las_variables_retiradas():
-    from app.config import settings
+    from app.core.config import settings
 
     for nombre in RETIRADAS:
         assert not hasattr(settings, nombre), nombre

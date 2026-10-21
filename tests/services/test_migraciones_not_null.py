@@ -171,8 +171,8 @@ async def test_actualiza_la_etapa_4a_conservando_las_filas_y_el_segundo_arranque
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4))  # 0001 adoptada tras verificarla; 0002, 0003 y 0004 aplicadas
-    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada")]
+    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4, 5))  # 0001 adoptada tras verificarla; 0002 a 0005 aplicadas
+    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada")]
     (fila,) = await consultar(url, "SELECT id, nombre_archivo, etapa_actual, fragmentos_procesados, advertencias::text AS adv FROM documentos")
     assert (fila["id"], fila["nombre_archivo"], fila["etapa_actual"], fila["fragmentos_procesados"], fila["adv"]) == (
         documento_id, "viejo.md", "RESERVADO", 0, "[]")
@@ -191,7 +191,7 @@ async def test_actualiza_la_etapa_4a_conservando_las_filas_y_el_segundo_arranque
     monkeypatch.setattr(motor, "_registrar", no_debe_ejecutarse)
     segundo = await migrar(url, ESQUEMA_TRANSACCIONAL)
     assert segundo.sin_cambios
-    assert segundo.previas == (1, 2, 3, 4)
+    assert segundo.previas == (1, 2, 3, 4, 5)
     assert await consultar(url, "SELECT version, aplicada_en, xmin::text AS xmin FROM igualab_migraciones ORDER BY version") == antes
 
 
@@ -243,7 +243,13 @@ async def test_una_instalacion_manual_completa_se_adopta_en_cualquier_version(ur
     async def no_debe_ejecutarse(*args, **kwargs):
         raise AssertionError("adoptar no ejecuta SQL de migración")
 
-    monkeypatch.setattr(motor, "_aplicar", no_debe_ejecutarse)
+    aplicar_real = motor._aplicar
+
+    async def solo_la_0005(conn, m, base):
+        assert m.version == 5, "adoptar no ejecuta SQL de migración (solo la 0005, sin objetos, se aplica)"
+        await aplicar_real(conn, m, base)
+
+    monkeypatch.setattr(motor, "_aplicar", solo_la_0005)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
     assert resultado.adoptadas == (1, 2, 3, 4)
-    assert resultado.aplicadas == ()
+    assert resultado.aplicadas == (5,)

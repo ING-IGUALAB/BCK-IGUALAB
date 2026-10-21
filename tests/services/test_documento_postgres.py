@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from app.exceptions import ConflictError, ExternalServiceError, NotFoundError
+from app.core.exceptions import ConflictError, ExternalServiceError, NotFoundError
 from app.models import SectorEmpresa, TipoDocumento
 from app.models.documento_ingesta import (
     Documento,
@@ -24,7 +24,7 @@ from app.models.documento_ingesta import (
     ResultadoAnalisis,
 )
 from app.schemas import MetadatosIngestaRequest
-from app.services.ingesta import documento_service as servicio
+from app.modules.ingesta.application import documento_service as servicio
 from tests.ayudantes_ingesta import AlmacenEnMemoria, crear_empresa, crear_usuario, metadatos, sha256_de
 
 MEMORIA = TipoDocumento.MEMORIA_ANUAL
@@ -371,7 +371,7 @@ async def test_empresa_desactivada_impide_publicar_en_postgresql(mundo):
         await servicio.almacenar_original(db, almacen, documento_id, datos, token=token)
         await db.execute(text("UPDATE empresas SET activa = false WHERE id = :id"), {"id": mundo.empresa.id})
         await db.commit()
-        from app.exceptions import BusinessValidationError
+        from app.core.exceptions import BusinessValidationError
         with pytest.raises(BusinessValidationError) as capturado:
             await servicio.publicar_documento(
                 db, documento_id, token=token, indexacion_confirmada=True, resultado_analisis=ResultadoAnalisis.OBSERVADO)

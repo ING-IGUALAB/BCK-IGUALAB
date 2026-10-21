@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.security import HTTPAuthorizationCredentials
 
-import app.dependencies as dependencies
-from app.exceptions import (
+import app.core.dependencies as dependencies
+from app.core.exceptions import (
     AccountDisabledError,
     AccountLockedError,
     AuthenticationError,
@@ -16,8 +16,8 @@ from app.exceptions import (
     NotFoundError,
 )
 from app.models import RolUsuario
-from app.services.auth_service import autenticar, restablecer_password
-from app.services.usuario_service import (
+from app.modules.auth.service import autenticar, restablecer_password
+from app.modules.usuarios.service import (
     cambiar_estado_usuario,
     crear_usuario,
     transferir_superadmin,

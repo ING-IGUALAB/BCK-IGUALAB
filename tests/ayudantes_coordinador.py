@@ -15,9 +15,9 @@ from datetime import timedelta
 
 from sqlalchemy import text
 
-from app.services.ingesta.coordinador import ConfigCoordinador, DependenciasIngesta
-from app.services.ingesta.embeddings import IdentidadEmbeddings
-from app.services.ingesta.fragmentacion import ParametrosFragmentacion
+from app.modules.ingesta.application.coordinador import ConfigCoordinador, DependenciasIngesta
+from app.modules.ingesta.domain.embeddings import IdentidadEmbeddings
+from app.modules.ingesta.domain.fragmentacion import ParametrosFragmentacion
 from tests.ayudantes_ingesta import AlmacenEnMemoria
 
 DIM = 1536
@@ -207,7 +207,7 @@ class Entorno:
             return list((await db.execute(select(Documento).order_by(Documento.creado_en))).scalars().all())
 
     async def conteo_vectorial(self, documento_id: uuid.UUID, ambiente: str = "development"):
-        from app.services.ingesta import fragmentos_vectoriales as fv
+        from app.modules.ingesta.infrastructure import fragmentos_vectoriales as fv
 
         async with self.fabrica_vectorial() as v:
             return await fv.contar_fragmentos(v, ambiente=ambiente, documento_id=documento_id)
@@ -237,8 +237,8 @@ TABLA_DETERIORADA = "\n| A | B | C |\n|---|---|\n| solo dos | celdas |\n| x | y 
 
 def lote_sintetico(cantidad: int = 2, desde: int = 0, texto: str = "Texto sintético de prueba. " * 2):
     """Un `LoteEmbebido` con `cantidad` fragmentos consecutivos y vectores deterministas."""
-    from app.services.ingesta.embeddings import FragmentoEmbebido, LoteEmbebido
-    from app.services.ingesta.fragmentacion import Fragmento
+    from app.modules.ingesta.domain.embeddings import FragmentoEmbebido, LoteEmbebido
+    from app.modules.ingesta.domain.fragmentacion import Fragmento
 
     elementos, inicio = [], 0
     for i in range(cantidad):

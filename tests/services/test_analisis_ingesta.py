@@ -9,10 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from app.exceptions import AppException
+from app.core.exceptions import AppException
 from app.models.documento_ingesta import ResultadoAnalisis
-from app.services.ingesta import analisis_ingesta, deteccion_gri, validacion
-from app.services.ingesta.analisis_ingesta import (
+from app.modules.ingesta.application import analisis_ingesta
+from app.modules.ingesta.domain import deteccion_gri, validacion
+from app.modules.ingesta.application.analisis_ingesta import (
     AnalisisIngestaError,
     analizar_documento,
     analizar_texto,

@@ -1,0 +1,1 @@
+Archivo de texto plano: la extension .txt no es admisible para la ingesta.

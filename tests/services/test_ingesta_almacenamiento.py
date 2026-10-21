@@ -15,9 +15,9 @@ from unittest.mock import patch
 import pytest
 from botocore.exceptions import ClientError, ConnectTimeoutError, ReadTimeoutError
 
-from app.exceptions import ExternalServiceError, ExternalServiceTimeoutError
-from app.services.ingesta import almacenamiento_s3
-from app.services.ingesta.almacenamiento import (
+from app.core.exceptions import ExternalServiceError, ExternalServiceTimeoutError
+from app.modules.ingesta.infrastructure import almacenamiento_s3
+from app.modules.ingesta.domain.almacenamiento import (
     ConfigAlmacenamiento,
     ReferenciaOriginal,
     clave_pertenece_al_ambiente,
@@ -25,7 +25,7 @@ from app.services.ingesta.almacenamiento import (
     generar_clave_original,
     validar_ambiente,
 )
-from app.services.ingesta.almacenamiento_s3 import AlmacenOriginalesS3, crear_cliente_s3
+from app.modules.ingesta.infrastructure.almacenamiento_s3 import AlmacenOriginalesS3, crear_cliente_s3
 
 ACCESO = "ACCESO-FICTICIO-123"
 SECRETO = "SECRETO-FICTICIO-456"
@@ -276,7 +276,7 @@ def test_sin_app_env_en_los_ajustes_se_rechaza():
 
 
 def test_los_plazos_salen_de_los_parametros_de_codigo_y_se_pueden_sustituir():
-    from app.services.ingesta.parametros import ParametrosIngesta
+    from app.modules.ingesta.domain.parametros import ParametrosIngesta
 
     por_defecto = config_desde_settings(ajustes())
     assert (por_defecto.connect_timeout, por_defecto.read_timeout, por_defecto.operation_timeout) == (10.0, 60.0, 300.0)
@@ -288,7 +288,7 @@ def test_los_plazos_salen_de_los_parametros_de_codigo_y_se_pueden_sustituir():
 
 
 def test_los_ajustes_de_la_aplicacion_declaran_los_nombres_sin_valores_por_defecto():
-    from app.config import settings
+    from app.core.config import settings
 
     for nombre in ("MINIO_ENDPOINT_URL", "MINIO_BUCKET", "MINIO_REGION", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "APP_ENV"):
         assert hasattr(settings, nombre)
@@ -591,9 +591,9 @@ async def test_el_adaptador_expone_su_ambiente_y_leer_distingue_ausente_de_error
 
 def test_config_desde_settings_usa_los_ajustes_de_la_aplicacion_por_defecto(monkeypatch):
     # Se sustituyen los ajustes: así la prueba no depende de un `.env` local ni lo lee.
-    monkeypatch.setattr("app.config.settings", ajustes(APP_ENV="uat"))
+    monkeypatch.setattr("app.core.config.settings", ajustes(APP_ENV="uat"))
     resultado = config_desde_settings()
     assert (resultado.ambiente, resultado.bucket) == ("uat", BUCKET)
-    monkeypatch.setattr("app.config.settings", ajustes(MINIO_ENDPOINT_URL=None))
+    monkeypatch.setattr("app.core.config.settings", ajustes(MINIO_ENDPOINT_URL=None))
     with pytest.raises(ValueError, match="MINIO_ENDPOINT_URL"):
         config_desde_settings()

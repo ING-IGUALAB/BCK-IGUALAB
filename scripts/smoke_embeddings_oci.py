@@ -7,7 +7,7 @@ documentos reales.
 Uso (PowerShell, desde la raíz del repositorio, con el entorno virtual del proyecto):
     .venv\\Scripts\\python.exe -m scripts.smoke_embeddings_oci --ejecutar
 
-Configuración: variables `OCI_*` del `.env` local (el módulo `app.config` lo carga) y el
+Configuración: variables `OCI_*` del `.env` local (el módulo `app.core.config` lo carga) y el
 archivo de configuración de OCI indicado por `OCI_CONFIG_FILE`/`OCI_CONFIG_PROFILE`. Este script
 no lee ni imprime credenciales, llaves ni el `.env`.
 
@@ -35,11 +35,11 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-# `app.config` exige JWT_SECRET_KEY al importarse; este script no la usa.
+# `app.core.config` exige JWT_SECRET_KEY al importarse; este script no la usa.
 os.environ.setdefault("JWT_SECRET_KEY", "valor-ficticio-solo-para-el-smoke-de-embeddings")
 
-from app.services.ingesta.embeddings import embeber_consulta, embeber_fragmentos  # noqa: E402
-from app.services.ingesta.fragmentacion import ParametrosFragmentacion, iterar_fragmentos  # noqa: E402
+from app.modules.ingesta.domain.embeddings import embeber_consulta, embeber_fragmentos  # noqa: E402
+from app.modules.ingesta.domain.fragmentacion import ParametrosFragmentacion, iterar_fragmentos  # noqa: E402
 
 MODELO_ESPERADO = "cohere.embed-v4.0"
 DIMENSION_ESPERADA = 1536
@@ -153,7 +153,7 @@ def main(
         return EXIT_NO_EJECUTADO
 
     if crear_proveedor is None:
-        from app.services.ingesta.proveedor_oci import ProveedorEmbeddingsOCI as crear_proveedor
+        from app.modules.ingesta.infrastructure.proveedor_oci import ProveedorEmbeddingsOCI as crear_proveedor
     try:
         proveedor = crear_proveedor()
     except Exception as exc:  # configuración o archivo de OCI inválido: solo se informa la clase

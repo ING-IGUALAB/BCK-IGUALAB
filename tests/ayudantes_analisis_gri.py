@@ -13,9 +13,9 @@ import asyncpg
 import httpx
 from fastapi import FastAPI
 
-from app.database import get_db
-from app.dependencies import get_current_user
-from app.exception_handlers import register_exception_handlers
+from app.core.database import get_db
+from app.core.dependencies import get_current_user
+from app.core.exception_handlers import register_exception_handlers
 from app.migraciones.catalogo import ESQUEMA_TRANSACCIONAL
 from app.models import Empresa, RolUsuario, SectorEmpresa, TipoDocumento, Usuario
 from app.models.documento_ingesta import (
@@ -23,9 +23,9 @@ from app.models.documento_ingesta import (
     EstadoProcesamiento,
     ResultadoAnalisis,
 )
-from app.request_id import RequestIDMiddleware
-from app.routers import analisis_gri
-from app.services.ingesta.analisis_ingesta import analizar_texto
+from app.core.request_id import RequestIDMiddleware
+from app.modules.analisis_gri import router as analisis_gri
+from app.modules.ingesta.application.analisis_ingesta import analizar_texto
 
 TABLAS_MODULO_5 = (
     "analisis_gri_validaciones",
@@ -34,6 +34,7 @@ TABLAS_MODULO_5 = (
     "analisis_gri_control",
 )
 _ESQUEMA_REAL_APLICADO: set[str] = set()
+_AUDITORIA_APLICADA: set[str] = set()
 
 
 async def asegurar_esquema_real(url_pg_aislado: str) -> None:
@@ -50,6 +51,19 @@ async def asegurar_esquema_real(url_pg_aislado: str) -> None:
     finally:
         await conexion.close()
     _ESQUEMA_REAL_APLICADO.add(url_pg_aislado)
+
+
+async def asegurar_esquema_auditoria(url_pg_aislado: str) -> None:
+    """Aplica, una vez por clúster, la migración 0005 REAL (resultado, valor `ACCESO_DENEGADO` y disparadores de solo inserción de
+    `auditoria` y `reportes_prospeccion`) sobre las tablas que ya creó `create_all`: es el mismo orden del arranque."""
+    if url_pg_aislado in _AUDITORIA_APLICADA:
+        return
+    conexion = await asyncpg.connect(url_pg_aislado.replace("+asyncpg", "", 1))
+    try:
+        await conexion.execute(ESQUEMA_TRANSACCIONAL.migraciones[4].sql())
+    finally:
+        await conexion.close()
+    _AUDITORIA_APLICADA.add(url_pg_aislado)
 
 
 async def crear_administrador(db, nombre: str = "Admin de prueba") -> Usuario:

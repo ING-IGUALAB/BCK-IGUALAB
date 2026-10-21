@@ -13,12 +13,12 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
-from app.config import settings
-from app.exceptions import ConflictError, NotFoundError
+from app.core.config import settings
+from app.core.exceptions import ConflictError, NotFoundError
 from app.models import TipoDocumento
 from app.models.analisis_gri import EstadoGri
 from app.models.documento_ingesta import EstadoProcesamiento
-from app.services.analisis_gri import servicio
+from app.modules.analisis_gri.application import servicio
 from tests.ayudantes_analisis_gri import (
     MD_GRI_204_305,
     MD_GRI_204_Y_302,
@@ -484,7 +484,11 @@ async def test_sanciones_con_evidencia_monto_ausente_no_cuantificado_y_sin_sumas
     assert sin_monto["cuantificada"] is False  # nunca cero
     assert sin_monto["monto"] is None
     assert {"cita", "cita_inicio", "cita_fin", "seccion", "documento_nombre", "motivos_revision"} <= set(sin_monto)
-    assert a["resumen_sanciones"] == {"total": 2, "cuantificadas": 1, "no_cuantificadas": 1, "por_unidad": {"S/": 1}}
+    resumen = a["resumen_sanciones"]  # los campos anteriores conservan su significado; los de agrupación se añaden
+    assert {k: resumen[k] for k in ("total", "cuantificadas", "no_cuantificadas", "por_unidad")} == {
+        "total": 2, "cuantificadas": 1, "no_cuantificadas": 1, "por_unidad": {"S/": 1}
+    }
+    assert (resumen["evaluacion_agrupacion"], resumen["unidades"], resumen["importes_a_revisar"]) == ("COMPLETA", 2, 1)
     assert a["puntaje"]["valor"] is None  # las sanciones no forman parte del promedio ESG
 
 

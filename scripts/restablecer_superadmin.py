@@ -1,22 +1,27 @@
 """Restablece la contraseña de la cuenta SuperAdmin del entorno QA. Herramienta administrativa local.
 
-Qué hace (todo en UNA transacción, solo con --ejecutar):
+Qué hace (todo en UNA transacción, solo con --ejecutar y --correo):
   1. Cambia el hash de la contraseña (política y `hash_password` del proyecto).
   2. Restablece los intentos fallidos y el bloqueo temporal.
   3. Revoca todas las sesiones de la cuenta.
   4. Invalida los tokens de recuperación pendientes.
   5. Registra el evento en la auditoría (sin contraseña, hash ni credenciales).
 
-Qué NO hace: no crea usuarios, no cambia roles ni permisos, no toca `.env` ni el login.
+Qué NO hace: no crea usuarios, no cambia roles ni permisos, no habilita cuentas, no toca otras cuentas, no toca `.env`
+ni el login.
 
 Seguridad:
   - Lee SOLO `.env.qa` (nunca `.env`) y exige APP_ENV=qa y la base `igualab_qa`.
+  - Sin --ejecutar solo VERIFICA, en una transacción de solo lectura (la base rechazaría cualquier escritura).
+  - La cuenta se identifica por el correo EXPLÍCITO de --correo, no por ninguna variable de entorno. Debe ser el único
+    SuperAdmin existente; si no hay exactamente uno, o el correo no es el suyo, no se modifica nada.
   - La contraseña se pide dos veces con `getpass` (sin eco); nunca se recibe por argumento ni se imprime.
   - Los errores se informan solo por su clase: los mensajes del driver pueden contener la URL de conexión.
 
 Uso (desde la raíz del proyecto):
-  python scripts/restablecer_superadmin.py              # verificación en modo lectura, no modifica nada
-  python scripts/restablecer_superadmin.py --ejecutar   # pide la contraseña y aplica el cambio
+  python scripts/restablecer_superadmin.py                                   # identifica al SuperAdmin; no modifica nada
+  python scripts/restablecer_superadmin.py --correo cuenta@dominio           # verifica que esa cuenta sea el SuperAdmin
+  python scripts/restablecer_superadmin.py --ejecutar --correo cuenta@dominio  # pide la contraseña y aplica el cambio
 """
 import argparse
 import asyncio
@@ -29,7 +34,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 ARCHIVO_ENV = RAIZ / ".env.qa"
 BASE_ESPERADA = "igualab_qa"
 ENTORNO_ESPERADO = "qa"
-VARIABLES_OBLIGATORIAS = ("APP_ENV", "DATABASE_URL", "JWT_SECRET_KEY", "SUPERADMIN_CORREO")
+VARIABLES_OBLIGATORIAS = ("APP_ENV", "DATABASE_URL", "JWT_SECRET_KEY")
 DETALLE_AUDITORIA = "Restablecimiento administrativo de la contraseña de la cuenta SuperAdmin (script local)"
 
 
@@ -40,7 +45,7 @@ class Abortar(Exception):
 def cargar_entorno_qa() -> dict[str, str]:
     """Carga SOLO `.env.qa` en el entorno del proceso, antes de importar la aplicación.
 
-    `app.config` llama a `load_dotenv()` al importarse y cargaría `.env` (desarrollo) para lo que falte; se neutraliza
+    `app.core.config` llama a `load_dotenv()` al importarse y cargaría `.env` (desarrollo) para lo que falte; se neutraliza
     para que ninguna variable pueda venir de otro entorno."""
     import dotenv
 
@@ -70,9 +75,17 @@ def verificar_destino(valores: dict[str, str]) -> None:
         raise Abortar(f"La base de destino no es '{BASE_ESPERADA}'. No se hace nada.")
 
 
+def normalizar_correo(correo: str) -> str:
+    """Correo explícito en minúsculas y sin espacios. Solo comprueba la forma mínima: no valida que exista."""
+    limpio = correo.strip().lower()
+    if not limpio or " " in limpio or limpio.count("@") != 1 or limpio.startswith("@") or limpio.endswith("@"):
+        raise Abortar("El correo indicado con --correo no tiene un formato válido.")
+    return limpio
+
+
 def pedir_password(correo: str) -> str:
     """Pide la contraseña dos veces sin eco y aplica la política del proyecto."""
-    from app.security import validar_politica_password
+    from app.core.security import validar_politica_password
 
     primera = getpass.getpass("Nueva contraseña (no se mostrará): ")
     segunda = getpass.getpass("Repita la nueva contraseña: ")
@@ -84,40 +97,63 @@ def pedir_password(correo: str) -> str:
     return primera
 
 
-async def buscar_superadmin(db, correo: str, bloquear: bool = False):
-    """Usuario con ese correo, verificando que sea SuperAdmin. Nunca crea usuarios."""
+async def identificar_superadmin(db):
+    """El ÚNICO SuperAdmin existente. Con cero o varios no se asume nada: se informa y no se modifica."""
     from sqlalchemy import select
 
     from app.models import RolUsuario, Usuario
 
-    consulta = select(Usuario).where(Usuario.correo == correo)
+    superadmins = (await db.execute(select(Usuario).where(Usuario.rol == RolUsuario.SUPERADMIN))).scalars().all()
+    if len(superadmins) != 1:
+        raise Abortar(f"Se esperaba exactamente un SuperAdmin y hay {len(superadmins)}. No se modifica nada.")
+    return superadmins[0]
+
+
+async def buscar_superadmin(db, correo: str, bloquear: bool = False):
+    """Usuario con ese correo, verificando que sea SuperAdmin. Nunca crea usuarios."""
+    from sqlalchemy import func, select
+
+    from app.models import RolUsuario, Usuario
+
+    consulta = select(Usuario).where(func.lower(Usuario.correo) == correo)
     if bloquear:
         consulta = consulta.with_for_update()
     usuario = (await db.execute(consulta)).scalar_one_or_none()
     if usuario is None:
-        raise Abortar("No existe un usuario con SUPERADMIN_CORREO. No se crea ninguno.")
+        raise Abortar("No existe un usuario con el correo indicado. No se crea ninguno.")
     if usuario.rol is not RolUsuario.SUPERADMIN:
-        raise Abortar("El usuario con SUPERADMIN_CORREO no tiene el rol SuperAdmin. No se modifica.")
+        raise Abortar("El usuario con el correo indicado no tiene el rol SuperAdmin. No se modifica.")
     return usuario
 
 
-async def verificar(correo: str) -> bool:
-    """Modo lectura: confirma que el usuario existe y es SuperAdmin. Devuelve si la cuenta está habilitada."""
-    from app.database import AsyncSessionLocal
+async def verificar(correo: str | None = None) -> dict[str, object]:
+    """Modo lectura (transacción de SOLO LECTURA): identifica al único SuperAdmin y, si se indicó `correo`, confirma que sea
+    ese. Devuelve únicamente correo, nombre, rol y estado habilitado."""
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
-        usuario = await buscar_superadmin(db, correo)
-        return usuario.habilitado
+        await db.execute(text("SET TRANSACTION READ ONLY"))
+        usuario = await identificar_superadmin(db)
+        if correo is not None and usuario.correo.strip().lower() != correo:
+            raise Abortar("El correo indicado no es el del SuperAdmin actual. No se modifica nada.")
+        return {
+            "correo": usuario.correo,
+            "nombre": usuario.nombre,
+            "rol": usuario.rol.value,
+            "habilitado": usuario.habilitado,
+        }
 
 
 async def restablecer(correo: str, password: str) -> dict[str, int]:
     """Aplica todos los cambios en una sola transacción (si algo falla, no se aplica nada)."""
     from sqlalchemy import update
 
-    from app.audit import registrar_evento
-    from app.database import AsyncSessionLocal
-    from app.models import Sesion, TipoEventoAuditoria, TokenRecuperacion
-    from app.security import hash_password
+    from app.modules.auditoria.service import registrar_evento
+    from app.core.database import AsyncSessionLocal
+    from app.models import ResultadoAuditoria, Sesion, TipoEventoAuditoria, TokenRecuperacion
+    from app.core.security import hash_password
 
     async with AsyncSessionLocal() as db:
         async with db.begin():
@@ -136,34 +172,45 @@ async def restablecer(correo: str, password: str) -> dict[str, int]:
             )
             # El proyecto no tiene un tipo de evento propio para esto; se usa el de administración de cuentas
             # (el mismo de habilitar/deshabilitar y transferir el SuperAdmin) sin añadir valores al enum de la BD.
-            registrar_evento(db, TipoEventoAuditoria.CAMBIO_ROL, DETALLE_AUDITORIA, usuario_id=usuario.id)
+            registrar_evento(
+                db, TipoEventoAuditoria.CAMBIO_ROL, DETALLE_AUDITORIA, usuario_id=usuario.id, resultado=ResultadoAuditoria.EXITOSO
+            )
         return {"sesiones_revocadas": sesiones.rowcount, "tokens_invalidados": tokens.rowcount}
 
 
-async def principal(ejecutar: bool) -> int:
+def _mostrar_cuenta(cuenta: dict[str, object]) -> None:
+    print("SuperAdmin actual:")
+    print(f"  correo:     {cuenta['correo']}")
+    print(f"  nombre:     {cuenta['nombre']}")
+    print(f"  rol:        {cuenta['rol']}")
+    print(f"  habilitado: {'sí' if cuenta['habilitado'] else 'no'}")
+    if not cuenta["habilitado"]:
+        print("AVISO: la cuenta está deshabilitada. Este script no la habilita.")
+
+
+async def principal(ejecutar: bool, correo: str | None = None) -> int:
+    if ejecutar and not (correo or "").strip():
+        raise Abortar("--ejecutar exige indicar la cuenta con --correo. No se hace nada.")
+    correo_normalizado = normalizar_correo(correo) if correo else None
     valores = cargar_entorno_qa()
     verificar_destino(valores)
-    correo = valores["SUPERADMIN_CORREO"].strip().lower()
 
     # Recién ahora se importa la aplicación (usa las variables de .env.qa ya cargadas).
-    from app.config import settings
+    from app.core.config import settings
 
     if settings.APP_ENV.strip().lower() != ENTORNO_ESPERADO:
         raise Abortar("La configuración cargada no corresponde a QA. No se hace nada.")
 
-    print(f"Entorno: {ENTORNO_ESPERADO} | base: {BASE_ESPERADA} | cuenta: {correo}")
-    habilitado = await verificar(correo)
-    print("Verificación: el usuario existe y tiene el rol SuperAdmin.")
-    if not habilitado:
-        print("AVISO: la cuenta está deshabilitada. Este script no la habilita.")
+    print(f"Entorno: {ENTORNO_ESPERADO} | base: {BASE_ESPERADA}")
+    _mostrar_cuenta(await verificar(correo_normalizado))
 
     if not ejecutar:
-        print("Modo lectura: no se modificó nada. Use --ejecutar para restablecer la contraseña.")
+        print("Modo lectura: no se modificó nada. Use --ejecutar --correo <correo del SuperAdmin> para restablecer la contraseña.")
         return 0
 
-    password = pedir_password(correo)
-    resultado = await restablecer(correo, password)
-    print("Contraseña restablecida.")
+    password = pedir_password(correo_normalizado)
+    resultado = await restablecer(correo_normalizado, password)
+    print("Contraseña restablecida. El rol y el estado habilitado no se modificaron.")
     print(f"Intentos fallidos y bloqueo: restablecidos. Sesiones revocadas: {resultado['sesiones_revocadas']}. "
           f"Tokens de recuperación invalidados: {resultado['tokens_invalidados']}.")
     print("Evento registrado en la auditoría.")
@@ -171,12 +218,13 @@ async def principal(ejecutar: bool) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Restablece la contraseña del SuperAdmin de QA (solo con --ejecutar).")
+    parser = argparse.ArgumentParser(description="Restablece la contraseña del SuperAdmin de QA (solo con --ejecutar y --correo).")
     parser.add_argument("--ejecutar", action="store_true", help="Aplica el cambio; sin este indicador solo verifica.")
+    parser.add_argument("--correo", help="Correo EXPLÍCITO de la cuenta SuperAdmin; obligatorio con --ejecutar.")
     argumentos = parser.parse_args()
     sys.path.insert(0, str(RAIZ))
     try:
-        return asyncio.run(principal(argumentos.ejecutar))
+        return asyncio.run(principal(argumentos.ejecutar, argumentos.correo))
     except Abortar as motivo:
         print(f"ABORTADO: {motivo}", file=sys.stderr)
         return 2

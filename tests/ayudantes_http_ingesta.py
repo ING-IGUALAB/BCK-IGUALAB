@@ -11,13 +11,13 @@ from types import SimpleNamespace
 import httpx
 from fastapi import FastAPI
 
-from app.database import get_db
-from app.dependencies import get_current_user
-from app.exception_handlers import register_exception_handlers
+from app.core.database import get_db
+from app.core.dependencies import get_current_user
+from app.core.exception_handlers import register_exception_handlers
 from app.models import RolUsuario
-from app.request_id import RequestIDMiddleware
-from app.routers import documentos
-from app.services.ingesta.gestor import GestorIngesta, OpcionesGestor
+from app.core.request_id import RequestIDMiddleware
+from app.modules.ingesta import router as documentos
+from app.modules.ingesta.application.gestor import GestorIngesta, OpcionesGestor
 
 
 def opciones_de_prueba(**cambios) -> OpcionesGestor:

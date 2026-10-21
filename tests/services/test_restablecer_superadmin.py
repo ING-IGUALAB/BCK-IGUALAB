@@ -10,9 +10,9 @@ import dotenv
 import pytest
 from sqlalchemy import select
 
-from app import audit
+from app.modules.auditoria import service as audit
 from app.models import RegistroAuditoria, RolUsuario, Sesion, TipoEventoAuditoria, TokenRecuperacion, Usuario
-from app.security import verificar_password
+from app.core.security import verificar_password
 from scripts import restablecer_superadmin as script
 from tests.ayudantes_ingesta import crear_usuario
 
@@ -22,7 +22,7 @@ VALORES_QA = {
     "APP_ENV": "qa",
     "DATABASE_URL": "postgresql+asyncpg://usuario:SECRETO@servidor-privado:5432/igualab_qa",
     "JWT_SECRET_KEY": "x",
-    "SUPERADMIN_CORREO": CORREO,
+    "SUPERADMIN_CORREO": "otra-cuenta@pruebas.invalid",  # el script ya no la usa: la cuenta sale de --correo
 }
 
 
@@ -62,7 +62,7 @@ def test_el_env_qa_manda_sobre_la_terminal_y_neutraliza_el_load_dotenv_de_la_app
     valores = script.cargar_entorno_qa()
     assert os.environ["DATABASE_URL"] == VALORES_QA["DATABASE_URL"]
     assert valores["APP_ENV"] == "qa"
-    assert dotenv.load_dotenv() is False  # `app.config` ya no puede cargar `.env` (desarrollo)
+    assert dotenv.load_dotenv() is False  # `app.core.config` ya no puede cargar `.env` (desarrollo)
 
 
 def test_un_entorno_distinto_de_qa_aborta():
@@ -106,10 +106,10 @@ def test_una_contrasena_valida_se_acepta(monkeypatch):
 
 @pytest.fixture
 def sesion_local(monkeypatch, fabrica_pg):
-    """El script abre sus sesiones con `app.database.AsyncSessionLocal`: apunta al clúster temporal."""
-    import app.database
+    """El script abre sus sesiones con `app.core.database.AsyncSessionLocal`: apunta al clúster temporal."""
+    import app.core.database
 
-    monkeypatch.setattr(app.database, "AsyncSessionLocal", fabrica_pg)
+    monkeypatch.setattr(app.core.database, "AsyncSessionLocal", fabrica_pg)
     return fabrica_pg
 
 
@@ -208,9 +208,9 @@ async def test_el_modo_lectura_no_modifica_nada_ni_pide_contrasena(sesion_local,
     usuario_id = await preparar_cuenta(sesion_local)
     monkeypatch.setattr(script, "ARCHIVO_ENV", escribir_env(entorno_aislado / ".env.qa"))
     monkeypatch.setattr(script.getpass, "getpass", lambda *_: pytest.fail("no debe pedir contraseña sin --ejecutar"))
-    import app.config
+    import app.core.config
 
-    monkeypatch.setattr(app.config.settings, "APP_ENV", "qa")
+    monkeypatch.setattr(app.core.config.settings, "APP_ENV", "qa")
 
     assert await script.principal(ejecutar=False) == 0
 
@@ -228,11 +228,11 @@ async def test_con_ejecutar_pide_la_contrasena_aplica_el_cambio_y_no_la_imprime(
     usuario_id = await preparar_cuenta(sesion_local)
     monkeypatch.setattr(script, "ARCHIVO_ENV", escribir_env(entorno_aislado / ".env.qa"))
     monkeypatch.setattr(script.getpass, "getpass", lambda *_: PASSWORD_NUEVA)
-    import app.config
+    import app.core.config
 
-    monkeypatch.setattr(app.config.settings, "APP_ENV", "qa")
+    monkeypatch.setattr(app.core.config.settings, "APP_ENV", "qa")
 
-    assert await script.principal(ejecutar=True) == 0
+    assert await script.principal(ejecutar=True, correo=CORREO) == 0
 
     captura = capsys.readouterr()
     assert PASSWORD_NUEVA not in captura.out + captura.err
@@ -242,8 +242,180 @@ async def test_con_ejecutar_pide_la_contrasena_aplica_el_cambio_y_no_la_imprime(
         assert usuario.bloqueado_hasta is None
 
 
-def test_el_unico_argumento_del_script_es_ejecutar():
-    """La contraseña nunca se recibe por argumento: solo existe `--ejecutar`."""
+def test_los_unicos_argumentos_del_script_son_ejecutar_y_correo():
+    """La contraseña nunca se recibe por argumento: solo existen `--ejecutar` y `--correo`."""
     fuente = open(script.__file__, encoding="utf-8").read()
-    assert fuente.count("add_argument(") == 1
+    assert fuente.count("add_argument(") == 2
     assert 'add_argument("--ejecutar"' in fuente
+    assert 'add_argument("--correo"' in fuente
+
+
+# ============================================ Cuenta explícita, un solo SuperAdmin y solo lectura ============================================
+
+CORREO_ADMIN = "oscar.administrador@pruebas.invalid"
+
+
+@pytest.fixture
+def qa_simulado(monkeypatch, entorno_aislado, sesion_local):
+    """Entorno QA ficticio (el archivo y la base son locales) y sesión apuntando al clúster temporal."""
+    import app.core.config
+
+    monkeypatch.setattr(script, "ARCHIVO_ENV", escribir_env(entorno_aislado / ".env.qa"))
+    monkeypatch.setattr(app.core.config.settings, "APP_ENV", "qa")
+    return sesion_local
+
+
+async def crear_administrador(fabrica, habilitado=True):
+    async with fabrica() as db:
+        admin = await crear_usuario(db, rol=RolUsuario.ADMINISTRADOR, correo=CORREO_ADMIN, habilitado=habilitado)
+        db.add_all([
+            Sesion(usuario_id=admin.id),
+            TokenRecuperacion(usuario_id=admin.id, token_hash="admin", expira_en=datetime.now(timezone.utc) + timedelta(hours=1)),
+        ])
+        await db.commit()
+        return admin.id
+
+
+async def foto_de(fabrica, usuario_id):
+    async with fabrica() as db:
+        usuario = await db.get(Usuario, usuario_id)
+        sesiones = (await db.execute(select(Sesion.revocada).where(Sesion.usuario_id == usuario_id))).scalars().all()
+        tokens = (await db.execute(select(TokenRecuperacion.usado).where(TokenRecuperacion.usuario_id == usuario_id))).scalars().all()
+        return (usuario.password_hash, usuario.rol, usuario.habilitado, usuario.intentos_fallidos, usuario.bloqueado_hasta,
+                list(sesiones), list(tokens))
+
+
+async def test_la_cuenta_sale_del_correo_explicito_aunque_el_env_apunte_a_otra(qa_simulado, capsys):
+    usuario_id = await preparar_cuenta(qa_simulado)
+    await crear_administrador(qa_simulado)
+    assert await script.principal(ejecutar=False) == 0  # sin --correo identifica al único SuperAdmin
+    salida = capsys.readouterr().out
+    assert CORREO in salida
+    assert "SuperAdmin" in salida
+    assert "otra-cuenta@pruebas.invalid" not in salida
+    assert "hash-de-prueba" not in salida
+    assert str(usuario_id) not in salida  # solo correo, nombre, rol y habilitado
+    assert await script.principal(ejecutar=False, correo=f"  {CORREO.upper()} ") == 0  # el correo se normaliza
+
+
+async def test_ejecutar_sin_correo_aborta_antes_de_pedir_la_contrasena(qa_simulado, monkeypatch):
+    usuario_id = await preparar_cuenta(qa_simulado)
+    antes = await foto_de(qa_simulado, usuario_id)
+    monkeypatch.setattr(script.getpass, "getpass", lambda *_: pytest.fail("no debe pedir contraseña sin correo explícito"))
+    for correo in (None, "", "   "):
+        with pytest.raises(script.Abortar):
+            await script.principal(ejecutar=True, correo=correo)
+    assert await foto_de(qa_simulado, usuario_id) == antes
+
+
+@pytest.mark.parametrize("correo", ["sin-arroba", "dos@@pruebas.invalid", "con espacio@pruebas.invalid", "@pruebas.invalid", "cuenta@"])
+async def test_un_correo_con_formato_invalido_aborta(qa_simulado, correo):
+    await preparar_cuenta(qa_simulado)
+    with pytest.raises(script.Abortar):
+        await script.principal(ejecutar=False, correo=correo)
+
+
+async def test_si_no_hay_exactamente_un_superadmin_se_informa_y_no_se_modifica_nada(qa_simulado, monkeypatch):
+    admin_id = await crear_administrador(qa_simulado)  # no hay ningún SuperAdmin
+    antes = await foto_de(qa_simulado, admin_id)
+    monkeypatch.setattr(script.getpass, "getpass", lambda *_: pytest.fail("no debe pedir contraseña"))
+    with pytest.raises(script.Abortar) as capturado:
+        await script.principal(ejecutar=True, correo=CORREO_ADMIN)
+    assert "exactamente un SuperAdmin" in str(capturado.value)
+    assert await foto_de(qa_simulado, admin_id) == antes
+    async with qa_simulado() as db:
+        assert (await db.execute(select(RegistroAuditoria))).scalars().all() == []
+
+
+async def test_con_varios_superadmin_el_script_no_elige_ninguno():
+    class Sesion2:
+        async def execute(self, _consulta):
+            class Resultado:
+                def scalars(self):
+                    return self
+
+                def all(self):
+                    return ["uno", "otro"]
+
+            return Resultado()
+
+    sesion = Sesion2()
+    with pytest.raises(script.Abortar) as capturado:
+        await script.identificar_superadmin(sesion)
+    assert "hay 2" in str(capturado.value)
+
+
+async def test_el_correo_de_otra_cuenta_no_se_acepta_y_nada_cambia(qa_simulado, monkeypatch):
+    superadmin_id = await preparar_cuenta(qa_simulado)
+    admin_id = await crear_administrador(qa_simulado)
+    antes = (await foto_de(qa_simulado, superadmin_id), await foto_de(qa_simulado, admin_id))
+    monkeypatch.setattr(script.getpass, "getpass", lambda *_: pytest.fail("no debe pedir contraseña"))
+    for ejecutar in (False, True):
+        with pytest.raises(script.Abortar):
+            await script.principal(ejecutar=ejecutar, correo=CORREO_ADMIN)
+    despues = (await foto_de(qa_simulado, superadmin_id), await foto_de(qa_simulado, admin_id))
+    assert despues == antes
+
+
+async def test_restablecer_solo_toca_al_superadmin_y_no_cambia_roles_ni_habilita_a_nadie(qa_simulado, monkeypatch, capsys):
+    superadmin_id = await preparar_cuenta(qa_simulado, habilitado=False)  # deshabilitada: el script no la habilita
+    admin_id = await crear_administrador(qa_simulado)
+    admin_antes = await foto_de(qa_simulado, admin_id)
+    monkeypatch.setattr(script.getpass, "getpass", lambda *_: PASSWORD_NUEVA)
+
+    assert await script.principal(ejecutar=True, correo=CORREO) == 0
+
+    captura = capsys.readouterr()
+    assert PASSWORD_NUEVA not in captura.out + captura.err
+    assert "AVISO" in captura.out
+    assert await foto_de(qa_simulado, admin_id) == admin_antes  # contraseña, rol, estado, sesiones y tokens de Oscar intactos
+    async with qa_simulado() as db:
+        superadmin = await db.get(Usuario, superadmin_id)
+        assert verificar_password(PASSWORD_NUEVA, superadmin.password_hash)
+        assert superadmin.rol is RolUsuario.SUPERADMIN  # el rol no cambia
+        assert superadmin.habilitado is False  # no se habilita automáticamente
+        roles = dict((await db.execute(select(Usuario.correo, Usuario.rol))).all())
+        assert roles == {CORREO: RolUsuario.SUPERADMIN, CORREO_ADMIN: RolUsuario.ADMINISTRADOR}
+        eventos = (await db.execute(select(RegistroAuditoria))).scalars().all()
+        assert [(e.tipo_evento, e.usuario_id) for e in eventos] == [(TipoEventoAuditoria.CAMBIO_ROL, superadmin_id)]
+
+
+async def test_la_revalidacion_dentro_de_la_transaccion_detecta_que_ya_no_es_superadmin(qa_simulado, monkeypatch):
+    superadmin_id = await preparar_cuenta(qa_simulado)
+    antes = await foto_de(qa_simulado, superadmin_id)
+    original = script.buscar_superadmin
+
+    async def degradar_antes_de_bloquear(db, correo, bloquear=False):
+        if bloquear:  # otra sesión transfirió el rol entre la verificación y la transacción
+            async with qa_simulado() as otra:
+                (await otra.get(Usuario, superadmin_id)).rol = RolUsuario.ADMINISTRADOR
+                await otra.commit()
+        return await original(db, correo, bloquear)
+
+    monkeypatch.setattr(script, "buscar_superadmin", degradar_antes_de_bloquear)
+    monkeypatch.setattr(script.getpass, "getpass", lambda *_: PASSWORD_NUEVA)
+    with pytest.raises(script.Abortar):
+        await script.restablecer(CORREO, PASSWORD_NUEVA)
+    despues = await foto_de(qa_simulado, superadmin_id)
+    assert despues[0] == antes[0]  # contraseña sin cambios
+    assert despues[3:] == antes[3:]  # intentos, bloqueo, sesiones y tokens sin cambios
+    async with qa_simulado() as db:
+        assert (await db.execute(select(RegistroAuditoria))).scalars().all() == []
+
+
+async def test_la_verificacion_corre_en_una_transaccion_de_solo_lectura(qa_simulado, monkeypatch):
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    superadmin_id = await preparar_cuenta(qa_simulado)
+    antes = await foto_de(qa_simulado, superadmin_id)
+
+    async def intenta_escribir(db):
+        await db.execute(text("UPDATE usuarios SET nombre = 'escritura no permitida'"))
+
+    monkeypatch.setattr(script, "identificar_superadmin", intenta_escribir)
+    with pytest.raises(DBAPIError):
+        await script.verificar()
+    assert await foto_de(qa_simulado, superadmin_id) == antes
+    async with qa_simulado() as db:
+        assert (await db.get(Usuario, superadmin_id)).nombre != "escritura no permitida"

@@ -20,9 +20,9 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.exceptions import BusinessValidationError, ConflictError
+from app.core.exceptions import BusinessValidationError, ConflictError
 from app.models.documento_ingesta import EstadoProcesamiento, ResultadoAnalisis
-from app.services.ingesta import documento_service as servicio
+from app.modules.ingesta.application import documento_service as servicio
 from scripts.generar_ddl_documentos import generar_ddl
 from tests.ayudantes_ingesta import SesionSQLite, crear_empresa, crear_usuario, metadatos, sha256_de
 from tests.services.test_documento_ddl_postgres import _crear_base_con_prerequisitos
@@ -254,8 +254,8 @@ async def test_un_fallido_sin_analisis_y_progreso_valido_se_acepta(esquema_nuevo
 # ============================================ El arranque no crea la tabla ============================================
 
 async def test_el_arranque_no_crea_documentos_ni_sus_tipos_aunque_el_modelo_este_cargado(url_pg_aislado):
-    from app.database import Base
-    from app.services.ingesta import coordinador  # noqa: F401  (registra Documento en los metadatos)
+    from app.core.database import Base
+    from app.modules.ingesta.application import coordinador
     from scripts import crear_tablas
 
     assert "documentos" in Base.metadata.tables  # SÍ está cargado: el riesgo es real
@@ -309,7 +309,7 @@ def test_validar_analisis_rechaza_estructuras_invalidas_sin_repetir_su_contenido
 
 
 def test_validar_analisis_acepta_la_forma_de_a_dict():
-    from app.services.ingesta.analisis_ingesta import analizar_texto
+    from app.modules.ingesta.application.analisis_ingesta import analizar_texto
 
     forma = analizar_texto("Ver GRI 305-1. Se impuso una multa de S/ 900.").a_dict()
     assert servicio.validar_analisis(forma) is forma

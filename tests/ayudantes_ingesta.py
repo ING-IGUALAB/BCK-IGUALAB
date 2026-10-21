@@ -14,12 +14,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.database import Base
-from app.exceptions import ExternalServiceError
+from app.core.database import Base
+from app.core.exceptions import ExternalServiceError
 from app.models import Empresa, RegistroAuditoria, RolUsuario, SectorEmpresa, TipoDocumento, Usuario
 from app.models.documento_ingesta import Documento, OperacionIngesta
 from app.schemas import MetadatosIngestaRequest
-from app.services.ingesta.almacenamiento import (
+from app.modules.ingesta.domain.almacenamiento import (
     EstadoSubida,
     ReferenciaOriginal,
     SubidaConocida,

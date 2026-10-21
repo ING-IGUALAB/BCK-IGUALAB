@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import app.database as database
+import app.core.database as database
 
 
 class _SessionContext:

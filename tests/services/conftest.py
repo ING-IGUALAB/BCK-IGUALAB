@@ -23,7 +23,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.database import Base
+from app.core.database import Base
 from app.models.documento_ingesta import Documento  # noqa: F401  (registra la tabla)
 
 _EXE = ".exe" if os.name == "nt" else ""
@@ -101,7 +101,7 @@ def url_pg_aislado(tmp_path_factory):
         pytest.skip(f"No se pudo iniciar PostgreSQL aislado ({type(exc).__name__}): pruebas NO ejecutadas.")
     try:
         url = f"postgresql+asyncpg://pruebas@127.0.0.1:{puerto}/postgres"
-        from app.config import settings
+        from app.core.config import settings
 
         assert url != settings.DATABASE_URL  # nunca la base configurada
         asyncio.run(_crear_esquema(url))
@@ -119,9 +119,13 @@ def url_pg_aislado(tmp_path_factory):
 async def fabrica_pg(url_pg_aislado):
     """`async_sessionmaker` sobre el clúster aislado, con las tablas vacías en cada prueba."""
     motor = create_async_engine(url_pg_aislado, pool_size=12, max_overflow=0)
-    tablas = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
     async with motor.begin() as conexion:
-        await conexion.execute(text(f"TRUNCATE {tablas} CASCADE"))
+        # Solo las tablas que existen en el clúster: `create_all` se ejecutó con los modelos cargados en ese momento y un test
+        # posterior puede importar más (p. ej. `app.main` registra `analisis_gri_*`); nombrarlas aquí rompía el fixture según el orden.
+        existentes = {fila[0] for fila in await conexion.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'"))}
+        tablas = ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables if t.name in existentes)
+        if tablas:
+            await conexion.execute(text(f"TRUNCATE {tablas} CASCADE"))
     try:
         yield async_sessionmaker(motor, expire_on_commit=False)
     finally:
@@ -205,7 +209,7 @@ def url_pgvector_aislado():
         except (TimeoutError, asyncio.TimeoutError):
             pytest.skip("El contenedor de pgvector no aceptó conexiones a tiempo: pruebas NO ejecutadas.")
         url = f"postgresql+asyncpg://pruebas@127.0.0.1:{puerto}/vectorial"
-        from app.config import settings
+        from app.core.config import settings
 
         assert url not in (settings.DATABASE_URL, settings.VECTOR_DATABASE_URL)  # nunca una base configurada
         yield url
@@ -249,7 +253,7 @@ from tests.ayudantes_ingesta import AlmacenEnMemoria, crear_empresa, crear_usuar
 @pytest_asyncio.fixture
 async def entorno(fabrica_pg, fabrica_vectorial):
     """Coordinador sobre las dos bases REALES aisladas; solo OCI y MinIO son dobles."""
-    from app.services.ingesta.coordinador import DependenciasIngesta
+    from app.modules.ingesta.application.coordinador import DependenciasIngesta
 
     async with fabrica_pg() as db:
         usuario = await crear_usuario(db)

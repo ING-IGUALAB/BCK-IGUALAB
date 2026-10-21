@@ -7,10 +7,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateIndex, CreateTable
 
-from app.exceptions import ConflictError
+from app.core.exceptions import ConflictError
 from app.models import Empresa, SectorEmpresa
 from app.schemas import CrearEmpresaRequest
-from app.services import empresa_service
+from app.modules.empresas import service as empresa_service
 
 
 @pytest.mark.asyncio

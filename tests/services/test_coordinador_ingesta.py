@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from app.exceptions import AuthorizationError, BusinessValidationError, ConflictError, ExternalServiceError
+from app.core.exceptions import AuthorizationError, BusinessValidationError, ConflictError, ExternalServiceError
 from app.models import SectorEmpresa, TipoDocumento
 from app.models.documento_ingesta import (
     EstadoCompensacion,
@@ -21,11 +21,11 @@ from app.models.documento_ingesta import (
     EtapaIngesta,
     ResultadoAnalisis,
 )
-from app.services.ingesta import coordinador
-from app.services.ingesta import documento_service as servicio
-from app.services.ingesta.analisis_ingesta import AnalisisIngestaError
-from app.services.ingesta.coordinador import PublicacionVectorialPendiente, ingerir_documento
-from app.services.ingesta.embeddings import IdentidadEmbeddings
+from app.modules.ingesta.application import coordinador
+from app.modules.ingesta.application import documento_service as servicio
+from app.modules.ingesta.application.analisis_ingesta import AnalisisIngestaError
+from app.modules.ingesta.application.coordinador import PublicacionVectorialPendiente, ingerir_documento
+from app.modules.ingesta.domain.embeddings import IdentidadEmbeddings
 from tests.ayudantes_coordinador import (
     TABLA_DETERIORADA,
     TEXTO_CON_HALLAZGOS,
@@ -359,7 +359,7 @@ async def test_un_error_del_detector_nunca_se_convierte_en_observado(entorno, mo
     def detector_roto(texto, catalogo):
         raise RuntimeError("fallo con contenido del documento")
 
-    from app.services.ingesta import analisis_ingesta
+    from app.modules.ingesta.application import analisis_ingesta
 
     original = analisis_ingesta.analizar_texto
     monkeypatch.setattr(
@@ -374,7 +374,7 @@ async def test_un_error_del_detector_nunca_se_convierte_en_observado(entorno, mo
 
 
 async def test_fallo_de_un_detector_de_sanciones_tampoco_es_observado(entorno, monkeypatch):
-    from app.services.ingesta import analisis_ingesta
+    from app.modules.ingesta.application import analisis_ingesta
 
     original = analisis_ingesta.analizar_texto
 
@@ -552,7 +552,7 @@ async def test_progreso_de_un_fallo_expone_un_codigo_seguro_y_no_finaliza(entorn
 
 
 async def test_progreso_de_una_operacion_inexistente(entorno):
-    from app.exceptions import NotFoundError
+    from app.core.exceptions import NotFoundError
 
     async with entorno.fabrica_pg() as db:
         valor_uuid_uuid4_2 = uuid.uuid4()
@@ -643,15 +643,15 @@ def test_el_intervalo_del_latido_por_defecto_es_un_tercio_de_la_vigencia():
 
 
 def test_solo_los_codigos_propios_y_bien_formados_se_usan_como_motivo_de_fallo():
-    assert coordinador._codigo(ExternalServiceError("EMBEDDING_PROVIDER_ERROR", "x")) == "EMBEDDING_PROVIDER_ERROR"
-    assert coordinador._codigo(ConflictError("DOCUMENT_STATE_CONFLICT", "x")) == "DOCUMENT_STATE_CONFLICT"
-    assert coordinador._codigo(ExternalServiceError("codigo en minusculas con texto del documento", "x")) == "UNEXPECTED_ERROR"
-    assert coordinador._codigo(RuntimeError("texto del documento")) == "UNEXPECTED_ERROR"
+    assert coordinador.codigo_seguro(ExternalServiceError("EMBEDDING_PROVIDER_ERROR", "x")) == "EMBEDDING_PROVIDER_ERROR"
+    assert coordinador.codigo_seguro(ConflictError("DOCUMENT_STATE_CONFLICT", "x")) == "DOCUMENT_STATE_CONFLICT"
+    assert coordinador.codigo_seguro(ExternalServiceError("codigo en minusculas con texto del documento", "x")) == "UNEXPECTED_ERROR"
+    assert coordinador.codigo_seguro(RuntimeError("texto del documento")) == "UNEXPECTED_ERROR"
 
     class Ajena(Exception):
         code = "CODIGO_DE_UN_TERCERO"
 
-    assert coordinador._codigo(Ajena()) == "UNEXPECTED_ERROR"  # no es una AppException propia
+    assert coordinador.codigo_seguro(Ajena()) == "UNEXPECTED_ERROR"  # no es una AppException propia
 
 
 def test_publicacion_pendiente_no_es_un_exito_y_lleva_solo_identificadores():

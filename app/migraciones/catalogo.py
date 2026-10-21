@@ -10,8 +10,8 @@ fallback entre ellas.
 """
 import logging
 
-from app.config import settings
-from app.logging_config import paso_de_arranque
+from app.core.config import settings
+from app.core.logging_config import paso_de_arranque
 from app.migraciones.motor import (
     ErrorMigracion,
     EsquemaBase,
@@ -34,9 +34,16 @@ ESQUEMA_TRANSACCIONAL = EsquemaBase(
             ("analisis_gri_control", "analisis_gri_estados", "analisis_gri_historial", "analisis_gri_validaciones"),
             carpeta="transaccional",
         ),
+        # Auditoría con resultado y solo inserción (RN-043/044/045) y reportes inmutables (RN-041). Sin `objetos` A PROPÓSITO: las
+        # tablas ya existen (create_all) y los disparadores no forman parte de la firma, así que no hay adopción posible; el SQL
+        # es idempotente (ver su cabecera).
+        Migracion(5, "auditoria_resultado_y_solo_insercion", "0005_auditoria_resultado_y_solo_insercion.sql", (), carpeta="transaccional"),
     ),
     # Los crea el arranque de los módulos existentes (`crear_tablas`), que corre ANTES que esta preparación.
-    prerrequisitos=(("tabla", "usuarios"), ("tabla", "empresas"), ("tipo", "sector_empresa")),
+    prerrequisitos=(
+        ("tabla", "usuarios"), ("tabla", "empresas"), ("tipo", "sector_empresa"),
+        ("tabla", "auditoria"), ("tabla", "reportes_prospeccion"), ("tipo", "tipoeventoauditoria"),
+    ),
 )
 
 ESQUEMA_VECTORIAL = EsquemaBase(
@@ -54,8 +61,8 @@ ESQUEMA_VECTORIAL = EsquemaBase(
 
 def _url_vectorial() -> str:
     """URL de la base vectorial, SIN fallback a DATABASE_URL (error controlado si falta)."""
-    from app.database_vectorial import url_vectorial
-    from app.exceptions import ExternalServiceError
+    from app.core.database_vectorial import url_vectorial
+    from app.core.exceptions import ExternalServiceError
 
     try:
         return url_vectorial()
