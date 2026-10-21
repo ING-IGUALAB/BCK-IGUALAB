@@ -90,7 +90,7 @@ _REL_NINGUNA = "ninguna"
 
 _SIGLA_ENTRE_PARENTESIS = re.compile(r"\(\s*([A-Za-zÁÉÍÓÚÑ]{2,12})\s*\)")
 _ENTERO = re.compile(r"\d+")
-_ESCALA = re.compile(r"\s*(mil|millones?|mm)\b", re.IGNORECASE)
+_ESCALA = re.compile(r"(mil|millones?|mm)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,9 +194,17 @@ def _importe_comparable(monto: MontoSancion | None) -> _Importe | None:
     posicion = monto.texto.find(numero)
     if not numero or posicion < 0:
         return None  # la cifra lleva marcas internas: no se puede leer la escala con seguridad
-    escala = _ESCALA.match(monto.texto, posicion + len(numero))
+    escala = _ESCALA.match(monto.texto, _saltar_espacios(monto.texto, posicion + len(numero)))
     unidad = re.sub(r"\s+", "", unicodedata.normalize("NFKC", monto.unidad)).casefold()
     return _Importe(unidad, numero, escala.group(1).casefold() if escala else "")
+
+
+def _saltar_espacios(texto: str, posicion: int) -> int:
+    """Primera posición desde `posicion` que no es un espacio. Se hace aquí y no con `\\s*` en el patrón de la escala: un
+    `\\s*` inicial, usado con `search`, tiene coste cuadrático sobre una tira larga de espacios."""
+    while posicion < len(texto) and texto[posicion].isspace():
+        posicion += 1
+    return posicion
 
 
 def _rasgos(s: SancionDetectada) -> _Rasgos:
