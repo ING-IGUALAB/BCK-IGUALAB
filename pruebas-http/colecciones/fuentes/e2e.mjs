@@ -600,7 +600,9 @@ const flujoD = carpeta('D. Rechazo de ingesta para una empresa inactiva',
         T.prueba('DOCUMENTACION_INSUFICIENTE: sin documentos, filas, sanciones ni puntaje', (j) => {
           pm.expect(j.estado_flujo).to.equal('DOCUMENTACION_INSUFICIENTE');
           pm.expect(j.habilita_reporte).to.equal(false);
-          pm.expect([j.documentos, j.filas, j.sanciones]).to.deep.equal([[], [], []]);
+          pm.expect([j.documentos, j.filas, j.sanciones, j.agrupaciones_sanciones]).to.deep.equal([[], [], [], []]);
+          pm.expect(j.resumen_sanciones.total).to.equal(0);
+          pm.expect(j.resumen_sanciones.evaluacion_agrupacion).to.equal('NO_APLICA');
           pm.expect(j.puntaje.estado).to.equal('NO_DISPONIBLE');
           pm.expect(j.puntaje.valor).to.equal(null);
           pm.expect(j.validacion).to.equal(null);
