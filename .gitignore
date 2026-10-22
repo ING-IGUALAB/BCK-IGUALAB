@@ -64,3 +64,8 @@ docs/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Escaneo OWASP ZAP: directorios que ejecutar-zap.sh genera en el workspace de Jenkins (reportes crudos, tokens y artefactos)
+zap-trabajo/
+zap-privado/
+zap-resultados/

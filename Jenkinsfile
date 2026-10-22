@@ -493,6 +493,64 @@ exit 0
             }
         }
 
+        // Análisis de seguridad dinámico del backend DESPLEGADO en QA: OWASP ZAP API Scan (imagen oficial fijada por versión y digest) con
+        // análisis ACTIVO sobre el OpenAPI real filtrado (pruebas-zap/alcance/operaciones.json). Solo en la rama qa, tras E2E Tests; nunca
+        // contra UAT. Guía, alcance y límites: pruebas-zap/README.md. Credencial de Jenkins: IGUALAB_QA_SUPERADMIN (la misma de los
+        // stages anteriores; no se crea otro SuperAdmin). Opcional: IGUALAB_QA_API_URL si el backend no es alcanzable por el nombre de su
+        // contenedor en proxy_net.
+        // Código de salida del ejecutor: 0 éxito · 2 INESTABLE (advertencias WARN o análisis activo parcial) · 1 reglas FAIL · otro: error
+        // técnico (3 ZAP, 4 configuración, 5 backend, 6 tiempo agotado, 7 reportes, 8 secretos, 9 evidencia, 10 limpieza, 11 alcance).
+        // El límite global del stage es el `timeout` de abajo (100 min); el de ZAP es ZAP_LIMITE_MINUTOS (80 min por defecto).
+        stage('OWASP ZAP') {
+            when {
+                beforeAgent true
+                branch 'qa'
+            }
+            environment {
+                IGUALAB_PRUEBAS_ENTORNO = 'qa'
+                IGUALAB_API_URL = "${env.IGUALAB_QA_API_URL ?: 'http://igualab-backend-qa-backend-1:8000'}"
+                ZAP_ID_EJECUCION = "${env.BUILD_TAG}"
+            }
+            steps {
+                timeout(time: 100, unit: 'MINUTES') {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'IGUALAB_QA_SUPERADMIN',
+                        usernameVariable: 'IGUALAB_E2E_SUPERADMIN_CORREO',
+                        passwordVariable: 'IGUALAB_E2E_SUPERADMIN_PASSWORD'
+                    )]) {
+                        script {
+                            def codigo = sh(returnStatus: true, script: 'sh pruebas-zap/scripts/ejecutar-zap.sh')
+                            if (codigo == 0) {
+                                echo 'OWASP ZAP: sin alertas FAIL ni WARN dentro del alcance escaneado (no equivale a "backend seguro"; ver zap-resultados/resumen-zap.md).'
+                            } else if (codigo == 2) {
+                                unstable('OWASP ZAP: advertencias (WARN) o análisis activo parcial. Revise zap-resultados/resumen-zap.md y backend-zap.html en los artefactos.')
+                            } else if (codigo == 1) {
+                                error('OWASP ZAP: alertas de nivel FAIL (ver backend-zap.html y resumen-zap.md en los artefactos).')
+                            } else {
+                                error("OWASP ZAP: error técnico (código ${codigo}); el análisis NO se considera realizado. Ver zap-resultados/resumen-zap.md y consola-zap.log.")
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    // Tras una cancelación o un timeout: elimina SOLO el contenedor de ZAP de esta ejecución y completa el cierre de la
+                    // cuenta y la empresa sintéticas si el cierre normal no llegó a hacerlo. Es idempotente.
+                    withCredentials([usernamePassword(
+                        credentialsId: 'IGUALAB_QA_SUPERADMIN',
+                        usernameVariable: 'IGUALAB_E2E_SUPERADMIN_CORREO',
+                        passwordVariable: 'IGUALAB_E2E_SUPERADMIN_PASSWORD'
+                    )]) {
+                        sh 'sh pruebas-zap/scripts/ejecutar-zap.sh limpiar'
+                    }
+                    // Solo zap-resultados/ (reportes redactados, resumen, alcance, cobertura y consola filtrada). zap-trabajo/ y zap-privado/
+                    // (reportes crudos, tokens, estado) NUNCA se archivan. Siempre existe al menos consola-zap.log.
+                    archiveArtifacts artifacts: 'zap-resultados/**', allowEmptyArchive: true
+                }
+            }
+        }
+
         stage('Deploy UAT (Docker Compose)') {
             when {
                 branch 'uat'
@@ -523,6 +581,8 @@ exit 0
     post {
         always {
             sh 'rm -f .env .env.nuevo'
+            // Después de archivar (los stages archivan en su propio post) y de retirar los .env: vacía el espacio de trabajo.
+            deleteDir()
         }
     }
 }
