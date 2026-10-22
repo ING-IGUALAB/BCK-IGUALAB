@@ -217,7 +217,11 @@ describe('límite global y cancelación', () => {
       assert.equal(e.codigo, 6, e.salida);
       const eliminados = e.acciones.split('\n').filter((l) => l.startsWith('REMOVIDO '));
       assert.deepEqual(eliminados, [`REMOVIDO igualab-zap-${e.id}`]);
-      assert.ok(e.acciones.split('\n').filter((l) => l.startsWith('rm ')).every((l) => l.endsWith(`igualab-zap-${e.id}`)), 'solo se ejecutó docker rm sobre el contenedor de ZAP');
+      const objetivosDeRm = e.acciones.split('\n').filter((l) => l.startsWith('rm ')).map((l) => l.split(' ').at(-1));
+      assert.ok(objetivosDeRm.every((n) => [`igualab-zap-${e.id}`, `igualab-zap-datos-${e.id}`].includes(n)), `docker rm solo sobre recursos de esta ejecución: ${objetivosDeRm}`);
+      const volumenes = e.acciones.split('\n').filter((l) => l.startsWith('VOLUMEN-ELIMINADO '));
+      assert.equal(volumenes.length, 3, 'se liberan los tres volúmenes de datos de la ejecución');
+      assert.ok(volumenes.every((l) => l.endsWith(`-${e.id}`)), 'y solo los de esta ejecución');
       assert.match(e.leerJson('resumen-zap.json').motivo, /límite global/);
       datosSinteticosCerrados(e);
       sinSecretos(e);
