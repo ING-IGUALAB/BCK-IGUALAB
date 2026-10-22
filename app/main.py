@@ -13,6 +13,7 @@ from app.modules.reportes import router as reportes
 from app.modules.auditoria import router as auditoria
 from app.core.exception_handlers import ManejadorExcepcionesMiddleware, register_exception_handlers
 from app.core.logging_config import configure_logging, paso_de_arranque
+from app.core.cabeceras_seguridad import CabecerasDeSeguridadMiddleware
 from app.core.request_id import RequestIDMiddleware
 from app.core.config import settings
 from scripts.crear_tablas import crear_tablas
@@ -60,6 +61,9 @@ app.add_middleware(RequestIDMiddleware)
 # Dentro de CORS (se registra antes que CORSMiddleware, que queda outermost): así un 500
 # inesperado conserva las cabeceras Access-Control-Allow-* y el navegador puede leerlo.
 app.add_middleware(ManejadorExcepcionesMiddleware)
+# Por fuera del manejador de excepciones (así también el 500 uniforme lleva nosniff y CORP) y por dentro de CORS, que sigue siendo el
+# middleware más externo (tests/test_main.py). No cambia CORS: los preflight los contesta el propio CORSMiddleware.
+app.add_middleware(CabecerasDeSeguridadMiddleware)
 
 
 app.add_middleware(

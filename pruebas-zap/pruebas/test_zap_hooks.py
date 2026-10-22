@@ -244,6 +244,80 @@ class PruebasDelHook(unittest.TestCase):
         resumen = json.loads(Path(self.trabajo.name, 'zap-hook-resumen.json').read_text(encoding='utf-8'))
         self.assertEqual(resumen['autorizacion_incorrecta'][0]['rol_esperado'], 'administrador')
 
+    # ------------------------------------------------------------------------------------------------ diagnóstico de 5xx
+    CONTRASENA_DE_LA_PETICION = 'Sup3r-Secreta-1!-de-prueba'
+    ID_PETICION = '3f2b8c1e-5d4a-4e7b-9c0d-1a2b3c4d5e6f'
+
+    def _mensaje_500(self, metodo='POST', ruta='/auth/login', consulta='', cuerpo=None, autorizacion=False, token=TOKEN_SUPER, cabecera_id=True):
+        cuerpo = cuerpo if cuerpo is not None else json.dumps({'correo': 'zap@example.com', 'password': self.CONTRASENA_DE_LA_PETICION + chr(0)})
+        peticion = f'{metodo} {DESTINO}{ruta}{consulta} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json; charset=utf-8\r\n'
+        if autorizacion:
+            peticion += f'Authorization: Bearer {token}\r\n'
+        respuesta = 'HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\n'
+        if cabecera_id:
+            respuesta += f'x-request-id: {self.ID_PETICION.upper()}\r\n'
+        return {
+            'id': '1399', 'requestHeader': peticion, 'requestBody': cuerpo, 'responseHeader': respuesta,
+            'responseBody': json.dumps({'error': {'code': 'INTERNAL_ERROR', 'message': 'Error interno.', 'details': None, 'request_id': self.ID_PETICION}}),
+        }
+
+    def test_un_5xx_se_registra_con_el_minimo_para_diagnosticarlo(self):
+        analisis = self.hook.analizar_mensajes([self._mensaje_500()], CONFIG, self.TOKENS)
+        self.assertEqual(analisis['errores_5xx_total'], 1)
+        e = analisis['errores_5xx'][0]
+        self.assertEqual((e['metodo'], e['ruta'], e['estado_http'], e['operacion']), ('POST', '/auth/login', 500, 'POST /auth/login'))
+        self.assertEqual(e['request_id'], self.ID_PETICION, 'el request_id sale de la cabecera x-request-id (normalizado a minúsculas)')
+        self.assertEqual(e['codigo_de_error'], 'INTERNAL_ERROR')
+        self.assertEqual(e['id_mensaje_zap'], '1399')
+        self.assertEqual(e['tipo_de_contenido'], 'application/json')
+        self.assertTrue(e['cuerpo_con_nul'], 'detecta el NUL aunque llegue escapado en el JSON')
+        self.assertGreater(e['tamano_cuerpo'], 20)
+        self.assertFalse(e['cuerpo_con_sustituto_suelto'])
+
+    def test_los_diagnosticos_de_5xx_no_filtran_secretos_ni_contenido(self):
+        """La contraseña de la petición, el token, el texto del cuerpo y la consulta NO pueden aparecer en lo que se archiva."""
+        mensajes = [
+            self._mensaje_500(),  # login sin credencial, con la contraseña en el cuerpo
+            self._mensaje_500('PATCH', '/empresas/abc', consulta='?token=valor-sensible-en-la-consulta&x=1', autorizacion=True, token=TOKEN_SUPER,
+                              cuerpo=json.dumps({'nombre': 'Empresa ' + chr(0) + ' secreta-del-cuerpo'})),
+        ]
+        analisis = self.hook.analizar_mensajes(mensajes, CONFIG, self.TOKENS)
+        texto = json.dumps(analisis)
+        for prohibido in (self.CONTRASENA_DE_LA_PETICION, TOKEN_SUPER, TOKEN_ADMIN, 'valor-sensible-en-la-consulta', 'secreta-del-cuerpo', 'zap@example.com', 'Bearer'):
+            self.assertNotIn(prohibido, texto)
+        self.assertEqual(analisis['errores_5xx_total'], 2)
+        self.assertTrue(analisis['errores_5xx'][1]['tiene_consulta'], 'se sabe que había consulta, pero no su contenido')
+        self.assertEqual(analisis['errores_5xx'][1]['ruta'], '/empresas/abc')
+
+    def test_el_resumen_final_con_5xx_tampoco_filtra_secretos(self):
+        zap = ZapFalso(mensajes=[self._mensaje_500(), self._mensaje_500('PATCH', '/empresas/abc', autorizacion=True)], escaneos=[{'id': '0', 'reqCount': '9', 'progress': '100'}],
+                       progreso={'scanProgress': [DESTINO, {'HostProcess': [{'Plugin': ['SQL Injection', '40018', 'release', 'Complete', '1', '9', '0']}]}]})
+        self.hook.zap_pre_shutdown(zap)
+        texto = Path(self.trabajo.name, 'zap-hook-resumen.json').read_text(encoding='utf-8')
+        resumen = json.loads(texto)
+        self.assertEqual(resumen['errores_5xx_total'], 2)
+        self.assertEqual(resumen['por_operacion']['POST /auth/login']['estados_todos'], {'500': 1}, 'cuenta también las peticiones sin credencial')
+        for prohibido in (self.CONTRASENA_DE_LA_PETICION, TOKEN_SUPER, TOKEN_ADMIN, 'zap@example.com'):
+            self.assertNotIn(prohibido, texto)
+
+    def test_el_request_id_se_toma_del_cuerpo_si_falta_la_cabecera_y_un_valor_invalido_se_ignora(self):
+        e = self.hook.analizar_mensajes([self._mensaje_500(cabecera_id=False)], CONFIG)['errores_5xx'][0]
+        self.assertEqual(e['request_id'], self.ID_PETICION)
+        m = self._mensaje_500(cabecera_id=False)
+        m['responseBody'] = json.dumps({'error': {'code': 'X', 'request_id': 'no-es-un-uuid; DROP TABLE'}})
+        self.assertIsNone(self.hook.analizar_mensajes([m], CONFIG)['errores_5xx'][0]['request_id'])
+
+    def test_una_respuesta_4xx_o_2xx_no_es_un_5xx(self):
+        ok = self._mensaje_500(); ok['responseHeader'] = 'HTTP/1.1 422 Unprocessable Content\r\n'
+        self.assertEqual(self.hook.analizar_mensajes([ok], CONFIG)['errores_5xx_total'], 0)
+
+    def test_los_sustitutos_sueltos_y_los_controles_se_detectan_sin_guardar_el_texto(self):
+        cuerpo = json.dumps({'password': 'a' * 40 + chr(0xD800) + chr(7)})
+        e = self.hook.analizar_mensajes([self._mensaje_500(cuerpo=cuerpo)], CONFIG)['errores_5xx'][0]
+        self.assertTrue(e['cuerpo_con_sustituto_suelto'])
+        self.assertTrue(e['cuerpo_con_caracteres_de_control'])
+        self.assertFalse(e['cuerpo_con_nul'])
+
     # ------------------------------------------------------------------------------------------------- análisis activo
     def test_sin_escaneo_activo_no_se_considera_ejecutado(self):
         self.assertFalse(self.hook.resumir_analisis_activo([], [])['ejecutado'])

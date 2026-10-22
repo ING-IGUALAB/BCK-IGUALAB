@@ -343,6 +343,8 @@ async function principal() {
       analisis_activo: hook.analisis_activo, cobertura_autenticada: hook.cobertura_autenticada, urls_importadas: hook.urls_importadas,
       total_peticiones: hook.total_peticiones, violaciones_total: hook.violaciones_total,
       autorizacion_incorrecta_total: hook.autorizacion_incorrecta_total ?? 0,
+      errores_5xx_total: hook.errores_5xx_total ?? 0,
+      errores_5xx: hook.errores_5xx ?? [],
     } : null,
     alertas,
     advertencias: [incongruencia, ...(preparacion?.ausentes?.length ? [`Operaciones clasificadas que ya no existen: ${preparacion.ausentes.length}`] : [])].filter(Boolean),

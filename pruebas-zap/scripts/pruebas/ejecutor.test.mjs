@@ -146,6 +146,26 @@ describe('desenlaces del script oficial de ZAP', () => {
     } finally { await e.cerrar(); }
   });
 
+  test('2 · con respuestas 5xx: el resumen lista método, ruta, request_id y metadatos, y NO archiva secretos', async () => {
+    const e = await escenario({ zap: 'con-5xx' });
+    try {
+      assert.equal(e.codigo, 2, e.salida);
+      const md = readFileSync(join(e.resultados, 'resumen-zap.md'), 'utf8');
+      assert.match(md, /## Errores 5xx \(diagnóstico\)/);
+      assert.match(md, /3f2b8c1e-5d4a-4e7b-9c0d-1a2b3c4d5e6f/, 'el request_id llega al resumen para buscarlo en el log del backend');
+      assert.match(md, /Error inesperado/);
+      const resumen = e.leerJson('resumen-zap.json');
+      assert.equal(resumen.hook.errores_5xx_total, 2);
+      assert.equal(resumen.hook.errores_5xx[0].cuerpo_con_nul, true);
+      assert.equal(resumen.hook.errores_5xx[0].operacion, 'POST /auth/login');
+      // La ruta del segundo diagnóstico traía algo con forma de JWT: ni el resumen, ni la cobertura, ni la consola pueden conservarlo.
+      sinSecretos(e);
+      assert.ok(!leerTodo(e.resultados).includes('firmaQueNoDebeArchivarse1234'));
+      assert.ok(!/password/i.test(md), 'el resumen no incluye campos ni valores de cuerpos de petición');
+      assert.ok(!md.includes('Bearer ey'), 'ni cabeceras de autenticación');
+    } finally { await e.cerrar(); }
+  });
+
   test('1 · reglas FAIL → build fallido (código 1) con los reportes archivados', async () => {
     const e = await escenario({ zap: 'fallo' });
     try {
