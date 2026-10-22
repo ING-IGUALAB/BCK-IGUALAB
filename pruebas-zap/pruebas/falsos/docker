@@ -1,0 +1,4 @@
+#!/bin/sh
+D=$(dirname "$0")
+if command -v cygpath >/dev/null 2>&1; then D=$(cygpath -m "$D"); fi
+exec node "$D/docker.mjs" "$@"

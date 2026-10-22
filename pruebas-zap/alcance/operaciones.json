@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "descripcion": "Clasificación EXPLÍCITA (método + ruta) de cada operación del OpenAPI de Igualab frente al ZAP API Scan. Es la única fuente del alcance: el ejecutor deriva de aquí la especificación filtrada. Una operación del OpenAPI real que no figure aquí hace fallar la preparación (hay que decidirla a conciencia). Estado: las exclusiones por servicios externos (OCI, DeepSeek, correo) están PENDIENTES de aceptación del TA; no equivalen a cobertura completa.",
+  "roles": {
+    "publico": "Sin sesión.",
+    "superadmin": "Sesión del SuperAdmin de QA (credencial IGUALAB_QA_SUPERADMIN). Solo se usa en operaciones que NO mutan su cuenta.",
+    "administrador": "Sesión de un Administrador SINTÉTICO creado por la preparación y deshabilitado al terminar."
+  },
+  "categorias": {
+    "servicio_externo": "Consume o puede consumir OCI (embeddings), DeepSeek (chat) o MinIO/pgvector, o envía correo. PENDIENTE de aceptación del TA.",
+    "credenciales": "Cambia, restablece o solicita el restablecimiento de credenciales.",
+    "sesion": "Revoca la sesión del escáner.",
+    "cuentas": "Crea, habilita, deshabilita o cambia el rol de cuentas (incluida la del SuperAdmin).",
+    "datos_persistentes": "Crea registros con valores controlados por el escáner que no se pueden retirar por HTTP.",
+    "estado_del_escaneo": "Alteraría el único recurso sintético y dejaría el resto del escaneo detrás de un error de negocio.",
+    "lectura_o_sintetico": "Lectura, o escritura limitada al recurso sintético de esta ejecución."
+  },
+  "operaciones": [
+    { "metodo": "GET", "ruta": "/health", "rol": "publico", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura pública sin efectos." },
+    { "metodo": "POST", "ruta": "/auth/login", "rol": "publico", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Superficie de autenticación expuesta. Se escanea con una identidad inexistente (ejemplo fijo en la especificación filtrada): un correo de cuenta real nunca forma parte de las peticiones, así que no puede bloquear cuentas (5 intentos). Efecto conocido: auditoría de intentos fallidos anónimos." },
+    { "metodo": "POST", "ruta": "/auth/logout", "rol": "administrador", "decision": "excluida", "categoria": "sesion", "motivo": "Revocaría la sesión del escáner a mitad de la corrida." },
+    { "metodo": "PATCH", "ruta": "/auth/mi-contrasena", "rol": "administrador", "decision": "excluida", "categoria": "credenciales", "motivo": "Cambia la contraseña de la cuenta autenticada." },
+    { "metodo": "POST", "ruta": "/auth/recuperar-contrasena", "rol": "publico", "decision": "excluida", "categoria": "servicio_externo", "motivo": "Envía correo (SMTP) y genera tokens de restablecimiento. Pendiente de aceptación del TA." },
+    { "metodo": "POST", "ruta": "/auth/restablecer-contrasena", "rol": "publico", "decision": "excluida", "categoria": "credenciales", "motivo": "Restablece credenciales mediante un token; no se escanea indiscriminadamente." },
+
+    { "metodo": "GET", "ruta": "/usuarios", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura protegida (SuperAdmin). Demuestra acceso autenticado real." },
+    { "metodo": "POST", "ruta": "/usuarios", "rol": "superadmin", "decision": "excluida", "categoria": "cuentas", "motivo": "Crearía cuentas Administrador habilitadas con valores del escáner que no se pueden retirar por HTTP." },
+    { "metodo": "PATCH", "ruta": "/usuarios/{usuario_id}/habilitar", "rol": "superadmin", "decision": "excluida", "categoria": "cuentas", "motivo": "Muta cuentas (posiblemente ajenas o la del SuperAdmin)." },
+    { "metodo": "PATCH", "ruta": "/usuarios/{usuario_id}/deshabilitar", "rol": "superadmin", "decision": "excluida", "categoria": "cuentas", "motivo": "Deshabilitaría cuentas y revocaría sus sesiones, incluidas las del escáner." },
+    { "metodo": "POST", "ruta": "/usuarios/transferir-superadmin", "rol": "superadmin", "decision": "excluida", "categoria": "cuentas", "motivo": "Transferiría el rol SuperAdmin; prohibido por el alcance." },
+
+    { "metodo": "POST", "ruta": "/empresas", "rol": "superadmin", "decision": "excluida", "categoria": "datos_persistentes", "motivo": "Crearía empresas activas con nombres controlados por el escáner en el catálogo de QA; no hay borrado por HTTP. Su validación (422/409) la cubre la colección de integración." },
+    { "metodo": "GET", "ruta": "/empresas", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura con filtros (sector, solo_activas). Accesible para ambos roles; se escanea con el SuperAdmin." },
+    { "metodo": "GET", "ruta": "/empresas/{empresa_id}", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura; el identificador de ejemplo es la empresa sintética de esta ejecución." },
+    { "metodo": "PATCH", "ruta": "/empresas/{empresa_id}", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Edición limitada a la empresa sintética de esta ejecución (ejemplo de la especificación filtrada); se desactiva al terminar." },
+    { "metodo": "PATCH", "ruta": "/empresas/{empresa_id}/activar", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Idempotente sobre la empresa sintética." },
+    { "metodo": "PATCH", "ruta": "/empresas/{empresa_id}/desactivar", "rol": "superadmin", "decision": "excluida", "categoria": "estado_del_escaneo", "motivo": "Dejaría inactiva la única empresa sintética y el resto del escaneo recibiría COMPANY_INACTIVE. La preparación/cierre ya la desactiva al terminar." },
+
+    { "metodo": "POST", "ruta": "/documentos/operaciones", "rol": "superadmin", "decision": "excluida", "categoria": "datos_persistentes", "motivo": "Solo sirve para alimentar la ingesta (excluida) y deja operaciones huérfanas sin retiro por HTTP." },
+    { "metodo": "POST", "ruta": "/documentos/operaciones/{operacion_id}/ingesta", "rol": "superadmin", "decision": "excluida", "categoria": "servicio_externo", "motivo": "Genera embeddings (OCI), escribe en MinIO y pgvector. Pendiente de aceptación del TA." },
+    { "metodo": "GET", "ruta": "/documentos/operaciones/{operacion_id}", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Solo lectura de una operación (identificador inexistente de ejemplo)." },
+    { "metodo": "POST", "ruta": "/documentos/operaciones/{operacion_id}/reintentar-publicacion", "rol": "superadmin", "decision": "excluida", "categoria": "servicio_externo", "motivo": "Repite la publicación vectorial (pgvector/MinIO). Pendiente de aceptación del TA." },
+    { "metodo": "GET", "ruta": "/documentos", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura paginada con filtros." },
+    { "metodo": "GET", "ruta": "/documentos/{documento_id}", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura de detalle (identificador inexistente de ejemplo)." },
+
+    { "metodo": "GET", "ruta": "/analisis-gri/empresas/{empresa_id}/anios/{anio}", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura sobre la empresa sintética; solo base transaccional, sin servicios externos." },
+    { "metodo": "PUT", "ruta": "/analisis-gri/empresas/{empresa_id}/anios/{anio}/codigos/{identidad}/estado", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Escritura sobre la empresa sintética, que no tiene documentos: responde por regla de negocio, sin efectos sobre datos ajenos." },
+    { "metodo": "GET", "ruta": "/analisis-gri/empresas/{empresa_id}/anios/{anio}/historial", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura sobre la empresa sintética." },
+    { "metodo": "POST", "ruta": "/analisis-gri/empresas/{empresa_id}/anios/{anio}/validacion", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Sobre la empresa sintética sin análisis elegible; no se puede validar nada ajeno." },
+
+    { "metodo": "POST", "ruta": "/asistente/consultas", "rol": "administrador", "decision": "excluida", "categoria": "servicio_externo", "motivo": "Consume OCI (embeddings) y DeepSeek (chat). Pendiente de aceptación del TA." },
+
+    { "metodo": "POST", "ruta": "/reportes/vista-previa", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Compilación local del PDF (WeasyPrint), sin servicios externos ni persistencia; la empresa sintética no tiene análisis validado." },
+    { "metodo": "GET", "ruta": "/reportes", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura del historial. Demuestra acceso autenticado real del Administrador." },
+    { "metodo": "POST", "ruta": "/reportes", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Los reportes son inmutables, pero requieren un análisis VALIDADO que la empresa sintética no tiene (409/404): no puede crearse ninguno." },
+    { "metodo": "GET", "ruta": "/reportes/{reporte_id}/archivo", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura de un reporte inexistente (ejemplo)." },
+
+    { "metodo": "GET", "ruta": "/auditoria", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura (SuperAdmin) con filtros y paginación." }
+  ]
+}
