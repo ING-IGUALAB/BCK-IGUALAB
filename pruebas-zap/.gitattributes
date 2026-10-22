@@ -1,0 +1,6 @@
+# Scripts que se ejecutan en Linux (nodo de Jenkins y contenedores): siempre LF, también en copias de trabajo de Windows.
+* text=auto eol=lf
+# El archivo de reglas exige tabuladores literales entre campos: no se normalizan espacios ni se reformatea.
+*.conf text eol=lf
+# Fixture: salida real de app.openapi(), no se muestra en diffs.
+pruebas/fixtures/*.json text eol=lf -diff
