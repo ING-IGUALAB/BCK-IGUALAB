@@ -22,7 +22,7 @@ export function decidirSalida(e) {
   const r = (codigo, veredicto, motivo) => ({ codigo, veredicto, motivo });
 
   if (e.prepCodigo !== 0) {
-    const codigo = [SALIDA.CONFIGURACION, SALIDA.BACKEND_NO_DISPONIBLE].includes(e.prepCodigo) ? e.prepCodigo : SALIDA.ERROR_ZAP;
+    const codigo = [SALIDA.CONFIGURACION, SALIDA.BACKEND_NO_DISPONIBLE, SALIDA.ARCHIVOS].includes(e.prepCodigo) ? e.prepCodigo : SALIDA.ERROR_ZAP;
     return r(codigo, 'FALLO TÉCNICO', `La preparación terminó con el código ${e.prepCodigo}; ZAP no se ejecutó.`);
   }
   if (e.interrumpido) return r(SALIDA.TIEMPO_AGOTADO, 'FALLO TÉCNICO', 'La ejecución fue cancelada o interrumpida antes de terminar; solo se cerraron los datos sintéticos.');

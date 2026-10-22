@@ -15,6 +15,7 @@ export const SALIDA = {
   EVIDENCIA: 9, // no se demostró el acceso autenticado, el análisis activo o el resumen del hook
   LIMPIEZA: 10, // no se pudo deshabilitar la cuenta o desactivar la empresa sintéticas
   ALCANCE: 11, // se envió una petición a una operación excluida o fuera del destino
+  ARCHIVOS: 12, // un directorio de datos (trabajo, privado o resultados) no es escribible o falló una operación de archivo
 };
 
 export class ErrorDeEjecucion extends Error {

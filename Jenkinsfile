@@ -499,7 +499,7 @@ exit 0
         // stages anteriores; no se crea otro SuperAdmin). Opcional: IGUALAB_QA_API_URL si el backend no es alcanzable por el nombre de su
         // contenedor en proxy_net.
         // Código de salida del ejecutor: 0 éxito · 2 INESTABLE (advertencias WARN o análisis activo parcial) · 1 reglas FAIL · otro: error
-        // técnico (3 ZAP, 4 configuración, 5 backend, 6 tiempo agotado, 7 reportes, 8 secretos, 9 evidencia, 10 limpieza, 11 alcance).
+        // técnico (3 ZAP, 4 configuración, 5 backend, 6 tiempo agotado, 7 reportes, 8 secretos, 9 evidencia, 10 limpieza, 11 alcance, 12 archivos/permisos).
         // El límite global del stage es el `timeout` de abajo (100 min); el de ZAP es ZAP_LIMITE_MINUTOS (80 min por defecto).
         stage('OWASP ZAP') {
             when {
@@ -544,8 +544,8 @@ exit 0
                     )]) {
                         sh 'sh pruebas-zap/scripts/ejecutar-zap.sh limpiar'
                     }
-                    // Solo zap-resultados/ (reportes redactados, resumen, alcance, cobertura y consola filtrada). zap-trabajo/ y zap-privado/
-                    // (reportes crudos, tokens, estado) NUNCA se archivan. Siempre existe al menos consola-zap.log.
+                    // Solo zap-resultados/ (reportes redactados, resumen, alcance, cobertura y consola filtrada). Los reportes crudos, los tokens y el
+                    // estado viven en volúmenes de Docker de la ejecución y NUNCA se archivan. Siempre existen consola-zap.log y un resumen (mínimo si hace falta).
                     archiveArtifacts artifacts: 'zap-resultados/**', allowEmptyArchive: true
                 }
             }
