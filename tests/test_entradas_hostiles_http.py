@@ -291,7 +291,8 @@ def test_no_se_alteran_los_nombres_ya_almacenados(entorno):
     assert entorno.cliente.get(f"/empresas/{previa.id}").json()["nombre"] == "<b>Heredada</b> & Cía"
     assert "<b>Heredada</b> & Cía" in [x["nombre"] for x in entorno.cliente.get("/empresas").json()]
     cambio = entorno.cliente.patch(f"/empresas/{previa.id}", json={"sector": "PETROLEO"})
-    assert cambio.status_code == 200 and cambio.json()["nombre"] == "<b>Heredada</b> & Cía"
+    assert cambio.status_code == 200
+    assert cambio.json()["nombre"] == "<b>Heredada</b> & Cía"
     assert entorno.sesion.scalar(select(Empresa.nombre).where(Empresa.id == previa.id)) == "<b>Heredada</b> & Cía"
 
 
