@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from app.core.validadores import NombreEmpresa, NombreUsuario
 from app.models import RolUsuario, SectorEmpresa, TipoDocumento
 from app.modules.ingesta.domain.reglas import interpretar_anio
 
@@ -44,7 +45,7 @@ class CambiarPasswordRequest(BaseModel):
 
 
 class CrearUsuarioRequest(BaseModel):
-    nombre: str
+    nombre: NombreUsuario
     correo: EmailStr
     password: str
 
@@ -68,14 +69,14 @@ class TransferirSuperAdminRequest(BaseModel):
 class CrearEmpresaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    nombre: str = Field(min_length=1, max_length=200)
+    nombre: NombreEmpresa
     sector: SectorEmpresa
 
 
 class EditarEmpresaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    nombre: str | None = Field(default=None, min_length=1, max_length=200)
+    nombre: NombreEmpresa | None = None
     sector: SectorEmpresa | None = None
 
     @model_validator(mode="after")

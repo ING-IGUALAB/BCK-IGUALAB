@@ -193,7 +193,7 @@ Se archiva **solo** `zap-resultados/` (incluso si el stage falla):
 | `backend-zap.html`, `backend-zap.json` | Reportes de ZAP, con la evidencia útil (URL, método, parámetro, ataque, evidencia) y **sin secretos** |
 | `resumen-zap.md` / `resumen-zap.json` | Veredicto, alcance, cobertura autenticada, limpieza, reportes, limitaciones pendientes |
 | `alcance-zap.json`, `openapi-filtrado.json` | Qué se incluyó/excluyó y por qué; la especificación que se importó |
-| `cobertura-zap.json` | Evidencia del hook: análisis activo real, cobertura por rol y por operación, violaciones de alcance |
+| `cobertura-zap.json` | Evidencia del hook: análisis activo real, cobertura por rol y por operación (`estados_todos` incluye las peticiones sin credencial), violaciones de alcance y **diagnóstico de 5xx** |
 | `consola-zap.log` | Consola filtrada |
 
 Estado, credenciales y reportes crudos **nunca** se archivan: viven en tres **volúmenes nombrados de Docker** (`igualab-zap-trabajo|privado|resultados-<BUILD_TAG>`) que se eliminan al terminar.
@@ -240,6 +240,10 @@ El destino es la URL **interna HTTP** del contenedor en `proxy_net`. Permite ana
 4. Si es **FAILURE técnico (≥3)**: leer el «Motivo» de `resumen-zap.md` y `consola-zap.log`; el análisis **no** se considera realizado. Comprobar luego `limpieza` (cuenta/empresa sintéticas).
 5. Para un FAIL real: corregir el código; para un falso positivo: documentar la excepción en `reglas/zap-api-scan.reglas.conf` con su motivo (no bajar el nivel para obtener verde).
 6. No olvidar las **limitaciones**: la parte excluida (OCI/DeepSeek/correo) sigue pendiente del TA.
+7. **Respuestas 5xx**: `resumen-zap.md` → «Errores 5xx (diagnóstico)» (y `errores_5xx` en `resumen-zap.json`/`cobertura-zap.json`) lista, por cada una, método, ruta **sin consulta**, `request_id`, código de error de la API y metadatos de la
+   entrada (tamaño del cuerpo y si traía NUL, caracteres de control o sustitutos sueltos). **No** se guardan cuerpos, contraseñas, tokens, cabeceras ni el texto del ataque. Para ver la excepción, buscar ese `request_id` en el log del backend de QA
+   (`docker logs igualab-backend-qa-backend-1 | grep <request_id>`: líneas «Error inesperado» o «Error de base de datos» con su traza). Nota: el 500 uniforme lleva el `request_id` en el **cuerpo** pero no en la cabecera `x-request-id`
+   (comportamiento previo de los middlewares); el hook lo toma de donde esté.
 
 ## Verificación (qué se hizo y qué no)
 

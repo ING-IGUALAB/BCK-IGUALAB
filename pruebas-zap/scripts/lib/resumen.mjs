@@ -27,6 +27,23 @@ export function resumenMarkdown(r) {
   for (const o of r.alcance.excluidas) l.push(`| ${o.metodo} | \`${celda(o.ruta)}\` | ${o.categoria} | ${celda(o.motivo)} |`);
   l.push('');
 
+  if (r.hook) {
+    const e5 = r.hook.errores_5xx ?? [];
+    l.push('## Errores 5xx (diagnóstico)', '');
+    if (!e5.length) {
+      l.push('Ninguna respuesta 5xx en lo escaneado.', '');
+    } else {
+      l.push(`Respuestas 5xx: ${r.hook.errores_5xx_total ?? e5.length} (se listan hasta ${e5.length}). Busque cada \`request_id\` en el log del backend (líneas «Error inesperado» o «Error de base de datos») para ver la excepción.`);
+      l.push('El reporte NO conserva el cuerpo, el ataque ni las cabeceras: solo propiedades de la entrada.', '');
+      l.push('| Método | Ruta | HTTP | Operación | request_id | Código de error | Cuerpo (caracteres) | NUL | Controles | Sustituto suelto |', '|---|---|---|---|---|---|---|---|---|---|');
+      const si = (v) => (v ? 'sí' : 'no');
+      for (const e of e5) {
+        l.push(`| ${e.metodo} | \`${celda(e.ruta)}\` | ${e.estado_http} | ${celda(e.operacion ?? '(fuera del alcance)')} | ${celda(e.request_id ?? 'no disponible')} | ${celda(e.codigo_de_error ?? '-')} | ${e.tamano_cuerpo} | ${si(e.cuerpo_con_nul)} | ${si(e.cuerpo_con_caracteres_de_control)} | ${si(e.cuerpo_con_sustituto_suelto)} |`);
+      }
+      l.push('');
+    }
+  }
+
   l.push('## Cobertura autenticada', '');
   const c = r.hook?.cobertura_autenticada;
   if (!c) l.push('Sin datos del hook: **no demostrada**.', '');
