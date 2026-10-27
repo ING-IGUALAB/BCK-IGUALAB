@@ -38,10 +38,12 @@ _SIN_FORMATO = re.compile(r"[^#*_~\[<>&\\|`\x00-\x08\x0a-\x1f\x7f-\x9f]*")
 _BLANCOS = re.compile(r"[^\S\n]+")
 _ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _REGLA_HORIZONTAL = re.compile(r" {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*")
-_IMAGEN = re.compile(r"!\[([^\[\]\n]*)\]\((?:[^()\n]*)\)")
+_IMAGEN = re.compile(r"!\[([^\[\]\n]*)\]\([^()\n]*\)")
 # Etiquetas que cierran un bloque o una línea: dejan un salto.
-_RUPTURA_HTML = re.compile(
-    r"<br\s*/?>|<hr\s*/?>|</(?:p|div|li|tr|h[1-6]|ul|ol|table|thead|tbody|tfoot|blockquote|pre)\s*>", re.IGNORECASE
+# Son dos patrones (y no uno) para mantener cada expresión regular simple; ver `_sustituir_rupturas`.
+_RUPTURAS_HTML = (
+    re.compile(r"<(?:br|hr)\s*/?>", re.IGNORECASE),
+    re.compile(r"</(?:p|div|li|tr|h[1-6]|ul|ol|table|thead|tbody|tfoot|blockquote|pre)\s*>", re.IGNORECASE),
 )
 _CELDA_HTML = re.compile(r"</t[dh]\s*>", re.IGNORECASE)
 # Marcadores internos (caracteres de control U+0001 y U+0000): separan celdas de una tabla HTML y líneas mientras se limpia.
@@ -55,7 +57,8 @@ _ETIQUETA_DE_FORMATO = re.compile(
     re.IGNORECASE,
 )
 _ENTIDADES = {"nbsp": " ", "amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
-_ENTIDAD = re.compile(r"&(nbsp|amp|lt|gt|quot|apos|#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6});")
+# re.ASCII: `\d` sigue admitiendo solo 0-9 (sin él aceptaría también otros dígitos Unicode).
+_ENTIDAD = re.compile(r"&(nbsp|amp|lt|gt|quot|apos|#\d{1,7}|#[xX][0-9a-fA-F]{1,6});", re.ASCII)
 
 
 def _entidad(m: re.Match) -> str:
@@ -66,7 +69,9 @@ def _entidad(m: re.Match) -> str:
     if codigo == 0 or codigo > 0x10FFFF or 0xD800 <= codigo <= 0xDFFF:
         return m.group(0)
     caracter = chr(codigo)
-    return " " if caracter.isspace() else (caracter if caracter.isprintable() else m.group(0))
+    if caracter.isspace():
+        return " "
+    return caracter if caracter.isprintable() else m.group(0)
 
 
 def _fuera_de_codigo(linea: str, patron: re.Pattern, reemplazo: str) -> str:
@@ -122,9 +127,16 @@ def _unir_celdas(celdas: list[str]) -> str:
     return " | ".join(limpias)
 
 
+def _sustituir_rupturas(linea: str, reemplazo: str) -> str:
+    """Sustituye cada `<br>`, `<hr>` y cierre de bloque HTML que no esté dentro de un fragmento de código."""
+    for patron in _RUPTURAS_HTML:
+        linea = _fuera_de_codigo(linea, patron, reemplazo)
+    return linea
+
+
 def _separar_rupturas(linea: str) -> list[str]:
     """Parte la línea en cada `<br>` o cierre de bloque HTML que no esté dentro de un fragmento de código."""
-    return _fuera_de_codigo(linea, _RUPTURA_HTML, _MARCA_DE_RUPTURA).split(_MARCA_DE_RUPTURA)
+    return _sustituir_rupturas(linea, _MARCA_DE_RUPTURA).split(_MARCA_DE_RUPTURA)
 
 
 def _fila_de_tabla(linea: str) -> list[str]:
@@ -132,7 +144,7 @@ def _fila_de_tabla(linea: str) -> list[str]:
     no se desplacen."""
     if markdown.es_delimitador(linea):
         return []
-    celdas = [_fuera_de_codigo(celda, _RUPTURA_HTML, " ") for celda in markdown.celdas(linea)]
+    celdas = [_sustituir_rupturas(celda, " ") for celda in markdown.celdas(linea)]
     return [_unir_celdas([_en_linea(celda) for celda in celdas])]
 
 
