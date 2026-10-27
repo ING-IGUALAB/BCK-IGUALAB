@@ -52,7 +52,7 @@ def test_los_campos_legibles_se_anaden_y_el_original_queda_intacto():
     original = {k: mencion[k] for k in ("cita", "seccion", "inicio", "fin", "cita_inicio", "cita_fin", "referencia_original")}
     filas, _ = calculo.construir_filas([d])
     ev = filas[0].evidencias[0]
-    assert (ev.cita, ev.seccion, ev.inicio, ev.fin, ev.cita_inicio, ev.cita_fin, ev.referencia_original) == tuple(original.values())
+    assert tuple(original.values()) == (ev.cita, ev.seccion, ev.inicio, ev.fin, ev.cita_inicio, ev.cita_fin, ev.referencia_original)
     assert "<br>" in ev.cita
     assert "**" in ev.seccion  # el original conserva sus marcas
     assert ev.cita_legible == "La empresa\nredujo emisiones según GRI 305-1, GRI 305-2 y GRI 305-3 durante el periodo."

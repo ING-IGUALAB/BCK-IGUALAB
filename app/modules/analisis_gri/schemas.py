@@ -26,6 +26,8 @@ from app.models import SectorEmpresa, TipoDocumento
 from app.models.analisis_gri import EstadoGri, TipoIdentidadGri
 from app.models.documento_ingesta import ResultadoAnalisis
 
+DESCRIPCION_SECCION_LEGIBLE = "Presentación de `seccion` sin marcas de formato."
+
 # Patrón de la identidad de una fila: «305:2016», «102:ambigua» o «102:no-catalogada-2030».
 PATRON_IDENTIDAD = r"^[1-9][0-9]{0,2}:(?:(?:19|20)[0-9]{2}|ambigua|no-catalogada-(?:19|20)[0-9]{2})$"
 
@@ -108,7 +110,7 @@ class Evidencia(_Modelo):
         description="Presentación de `cita` sin marcas de formato (`###`, `**`, `<br>`, barras de tabla), con saltos de línea y "
         "celdas conservados. NO es literal ni sus posiciones sirven de índice: la evidencia es `cita` con `cita_inicio`/`cita_fin`.",
     )
-    seccion_legible: str = Field(default="", description="Presentación de `seccion` sin marcas de formato.")
+    seccion_legible: str = Field(default="", description=DESCRIPCION_SECCION_LEGIBLE)
 
 
 class AparicionPasaje(_Modelo):
@@ -239,7 +241,7 @@ class SancionVista(_Modelo):
     cita_fin: int
     seccion: str
     cita_legible: str = Field(default="", description="Presentación de `cita` sin marcas de formato (no literal).")
-    seccion_legible: str = Field(default="", description="Presentación de `seccion` sin marcas de formato.")
+    seccion_legible: str = Field(default="", description=DESCRIPCION_SECCION_LEGIBLE)
     en_tabla: bool
     entidad: DatoTexto | None = Field(description="null si la evidencia no identifica una entidad; no se inventa.")
     monto: MontoVista | None = Field(description="null = no cuantificada (nunca cero).")
@@ -285,7 +287,7 @@ class CitaSancion(_Modelo):
     cita_inicio: int
     cita_fin: int
     cita_legible: str = Field(default="", description="Presentación de `cita` sin marcas de formato (no literal).")
-    seccion_legible: str = Field(default="", description="Presentación de `seccion` sin marcas de formato.")
+    seccion_legible: str = Field(default="", description=DESCRIPCION_SECCION_LEGIBLE)
 
 
 class AdvertenciaSancion(_Modelo):
