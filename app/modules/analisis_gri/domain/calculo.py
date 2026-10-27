@@ -63,7 +63,9 @@ from app.modules.ingesta.application.analisis_ingesta import (
     CATEGORIA_CALIDAD,
     CATEGORIA_GRI,
 )
+from app.modules.analisis_gri.domain.pasajes import agrupar_pasajes
 from app.modules.ingesta.domain.agrupacion_sanciones import ADV_DATOS_EN_CONFLICTO, ADV_POSIBLE_DUPLICADA
+from app.modules.ingesta.domain.legibilidad import seccion_legible, texto_legible
 
 DECIMALES_PRESENTACION = 1
 MAX_REFERENCIAS_ADVERTENCIA = 20
@@ -159,7 +161,7 @@ def huella_de_documentos(documentos: list[DocumentoBase]) -> str:
 
 # --- Evidencia -------------------------------------------------------------------------------------------------------
 
-def _evidencia(doc: DocumentoBase, mencion: dict) -> Evidencia:
+def _evidencia(doc: DocumentoBase, mencion: dict, presentacion: bool = True) -> Evidencia:
     try:
         return Evidencia(
             documento_id=doc.id,
@@ -176,6 +178,8 @@ def _evidencia(doc: DocumentoBase, mencion: dict) -> Evidencia:
             en_codigo=bool(mencion.get("en_codigo", False)),
             edicion_mencionada=mencion.get("edicion_mencionada"),
             motivos_revision=list(mencion.get("motivos_revision") or []),
+            cita_legible=texto_legible(mencion["cita"]) if presentacion else "",
+            seccion_legible=seccion_legible(mencion["seccion"]) if presentacion else "",
         )
     except (KeyError, TypeError, ValueError):
         raise _datos_invalidos() from None
@@ -221,7 +225,9 @@ def _advertencias_de_fila(menciones: list[tuple[DocumentoBase, dict]]) -> list[A
     ]
 
 
-def _advertencia_gri_desconocida(doc: DocumentoBase, codigo: str, menciones: list[dict]) -> AdvertenciaAnalisis:
+def _advertencia_gri_desconocida(
+    doc: DocumentoBase, codigo: str, menciones: list[dict], presentacion: bool = True
+) -> AdvertenciaAnalisis:
     """Referencia desconocida: advertencia con su evidencia; no es fila ni puntúa."""
     return AdvertenciaAnalisis(
         codigo=ADV_GRI_DESCONOCIDA,
@@ -231,7 +237,7 @@ def _advertencia_gri_desconocida(doc: DocumentoBase, codigo: str, menciones: lis
         documento_id=doc.id,
         documento_nombre=doc.nombre_archivo,
         detalles={"codigo_estandar": codigo, "total_menciones": len(menciones)},
-        evidencias=[_evidencia(doc, m) for m in menciones],
+        evidencias=[_evidencia(doc, m, presentacion) for m in menciones],
     )
 
 
@@ -249,8 +255,8 @@ def _acumular_grupo(acumuladores: dict[str, _Acumulador], doc: DocumentoBase, gr
         acc.menciones.append((doc, mencion))
 
 
-def _fila_desde_acumulador(clave: str, acc: _Acumulador) -> FilaGri:
-    evidencias = [_evidencia(doc, m) for doc, m in acc.menciones]
+def _fila_desde_acumulador(clave: str, acc: _Acumulador, presentacion: bool = True) -> FilaGri:
+    evidencias = [_evidencia(doc, m, presentacion) for doc, m in acc.menciones]
     documentos_fila = list(dict.fromkeys(doc.id for doc, _ in acc.menciones))
     return FilaGri(
         identidad=clave,
@@ -271,12 +277,16 @@ def _fila_desde_acumulador(clave: str, acc: _Acumulador) -> FilaGri:
         documentos=documentos_fila,
         advertencias=_advertencias_de_fila(acc.menciones),
         evidencias=evidencias,
+        pasajes=agrupar_pasajes(evidencias) if presentacion else [],
     )
 
 
-def construir_filas(documentos: list[DocumentoBase]) -> tuple[list[FilaGri], list[AdvertenciaAnalisis]]:
+def construir_filas(
+    documentos: list[DocumentoBase], *, presentacion: bool = True
+) -> tuple[list[FilaGri], list[AdvertenciaAnalisis]]:
     """Filas evaluables (sin estados) y advertencias de referencias desconocidas y de calidad, en orden estable.
-    `documentos` ya viene en orden determinista (completado_en, id)."""
+    `documentos` ya viene en orden determinista (completado_en, id). Con `presentacion=False` (escrituras, que solo necesitan
+    identidades y estados) no se calculan los textos legibles ni los pasajes agrupados: el resto del resultado es idéntico."""
     acumuladores: dict[str, _Acumulador] = {}
     advertencias: list[AdvertenciaAnalisis] = []
     for doc in documentos:
@@ -287,12 +297,12 @@ def construir_filas(documentos: list[DocumentoBase]) -> tuple[list[FilaGri], lis
                 if grupo.get("catalogado"):
                     _acumular_grupo(acumuladores, doc, grupo, codigo, menciones)
                 else:
-                    advertencias.append(_advertencia_gri_desconocida(doc, codigo, menciones))
+                    advertencias.append(_advertencia_gri_desconocida(doc, codigo, menciones, presentacion))
             except (KeyError, TypeError):
                 raise _datos_invalidos() from None
         advertencias.extend(_advertencias_de_calidad(doc))
 
-    filas = [_fila_desde_acumulador(clave, acc) for clave, acc in acumuladores.items()]
+    filas = [_fila_desde_acumulador(clave, acc, presentacion) for clave, acc in acumuladores.items()]
     filas.sort(key=lambda f: (int(f.codigo), f.edicion is None, f.edicion or "", f.identidad))
     return filas, advertencias
 
@@ -382,6 +392,8 @@ def _sancion_vista(doc: DocumentoBase, s: dict, agrupacion_id: str | None) -> Sa
         cita_inicio=s["cita_inicio"],
         cita_fin=s["cita_fin"],
         seccion=s["seccion"],
+        cita_legible=texto_legible(s["cita"]),
+        seccion_legible=seccion_legible(s["seccion"]),
         en_tabla=bool(s.get("en_tabla", False)),
         entidad=_dato(s.get("entidad")),
         monto=None if monto is None else _monto_vista(monto),
@@ -434,6 +446,7 @@ def _agrupacion_vista(doc: DocumentoBase, posicion: int, unidad: dict, menciones
                 documento_id=m.documento_id, documento_nombre=m.documento_nombre, seccion=m.seccion, en_tabla=m.en_tabla,
                 referencia_original=m.referencia_original, inicio=m.inicio, fin=m.fin,
                 cita=m.cita, cita_inicio=m.cita_inicio, cita_fin=m.cita_fin,
+                cita_legible=m.cita_legible, seccion_legible=m.seccion_legible,
             ),
         )
     identificadores = {}

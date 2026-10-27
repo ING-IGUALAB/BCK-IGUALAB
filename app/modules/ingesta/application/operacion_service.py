@@ -33,9 +33,12 @@ from app.models.documento_ingesta import (
 )
 from app.modules.ingesta.schemas import (
     ESTADOS_TERMINALES,
+    DisponibilidadIngestaResponse,
+    DisponibilidadTipo,
     DocumentoDetalle,
     DocumentoResumen,
     ErrorOperacion,
+    EstadoEspacio,
     EstadoOperacionPublico,
     OperacionCreadaResponse,
     OperacionResponse,
@@ -346,3 +349,64 @@ async def obtener_detalle(db: AsyncSession, documento_id: uuid.UUID, ambiente: s
         analisis=documento.analisis,
         actualizado_en=progreso.actualizado_en,
     )
+
+
+# --- Disponibilidad de tipos (consulta informativa) ----------------------------------------------------------------
+
+_ESPACIO_POR_ESTADO = {
+    EstadoProgreso.EN_PROCESO: EstadoEspacio.EN_PROCESO,
+    EstadoProgreso.PUBLICACION_PENDIENTE: EstadoEspacio.PUBLICACION_PENDIENTE,
+    EstadoProgreso.COMPLETADO: EstadoEspacio.OCUPADO,
+    EstadoProgreso.FALLIDO_LIMPIEZA_PENDIENTE: EstadoEspacio.LIMPIEZA_PENDIENTE,
+    # Una reserva activa en un FALLIDO sin limpieza pendiente no ocurre (la libera la misma sentencia), pero si ocurriera la
+    # reserva sigue ocupando el espacio: manda la reserva, no el nombre del estado.
+    EstadoProgreso.FALLIDO: EstadoEspacio.LIMPIEZA_PENDIENTE,
+}
+
+
+async def disponibilidad_de_tipos(
+    db: AsyncSession, *, ambiente: str, empresa_id: uuid.UUID, anio: int
+) -> DisponibilidadIngestaResponse:
+    """Qué tipos de documento están libres, ocupados o en procesamiento para la empresa y el año, en el ambiente.
+
+    Usa EXACTAMENTE el criterio de la carga y de los índices únicos parciales `uq_documentos_empresa_anio_tipo_activo` y
+    `uq_documentos_sha256_activo`: un espacio está ocupado si y solo si existe un documento con `reserva_activa`. Un FALLIDO con
+    la limpieza terminada ya liberó la reserva y el espacio figura DISPONIBLE. Solo lectura: una consulta de empresa y una de
+    reservas (a lo sumo una fila por tipo). No lee el análisis. La carga no confía en esta respuesta: vuelve a reservar."""
+    validar_ambiente(ambiente)
+    try:
+        empresa = (
+            await db.execute(select(Empresa.id, Empresa.nombre, Empresa.activa).where(Empresa.id == empresa_id))
+        ).one_or_none()
+        if empresa is None:
+            raise NotFoundError("COMPANY_NOT_FOUND", "La empresa no existe.")
+        reservas = (
+            await db.execute(
+                select(Documento).options(defer(Documento.analisis)).where(
+                    Documento.ambiente == ambiente,
+                    Documento.empresa_id == empresa_id,
+                    Documento.anio == anio,
+                    Documento.reserva_activa.is_(True),
+                )
+            )
+        ).scalars().all()
+        ocupados = {d.tipo: d for d in reservas}
+        tipos = []
+        for tipo in TipoDocumento:
+            documento = ocupados.get(tipo)
+            if documento is None:
+                tipos.append(DisponibilidadTipo(tipo=tipo, estado=EstadoEspacio.DISPONIBLE, cargable=empresa.activa))
+                continue
+            estado, _, _ = servicio.estado_de_documento(documento)
+            tipos.append(
+                DisponibilidadTipo(
+                    tipo=tipo, estado=_ESPACIO_POR_ESTADO[estado], cargable=False, documento_id=documento.id,
+                    nombre_archivo=documento.nombre_archivo, reservado_en=documento.creado_en,
+                )
+            )
+        return DisponibilidadIngestaResponse(
+            ambiente=ambiente, empresa_id=empresa.id, empresa_nombre=empresa.nombre, empresa_activa=empresa.activa,
+            anio=anio, tipos=tipos,
+        )
+    finally:
+        await db.rollback()  # termina la transacción de solo lectura

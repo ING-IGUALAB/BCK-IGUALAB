@@ -41,6 +41,7 @@
     { "metodo": "GET", "ruta": "/documentos/operaciones/{operacion_id}", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Solo lectura de una operación (identificador inexistente de ejemplo)." },
     { "metodo": "POST", "ruta": "/documentos/operaciones/{operacion_id}/reintentar-publicacion", "rol": "superadmin", "decision": "excluida", "categoria": "servicio_externo", "motivo": "Repite la publicación vectorial (pgvector/MinIO). Pendiente de aceptación del TA." },
     { "metodo": "GET", "ruta": "/documentos", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura paginada con filtros." },
+    { "metodo": "GET", "ruta": "/documentos/disponibilidad", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura informativa de las reservas de la empresa y el año (una consulta de empresa y otra de reservas); no usa servicios externos ni escribe." },
     { "metodo": "GET", "ruta": "/documentos/{documento_id}", "rol": "superadmin", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura de detalle (identificador inexistente de ejemplo)." },
 
     { "metodo": "GET", "ruta": "/analisis-gri/empresas/{empresa_id}/anios/{anio}", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura sobre la empresa sintética; solo base transaccional, sin servicios externos." },
@@ -52,6 +53,7 @@
 
     { "metodo": "POST", "ruta": "/reportes/vista-previa", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Compilación local del PDF (WeasyPrint), sin servicios externos ni persistencia; la empresa sintética no tiene análisis validado." },
     { "metodo": "GET", "ruta": "/reportes", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura del historial. Demuestra acceso autenticado real del Administrador." },
+    { "metodo": "GET", "ruta": "/reportes/disponibilidad", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura informativa de los años de la empresa y su punto del flujo; solo base transaccional, sin servicios externos ni escritura." },
     { "metodo": "POST", "ruta": "/reportes", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Los reportes son inmutables, pero requieren un análisis VALIDADO que la empresa sintética no tiene (409/404): no puede crearse ninguno." },
     { "metodo": "GET", "ruta": "/reportes/{reporte_id}/archivo", "rol": "administrador", "decision": "incluida", "categoria": "lectura_o_sintetico", "motivo": "Lectura de un reporte inexistente (ejemplo)." },
 

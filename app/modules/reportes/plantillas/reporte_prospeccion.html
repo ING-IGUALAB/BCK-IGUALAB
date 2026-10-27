@@ -14,8 +14,10 @@
   h2 svg { vertical-align: -3px; margin-right: 8px; }
   .cards { display: table; width: 100%; border-spacing: 10px 0; }
   .card { display: table-cell; width: 33%; background: #F1F5F3; border-top: 3px solid #0F5D4A; padding: 12px; vertical-align: top; }
-  .clabel { color: #555; font-size: 10px; font-weight: bold; letter-spacing: 0.5px; }
+  .clabel { color: #555; font-size: 11px; font-weight: bold; }
   .cvalue { font-size: 24px; font-weight: bold; margin-top: 6px; }
+  .cvalue.texto { font-size: 15px; }
+  .desglose { margin: 8px 0 14px; line-height: 1.6; }
   .parrafo { line-height: 1.6; margin: 14px 0; }
   table { width: 100%; border-collapse: collapse; margin: 10px 0; }
   th { text-align: left; color: #555; font-size: 10px; letter-spacing: 0.5px; border-bottom: 1px solid #ccc; padding: 8px 6px; }
@@ -25,18 +27,18 @@
   .badge.baja { background: #FFF3CD; color: #856404; }
   .badge.sub { background: #F8D7DA; color: #721C24; }
   .badge.neutro { background: #E9ECEF; color: #495057; }
-  .cita { font-style: italic; color: #333; }
+  .cita { font-style: italic; color: #333; white-space: pre-line; }
   .fuente { color: #888; font-size: 11px; }
-  .sancion { border: 1px solid #eee; border-radius: 6px; padding: 12px 16px; margin: 10px 0; display: table; width: 100%; }
+  .sancion { border: 1px solid #eee; border-radius: 6px; padding: 12px 16px; margin: 10px 0; display: table; width: 100%; break-inside: avoid; }
   .sancion .izq { display: table-cell; vertical-align: middle; }
   .sancion .der { display: table-cell; vertical-align: middle; text-align: right; width: 30%; }
   .monto { color: #C0392B; font-size: 20px; font-weight: bold; }
-  .cita-sancion { color: #333; font-size: 11px; margin-top: 5px; }
+  .cita-sancion { color: #333; font-size: 11px; margin-top: 5px; white-space: pre-line; }
   .sancion .badge { margin: 0 4px 4px 0; }
   .aviso { color: #444; font-size: 11px; line-height: 1.5; margin: 6px 0; }
   .subtitulo { color: #0F5D4A; font-size: 14px; margin: 18px 0 6px; }
-  .resumen-caja { background: #F1F5F3; border: 1px solid #ddd; border-radius: 6px; padding: 14px 16px; display: table; width: 100%; margin-top: 14px; }
-  .resumen-caja .cell { display: table-cell; width: 50%; }
+  .resumen-caja { background: #F1F5F3; border: 1px solid #ddd; border-radius: 6px; padding: 14px 16px; display: table; width: 100%; margin-top: 14px; break-inside: avoid; }
+  .resumen-caja .cell { display: table-cell; width: 50%; vertical-align: top; }
   .footer { margin-top: 26px; display: table; width: 100%; border-top: 1px solid #eee; padding-top: 10px; color: #555; font-size: 11px; }
   .footer .l { display: table-cell; text-align: left; }
   .footer .r { display: table-cell; text-align: right; }
@@ -51,17 +53,23 @@
 
 <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F5D4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg> Resumen ejecutivo</h2>
 <div class="cards">
-  <div class="card"><div class="clabel">PUNTAJE ESG</div><div class="cvalue">{{ puntaje }}/100</div></div>
-  <div class="card"><div class="clabel">MENCIONES DE SANCIONES</div><div class="cvalue">{{ sanciones_total }}</div></div>
-  <div class="card"><div class="clabel">CASOS A REVISAR</div><div class="cvalue">{{ (ag.posibles_duplicados|default(0)) + (ag.conflictos|default(0)) + (ag.importes_a_revisar|default(0)) }}</div></div>
+  <div class="card"><div class="clabel">Puntaje ESG</div><div class="cvalue{% if not puntaje_disponible|default(true) %} texto{% endif %}">{{ puntaje_texto|default(puntaje ~ '/100') }}</div></div>
+  <div class="card"><div class="clabel">Referencias a sanciones</div><div class="cvalue">{{ sanciones_total }}</div>{% if sanciones_total %}<div class="aviso">Una misma multa puede mencionarse varias veces. Este número cuenta las referencias encontradas, no necesariamente multas distintas.</div>{% endif %}</div>
+  <div class="card"><div class="clabel">Casos a revisar</div><div class="cvalue">{{ casos_a_revisar|default(0) }}</div></div>
 </div>
 
 <div class="parrafo">
-{{ empresa_nombre }} presenta un puntaje ESG de <strong>{{ puntaje }}/100</strong> en {{ anio }}.
+{{ empresa_nombre }} {% if puntaje_disponible|default(true) %}presenta un puntaje ESG de <strong>{{ puntaje }}/100</strong>{% else %}no tiene un puntaje ESG disponible{% endif %} en {{ anio }}.
 Brechas GRI por estado: <strong>{{ conteo_ok }} OK</strong>, <strong>{{ conteo_baja }} baja sustancia</strong> y <strong>{{ conteo_sub }} sub-reportado</strong>.
-Se detectaron <strong>{{ sanciones_total }}</strong> mención(es) de sanciones económicas{% if ag.agrupaciones|default(0) %}; <strong>{{ ag.menciones_agrupadas }}</strong> de ellas se reúnen en <strong>{{ ag.agrupaciones }}</strong> sanción(es) agrupada(s) por evidencia explícita{% endif %}.
-Una mención no es necesariamente una sanción distinta: el mismo hecho puede aparecer en un párrafo y en una tabla.
+{{ descripcion_sanciones|default('') }}
 </div>
+{% if sanciones_total %}
+<div class="desglose">
+  Referencias con monto detectado: {{ referencias_con_monto|default(0) }}.<br>
+  Referencias sin monto detectado: {{ referencias_sin_monto|default(0) }}.<br>
+  {% if referencias_pendientes|default(0) %}Referencias con monto pendiente de revisión: {{ referencias_pendientes }} (forman parte de las que tienen monto detectado).{% endif %}
+</div>
+{% endif %}
 
 <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F5D4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l2.5 2.5L16 9"/></svg> Estado por código GRI</h2>
 <table>
@@ -80,36 +88,39 @@ Una mención no es necesariamente una sanción distinta: el mismo hecho puede ap
 
 <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F5D4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M8 21h8"/><path d="M12 6L6 8l2 7a3 3 0 006 0zM12 6l6 2-2 7a3 3 0 01-6 0z"/></svg> Sanciones identificadas</h2>
 {% if sanciones and ag.evaluacion|default('NO_EVALUADA') == 'PARCIAL' %}
-<div class="aviso"><strong>Evaluación de agrupación PARCIAL.</strong> {% if ag.sin_evaluar|default(0) %}La agrupación no se evaluó para {{ ag.sin_evaluar }} mención(es) de este análisis (rotuladas «sin agrupación evaluada»). {% endif %}Donde se superó el límite de comparación o no hubo evaluación, las menciones se conservan todas con sus citas, pero no se compararon entre sí: pueden repetir una misma sanción.</div>
+<div class="aviso"><strong>Solo se compararon entre sí algunas referencias.</strong> {% if ag.sin_evaluar|default(0) %}En {{ ag.sin_evaluar }} referencia(s) no se hizo la comparación porque el análisis guardado no incluye esa información. {% endif %}Todas las referencias se conservan con sus citas, pero algunas podrían corresponder a la misma multa.</div>
 {% elif sanciones and ag.evaluacion|default('NO_EVALUADA') != 'COMPLETA' %}
-<div class="aviso">La agrupación de menciones no se evaluó para los documentos de este análisis: las menciones rotuladas «sin agrupación evaluada» no se presentan como deduplicadas y pueden repetir una misma sanción.</div>
+<div class="aviso">El análisis guardado no incluye la comparación entre referencias, por lo que no se sabe si algunas corresponden a la misma multa. Cada referencia se muestra por separado.</div>
+{% endif %}
+{% if sanciones_sin_monto|default(0) %}
+<div class="aviso">Que no se detecte un monto en una referencia no significa que no aparezca en otra parte del documento.</div>
 {% endif %}
 {% for s in sanciones %}
 <div class="sancion">
   <div class="izq">
     <span class="badge {% if s.tipo == 'agrupada' %}ok{% else %}neutro{% endif %}">{{ s.etiqueta }}</span>{% for a in s.advertencias %}<span class="badge baja">{{ a }}</span>{% endfor %}
-    <div><strong>{{ s.entidad }}</strong>{% if s.identificador %} · {{ s.identificador }}{% endif %}{% if s.numeral %} · numeral {{ s.numeral }}{% endif %}{% if s.infraccion %} · infracción {{ s.infraccion }}{% endif %}</div>
+    <div>{{ s.autoridad_texto }}{% if s.identificador %} · {{ s.identificador }}{% endif %}{% if s.numeral %} · numeral {{ s.numeral }}{% endif %}{% if s.infraccion %} · infracción {{ s.infraccion }}{% endif %}</div>
     {% for c in s.citas %}
     <div class="cita-sancion">«{{ c.cita }}» ({% if c.fuente %}{{ c.fuente }} · {% endif %}posición {{ c.posicion }})</div>
     {% endfor %}
   </div>
   <div class="der">
-    {% if s.tiene_monto %}<span class="monto">{{ s.monto }}</span>{% if s.estado_importe == 'REQUIERE_REVISION' %}<div class="aviso">Importe que requiere revisión</div>{% endif %}{% else %}<span class="badge neutro">{{ s.monto }}</span>{% endif %}
+    {% if s.tiene_monto %}<span class="monto">{{ s.monto }}</span>{% endif %}{% if s.monto_etiqueta %}<div><span class="badge {% if s.estado_importe == 'REQUIERE_REVISION' %}baja{% else %}neutro{% endif %}">{{ s.monto_etiqueta }}</span></div>{% endif %}{% if s.monto_nota %}<div class="aviso">{{ s.monto_nota }}</div>{% endif %}
   </div>
 </div>
 {% else %}
-<div class="parrafo"><em>No se identificaron sanciones.</em></div>
+<div class="parrafo"><em>No se detectaron sanciones económicas.</em></div>
 {% endfor %}
 
 {% if posibles_duplicados %}
-<div class="subtitulo">Posibles duplicados sin resolver</div>
-<div class="aviso">Las siguientes menciones coinciden en autoridad e importe (misma moneda), pero ningún dato explícito confirma que sean la misma sanción. Se conservan separadas y no se descartan.</div>
+<div class="subtitulo">Referencias que podrían ser la misma multa</div>
+<div class="aviso">Las siguientes referencias coinciden en autoridad y monto (en la misma moneda), pero ningún dato del documento confirma que sean la misma multa. Se muestran por separado y no se descartan.</div>
 {% for grupo in posibles_duplicados %}
 <div class="sancion">
   <div class="izq">
     <span class="badge baja">Posible sanción duplicada</span>
     {% for s in grupo %}
-    <div><strong>{{ s.entidad }}</strong> · {{ s.monto }}{% if s.fuente %} <span class="fuente">({{ s.fuente }})</span>{% endif %}</div>
+    <div>{{ s.autoridad_texto }} · {{ s.monto }}{% if s.fuente %} <span class="fuente">({{ s.fuente }})</span>{% endif %}</div>
     {% endfor %}
   </div>
 </div>
@@ -117,15 +128,15 @@ Una mención no es necesariamente una sanción distinta: el mismo hecho puede ap
 {% endif %}
 
 <div class="resumen-caja">
-  <div class="cell"><div class="clabel">MONTO DE SANCIONES CUANTIFICADAS</div>
-    {% if money_disponible|default(true) %}<div class="cvalue">{% for m in money %}{{ m.unidad }} {{ m.total }}{% if not loop.last %} · {% endif %}{% else %}---{% endfor %}</div>
-    {% else %}<div class="cvalue">Total monetario no disponible</div>
-    <div class="aviso">No puede calcularse un total completo y fiable: {{ money_motivos|join('; ') }}. Los importes de cada mención se muestran arriba, con sus advertencias.</div>{% endif %}</div>
-  <div class="cell"><div class="clabel">MENCIONES SIN IMPORTE DETERMINADO</div><div class="cvalue">{{ sanciones_sin_monto }}</div></div>
+  <div class="cell"><div class="clabel">Monto total de las multas</div>
+    {% if sin_sanciones|default(sanciones_total|default(0) == 0) %}<div class="cvalue texto">No se detectaron sanciones económicas</div>
+    {% elif money_disponible|default(true) %}{% for m in money %}<div class="cvalue">{{ m.unidad }} {{ m.total }}</div>{% endfor %}
+    {% else %}<div class="cvalue texto">Total no disponible</div>
+    {% for motivo in money_motivos|default([]) %}<div class="aviso">{{ motivo }}</div>{% endfor %}{% endif %}</div>
+  <div class="cell"><div class="clabel">Referencias sin monto detectado</div><div class="cvalue">{{ sanciones_sin_monto }}</div></div>
 </div>
 
 <div class="footer">
-  <div class="l">Confidencial · Uso interno de Igualab · Reporte inmutable (RN-041)</div>
   <div class="r">Igualab Intelligence</div>
 </div>
 

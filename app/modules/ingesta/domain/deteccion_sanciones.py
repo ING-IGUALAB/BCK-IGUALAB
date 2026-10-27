@@ -44,7 +44,7 @@ Es una heurística léxica: no se afirma precisión validada. Revisión humana p
 
 DATOS EXPLÍCITOS, NUNCA INFERIDOS (los ausentes quedan en None)
 - `entidad`: solo si el texto la une a la sanción («impuestas por el OEFA», «multa del
-  OEFA», «la SUNAT multó»). Dos entidades distintas ligadas ⇒ ninguna + motivo.
+  OEFA», «la SUNAT multó», «multa de S/ 5,000 por el OEFA»). Dos entidades distintas ligadas ⇒ ninguna + motivo.
 - `monto`: solo si el texto lo une al término («multa equivalente a 59.078 UIT»,
   «multa de S/ 5,000», «S/ 3,000 de multa», «nos multó con…»; ver VÍNCULO ENTRE SANCIÓN, VERBO,
   ENTIDAD E IMPORTE) o si una fila bien formada de tabla lo da en una sola celda o en una cifra
@@ -144,11 +144,12 @@ from dataclasses import dataclass, field, replace
 from app.modules.ingesta.domain import distinciones_sanciones as distinciones
 from app.modules.ingesta.domain import markdown
 from app.modules.ingesta.domain.distinciones_sanciones import ReferenciaFormal
+from app.modules.ingesta.domain.texto import recortar_cita
 from app.modules.ingesta.domain.vista_markdown import VistaPlana, construir_vista
 
 # Versión de las reglas de detección. Se persiste en el análisis (`version_detector_sanciones`): un análisis guardado sin
 # ella (o con una anterior) lo produjo un detector previo. Sube con cada cambio que pueda alterar el resultado.
-VERSION_DETECTOR_SANCIONES = "2026-10-19.1"
+VERSION_DETECTOR_SANCIONES = "2026-10-27.1"
 
 SEPARADOR_RUTA = " > "
 MAX_LONGITUD_CITA = 900
@@ -528,14 +529,19 @@ _SIGLA_GENERICA = (
     r"(?-i:(?!(?:USD|PEN|EUR|UITS?|IGV|IVA|GRI|ESG|ISO|PDF|SAC|SRL|EIRL|RUC|DNI|CEO|ONG|MWH|TCO|NOX|SOX)\b)"
     r"[A-ZÁÉÍÓÚÑ]{3,10}\b)"
 )
-_NOMBRE_ENTIDAD = (
+_NOMBRE_ENTIDAD_INICIO = (
     r"(?:(?:Organismo|Autoridad|Superintendencia|Ministerio|Instituto|Tribunal|Direcci[oó]n|Gobierno|Municipalidad|"
     r"Agencia|Comisi[oó]n|Servicio|Oficina|Junta|Consejo)\b"
     r"(?:\s+(?:de|del|de\s+la|de\s+los|de\s+las|para|y|e|en)\b)?"
-    r"(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñÁÉÍÓÚÑ]*(?:\s+(?:de|del|de\s+la|y)\b(?=\s+[A-ZÁÉÍÓÚÑ]))?){0,6})"
 )
+_NOMBRE_ENTIDAD_PALABRA = r"(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñÁÉÍÓÚÑ]*(?:\s+(?:de|del|de\s+la|y)\b(?=\s+[A-ZÁÉÍÓÚÑ]))?)"
+_NOMBRE_ENTIDAD = rf"{_NOMBRE_ENTIDAD_INICIO}{_NOMBRE_ENTIDAD_PALABRA}{{0,6}})"
+# Con al menos una palabra con nombre propio tras el sustantivo institucional («Servicio de» o «Junta» solos no son una entidad).
+_NOMBRE_ENTIDAD_COMPLETO = rf"{_NOMBRE_ENTIDAD_INICIO}{_NOMBRE_ENTIDAD_PALABRA}{{1,6}})"
 _ENTIDAD = rf"(?P<ent>{_NOMBRE_ENTIDAD}(?:\s*\(\s*{_SIGLAS}\s*\))?|{_SIGLAS})"
 _ARTICULO = r"(?:(?i:el|la|los|las)\s+)?"
+# Lo que sigue a «por»: «parte del OEFA», «parte de la SUNAT», «parte de INDECOPI» o solo «el OEFA». «del» es la contracción de «de el».
+_PARTE_Y_ARTICULO = rf"(?:(?i:parte\s+del)\s+|(?:(?i:parte\s+de)\s+)?{_ARTICULO})"
 _ENTIDAD_AGENTE = rf"(?P<ent>{_NOMBRE_ENTIDAD}(?:\s*\(\s*{_SIGLAS}\s*\))?|{_SIGLAS}|{_SIGLA_GENERICA})"
 # «multa impuesta por el OEFA de S/ 1000»: la entidad explícita forma parte de la misma frase nominal.
 _ENTIDAD_SIN_GRUPO = _ENTIDAD.replace("(?P<ent>", "(?:", 1)
@@ -543,24 +549,36 @@ _AGENTE_SIN_GRUPO = _ENTIDAD_AGENTE.replace("(?P<ent>", "(?:", 1)
 _ENTIDAD_POR = re.compile(
     r"(?i:impuest[ao]s?|aplicad[ao]s?|determinad[ao]s?|multad[ao]s?|sancionad[ao]s?|emitid[ao]s?|dictad[ao]s?|notificad[ao]s?|"
     r"interpuest[ao]s?|ordenad[ao]s?)"
-    rf"\s+(?i:por)\s+(?:(?i:parte\s+de)\s+)?{_ARTICULO}{_ENTIDAD_AGENTE}"
+    rf"\s+(?i:por)\s+{_PARTE_Y_ARTICULO}{_ENTIDAD_AGENTE}"
 )
 # «sanción administrativa del OEFA»: los calificativos intermedios no rompen el vínculo entre el término y su entidad.
 _ENTIDAD_TRAS_TERMINO = re.compile(
-    rf"(?i:multas?|sanci(?:[óo]n|ones)(?:\s+{_CALIFICATIVOS})*)(?:\s*\([^()\n]{{1,40}}\))?\s+(?:(?i:de|del|de\s+la|por\s+parte\s+de)\s+)"
+    rf"(?i:multas?|sanci(?:[óo]n|ones)(?:\s+{_CALIFICATIVOS})*)(?:\s*\([^()\n]{{1,40}}\))?\s+(?:(?i:de|del|de\s+la|por\s+parte\s+del|por\s+parte\s+de)\s+)"
     rf"{_ARTICULO}{_ENTIDAD}"
 )
 # «multas del OEFA y de la SUNAFIL»: las entidades coordinadas también quedan ligadas al término.
 _ENTIDAD_COORDINADA = re.compile(
-    rf"\s*(?:,|(?i:y|e|o))\s*(?:(?i:de|del|de\s+la|por\s+parte\s+de)\s+)?{_ARTICULO}{_ENTIDAD}"
+    rf"\s*(?:,|(?i:y|e|o))\s*(?:(?i:de|del|de\s+la|por\s+parte\s+del|por\s+parte\s+de)\s+)?{_ARTICULO}{_ENTIDAD}"
 )
 # Una celda de tabla que ES una entidad conocida («OEFA», «el Organismo de Evaluación…»).
 _ENTIDAD_EXACTA = re.compile(rf"{_ARTICULO}{_ENTIDAD}")
 _ENTIDAD_DE_PARTE = re.compile(rf"(?i:de\s+parte\s+de|por\s+parte\s+de)\s+{_ARTICULO}{_ENTIDAD_AGENTE}")
+# «por parte del OEFA»: la contracción «del» no entra en la regla anterior, y aquí no se amplía su laxitud (acepta cualquier sigla
+# en mayúsculas): solo una sigla conocida o un nombre institucional completo.
+_ENTIDAD_DE_PARTE_DEL = re.compile(
+    rf"(?i:de\s+parte|por\s+parte)\s+(?i:del)\s+(?P<ent>{_NOMBRE_ENTIDAD_COMPLETO}(?:\s*\(\s*{_SIGLAS}\s*\))?|{_SIGLAS})"
+)
 _ENTIDAD_ACTIVA = re.compile(
     rf"{_ENTIDAD_AGENTE}\s+(?:(?i:nos|le|les|la|lo)\s+)?"
     r"(?i:impuso|impusieron|mult[óo]|multaron|sancion[óo]|sancionaron|aplic[óo]|aplicaron|emiti[óo]|emitieron|dict[óo]|"
     r"dictaron|interpuso|interpusieron)"
+)
+# «multa de S/ 5,000 por el OEFA», «S/ 5,000 de multa por la SUNAFIL»: justo tras el monto o el término, «por [parte de] [el] X»
+# sin participio. Solo una sigla conocida o un nombre institucional completo: «por el incumplimiento…» o «por la norma» no
+# nombran una autoridad, y tampoco la sigla genérica, que aquí podría ser cualquier palabra en mayúsculas.
+_ENTIDAD_TRAS_MONTO = re.compile(
+    rf"\s+(?i:por)\s+{_PARTE_Y_ARTICULO}"
+    rf"(?P<ent>{_NOMBRE_ENTIDAD_COMPLETO}(?:\s*\(\s*{_SIGLAS}\s*\))?|{_SIGLAS})"
 )
 
 # --- Fechas --------------------------------------------------------------------------------------------
@@ -580,8 +598,8 @@ _PERIODO_POSTERIOR = re.compile(
 # Entre el término y el importe: calificativos, entidad («del OEFA», «impuesta por el OEFA») y fechas, y luego un conector.
 _RELLENO_ENTIDAD = (
     r"(?:\s+(?:impuest[ao]s?|aplicad[ao]s?|emitid[ao]s?|dictad[ao]s?|notificad[ao]s?|determinad[ao]s?|interpuest[ao]s?)"
-    rf"\s+por\s+(?:parte\s+de\s+)?(?:(?:el|la|los|las)\s+)?(?-i:{_AGENTE_SIN_GRUPO})"
-    rf"|\s+(?:de|del|de\s+la|por\s+parte\s+de|ante)\s+(?:(?:el|la|los|las)\s+)?(?-i:{_ENTIDAD_SIN_GRUPO}))"
+    rf"\s+por\s+(?:parte\s+del\s+|(?:parte\s+de\s+)?(?:(?:el|la|los|las)\s+)?)(?-i:{_AGENTE_SIN_GRUPO})"
+    rf"|\s+(?:de|del|de\s+la|por\s+parte\s+del|por\s+parte\s+de|ante)\s+(?:(?:el|la|los|las)\s+)?(?-i:{_ENTIDAD_SIN_GRUPO}))"
 )
 _RELLENO_DESTINATARIO = (
     r"(?:\s+(?:a|contra)\s+(?:la|el|nuestra|nuestro)\s+(?:empresa|compañ[íi]a|organizaci[óo]n|sociedad|filial|subsidiaria|"
@@ -1104,26 +1122,41 @@ class _Analizador:
 
     # Entidad, periodo y calificadores -------------------------------------------------------------
 
-    def _entidades_del_texto(self, clausula: tuple[int, int]) -> dict[str, Dato]:
-        """Entidades que el texto de la cláusula une explícitamente a la sanción, por clave normalizada."""
+    def _registrar_entidad(
+        self, encontradas: dict[str, Dato], m: re.Match, clausula: tuple[int, int], admite_coordinadas: bool
+    ) -> None:
+        """Anota la entidad de `m` y, si el patrón lo admite, las coordinadas que la siguen («del OEFA y de la SUNAFIL»)."""
+        texto = self.texto
+        coincidencias = [m]
+        while admite_coordinadas and (c := _ENTIDAD_COORDINADA.match(texto, coincidencias[-1].end(), clausula[1])):
+            coincidencias.append(c)
+        for c in coincidencias:
+            clave = re.sub(r"\s+", " ", c.group("ent"))
+            encontradas.setdefault(clave, Dato(c.group("ent"), c.start("ent"), c.end("ent")))
+
+    def _entidades_del_texto(self, clausula: tuple[int, int], anclas: Sequence[int] = ()) -> dict[str, Dato]:
+        """Entidades que el texto de la cláusula une explícitamente a la sanción, por clave normalizada. `anclas` son los
+        finales del monto y del término: solo ahí vale «por [el] X» sin participio."""
         texto = self.texto
         encontradas: dict[str, Dato] = {}
-        for patron in (_ENTIDAD_POR, _ENTIDAD_TRAS_TERMINO, _ENTIDAD_DE_PARTE, _ENTIDAD_ACTIVA):
+        for patron in (_ENTIDAD_POR, _ENTIDAD_TRAS_TERMINO, _ENTIDAD_DE_PARTE, _ENTIDAD_DE_PARTE_DEL, _ENTIDAD_ACTIVA):
             admite_coordinadas = patron is _ENTIDAD_POR or patron is _ENTIDAD_TRAS_TERMINO
             for m in patron.finditer(texto, clausula[0], clausula[1]):
-                coincidencias = [m]
-                while admite_coordinadas and (c := _ENTIDAD_COORDINADA.match(texto, coincidencias[-1].end(), clausula[1])):
-                    coincidencias.append(c)
-                for c in coincidencias:
-                    clave = re.sub(r"\s+", " ", c.group("ent"))
-                    encontradas.setdefault(clave, Dato(c.group("ent"), c.start("ent"), c.end("ent")))
+                self._registrar_entidad(encontradas, m, clausula, admite_coordinadas)
+        for ancla in dict.fromkeys(anclas):
+            if clausula[0] <= ancla and (m := _ENTIDAD_TRAS_MONTO.match(texto, ancla, clausula[1])):
+                self._registrar_entidad(encontradas, m, clausula, True)
         return encontradas
 
     def _entidad(
-        self, clausula: tuple[int, int], de_fila: Sequence[Dato] = (), fila_ambigua: bool = False
+        self,
+        clausula: tuple[int, int],
+        de_fila: Sequence[Dato] = (),
+        fila_ambigua: bool = False,
+        anclas: Sequence[int] = (),
     ) -> tuple[Dato | None, bool]:
         """(entidad, ambigua). `de_fila` son las entidades de otras celdas de la fila de tabla del término."""
-        encontradas = self._entidades_del_texto(clausula)
+        encontradas = self._entidades_del_texto(clausula, anclas)
         for dato in de_fila:
             encontradas.setdefault(re.sub(r"\s+", " ", dato.texto), dato)
         if len(encontradas) == 1 and not fila_ambigua:
@@ -1244,14 +1277,8 @@ class _Analizador:
             cita_inicio, cita_fin = b.unidad.inicio, b.unidad.fin
         else:
             cita_inicio, cita_fin = min(a for a, _ in b.oraciones), max(f for _, f in b.oraciones)
-        if cita_fin - cita_inicio > MAX_LONGITUD_CITA:
-            cita_inicio = max(cita_inicio, termino.inicio - MARGEN_CITA)
-            cita_fin = min(cita_fin, termino.fin + MARGEN_CITA)
-        while cita_inicio < termino.inicio and texto[cita_inicio].isspace():
-            cita_inicio += 1
-        while cita_fin > termino.fin and texto[cita_fin - 1].isspace():
-            cita_fin -= 1
-        return cita_inicio, cita_fin
+        # Mismo recorte que el detector GRI: la ventana se ajusta a límites de palabra y nunca deja fuera el término.
+        return recortar_cita(texto, cita_inicio, cita_fin, termino.inicio, termino.fin, MAX_LONGITUD_CITA, MARGEN_CITA)
 
     def _fechas_en(self, inicio: int, fin: int) -> list[Dato]:
         fechas = []
@@ -1293,7 +1320,8 @@ class _Analizador:
                 key=lambda c: c.inicio,
             )
         de_fila, fila_ambigua = self._entidades_de_fila(b.unidad, b.indice_celda)
-        entidad, ambigua = self._entidad(b.clausula, de_fila, fila_ambigua)
+        anclas = [termino.fin] + ([b.monto.fin] if b.monto is not None else [])
+        entidad, ambigua = self._entidad(b.clausula, de_fila, fila_ambigua, anclas)
         motivos = list(b.motivos)
         if ambigua:
             motivos.append(MOTIVO_ENTIDAD_AMBIGUA)

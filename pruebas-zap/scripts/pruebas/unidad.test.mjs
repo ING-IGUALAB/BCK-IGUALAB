@@ -22,10 +22,10 @@ const BASE = 'http://igualab-backend-qa-backend-1:8000';
 const EMPRESA = '11111111-2222-4333-8444-555555555555';
 
 describe('alcance', () => {
-  test('el OpenAPI real queda totalmente clasificado: 19 incluidas, 14 excluidas, ninguna sin decidir', () => {
+  test('el OpenAPI real queda totalmente clasificado: 21 incluidas, 14 excluidas, ninguna sin decidir', () => {
     const c = clasificar(real, alcance);
     assert.equal(c.sinClasificar.length, 0);
-    assert.equal(c.incluidas.length, 19);
+    assert.equal(c.incluidas.length, 21);
     assert.equal(c.excluidas.length, 14);
     assert.equal(c.ausentes.length, 0);
   });
@@ -132,7 +132,7 @@ describe('OpenAPI: destinos y especificación filtrada', () => {
     assert.deepEqual(real, original, 'el OpenAPI publicado por la aplicación no se modifica');
     const en = new Set();
     for (const [ruta, item] of Object.entries(filtrada.paths)) for (const m of ['get', 'post', 'put', 'patch', 'delete']) if (item[m]) en.add(`${m.toUpperCase()} ${ruta}`);
-    assert.equal(en.size, 19);
+    assert.equal(en.size, 21);
     for (const o of incluidas) assert.ok(en.has(`${o.metodo} ${o.ruta}`));
     assert.ok(!en.has('POST /asistente/consultas') && !en.has('POST /auth/logout') && !en.has('POST /usuarios'));
     assert.ok(filtrada.paths['/usuarios'].get && !filtrada.paths['/usuarios'].post, 'GET /usuarios queda y POST /usuarios no');
@@ -151,6 +151,31 @@ describe('OpenAPI: destinos y especificación filtrada', () => {
     assert.match(IDENTIDAD_LOGIN_DE_ESCANEO.correo, /zap-escaner-sin-cuenta@/);
     const sectores = f.components.schemas.GenerarReporteRequest?.properties?.empresa_id;
     if (sectores) assert.equal(sectores.example, EMPRESA);
+  });
+
+  test('las consultas de disponibilidad reciben la empresa sintética y el año válido, y se escanean con el rol de su prefijo', () => {
+    const { incluidas } = clasificar(real, alcance);
+    const f = especificacionFiltrada(real, { baseUrl: BASE, incluidas, empresaId: EMPRESA, anio: 2026 });
+    for (const ruta of ['/documentos/disponibilidad', '/reportes/disponibilidad']) {
+      const operacion = f.paths[ruta]?.get;
+      assert.ok(operacion, `${ruta} debe estar en la especificación filtrada`);
+      const porNombre = Object.fromEntries(operacion.parameters.map((p) => [p.name, p]));
+      assert.equal(porNombre.empresa_id.example, EMPRESA, `${ruta}: empresa sintética`);
+      assert.equal(porNombre.empresa_id.in, 'query');
+      assert.equal(porNombre.anio.example, '2026', `${ruta}: año de la ejecución`);
+      assert.equal(porNombre.anio.in, 'query');
+      assert.equal(porNombre.empresa_id.required, true);
+    }
+    assert.equal(f.paths['/documentos/disponibilidad'].get.parameters.find((p) => p.name === 'anio').required, true);
+    assert.notEqual(f.paths['/reportes/disponibilidad'].get.parameters.find((p) => p.name === 'anio').required, true, 'en reportes el año es opcional');
+    const rolDe = (ruta) => incluidas.find((o) => o.metodo === 'GET' && o.ruta === ruta).rol;
+    assert.equal(rolDe('/documentos/disponibilidad'), 'superadmin');
+    assert.equal(rolDe('/reportes/disponibilidad'), 'administrador');
+    // El hook inyecta la credencial por prefijo: /documentos → SuperAdmin; /reportes → Administrador sintético.
+    const config = configuracionDelHook({ baseUrl: BASE, incluidas, excluidas: clasificar(real, alcance).excluidas });
+    assert.ok(new RegExp(config.roles.superadmin.url_regex).test(`${BASE}/documentos/disponibilidad?empresa_id=${EMPRESA}&anio=2026`));
+    assert.ok(new RegExp(config.roles.administrador.url_regex).test(`${BASE}/reportes/disponibilidad?empresa_id=${EMPRESA}`));
+    assert.ok(!new RegExp(config.roles.administrador.url_regex).test(`${BASE}/documentos/disponibilidad?empresa_id=${EMPRESA}`));
   });
 });
 

@@ -103,6 +103,40 @@ class Evidencia(_Modelo):
     en_codigo: bool = Field(description="La mención está dentro de un bloque de código del Markdown.")
     edicion_mencionada: str | None
     motivos_revision: list[str]
+    cita_legible: str = Field(
+        default="",
+        description="Presentación de `cita` sin marcas de formato (`###`, `**`, `<br>`, barras de tabla), con saltos de línea y "
+        "celdas conservados. NO es literal ni sus posiciones sirven de índice: la evidencia es `cita` con `cita_inicio`/`cita_fin`.",
+    )
+    seccion_legible: str = Field(default="", description="Presentación de `seccion` sin marcas de formato.")
+
+
+class AparicionPasaje(_Modelo):
+    """Una referencia GRI que respalda un pasaje. Remite a su evidencia original (cita, sección y demás datos) por posición en
+    `FilaGri.evidencias`; aquí solo viaja lo necesario para ubicarla."""
+
+    indice_evidencia: int = Field(description="Posición de la evidencia original en `FilaGri.evidencias`.")
+    referencia_original: str
+    inicio: int = Field(description="Posición de la referencia en el texto original del documento (inicio inclusivo).")
+    fin: int = Field(description="Fin exclusivo de la referencia.")
+
+
+class PasajeEvidencia(_Modelo):
+    """Presentación agrupada: referencias de la MISMA identidad GRI y del MISMO documento cuyas citas son el mismo pasaje o
+    ventanas solapadas de él. No sustituye ni elimina `evidencias`: cada aparición sigue existiendo y se cuenta una vez."""
+
+    documento_id: uuid.UUID
+    documento_nombre: str
+    seccion_legible: str
+    rol: str
+    cita_legible: str = Field(
+        description="Presentación del pasaje: la cita compartida o la unión de las ventanas solapadas, sin marcas de formato. "
+        "El texto original de cada aparición está en su evidencia."
+    )
+    cita_inicio: int = Field(description="Inicio del pasaje en el texto original del documento (unión de las ventanas).")
+    cita_fin: int = Field(description="Fin exclusivo del pasaje en el texto original.")
+    total_apariciones: int
+    apariciones: list[AparicionPasaje]
 
 
 class AdvertenciaFila(_Modelo):
@@ -132,6 +166,11 @@ class FilaGri(_Modelo):
     documentos: list[uuid.UUID]
     advertencias: list[AdvertenciaFila]
     evidencias: list[Evidencia]
+    pasajes: list[PasajeEvidencia] = Field(
+        default_factory=list,
+        description="Las mismas evidencias agrupadas por pasaje para presentarlas sin repeticiones artificiales. "
+        "`total_menciones` y `evidencias` no cambian.",
+    )
 
 
 class AdvertenciaAnalisis(_Modelo):
@@ -199,6 +238,8 @@ class SancionVista(_Modelo):
     cita_inicio: int
     cita_fin: int
     seccion: str
+    cita_legible: str = Field(default="", description="Presentación de `cita` sin marcas de formato (no literal).")
+    seccion_legible: str = Field(default="", description="Presentación de `seccion` sin marcas de formato.")
     en_tabla: bool
     entidad: DatoTexto | None = Field(description="null si la evidencia no identifica una entidad; no se inventa.")
     monto: MontoVista | None = Field(description="null = no cuantificada (nunca cero).")
@@ -243,6 +284,8 @@ class CitaSancion(_Modelo):
     cita: str
     cita_inicio: int
     cita_fin: int
+    cita_legible: str = Field(default="", description="Presentación de `cita` sin marcas de formato (no literal).")
+    seccion_legible: str = Field(default="", description="Presentación de `seccion` sin marcas de formato.")
 
 
 class AdvertenciaSancion(_Modelo):
