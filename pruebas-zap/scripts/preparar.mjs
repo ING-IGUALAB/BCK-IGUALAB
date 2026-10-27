@@ -13,7 +13,7 @@
  * Variables: IGUALAB_API_URL, IGUALAB_E2E_SUPERADMIN_CORREO, IGUALAB_E2E_SUPERADMIN_PASSWORD, IGUALAB_PRUEBAS_ENTORNO=qa.
  * No imprime contraseñas, tokens ni cuerpos de respuesta. Códigos de salida: ver lib/codigos.mjs.
  */
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,6 +23,7 @@ import {
   anioActualEnLima, leerArgumentos, nuevaContrasenaSintetica, validarConfiguracion,
 } from './lib/configuracion.mjs';
 import { esperarBackend } from './lib/espera.mjs';
+import { comprobarEscritura, conDiagnostico, esErrorDeArchivo, identidad, mensajeDeArchivo } from './lib/diagnostico.mjs';
 import { describirFallo, pedir } from './lib/http.mjs';
 import { especificacionFiltrada, problemasDeDestino, validarEstructura } from './lib/openapi.mjs';
 
@@ -30,9 +31,20 @@ const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BYTES_OPENAPI = 8 * 1024 * 1024;
 const registrar = (texto) => console.log(texto);
 
+// Fase en curso: si algo falla, el mensaje dice dónde (montajes, configuración, openapi, autenticación, estado, entrada-de-zap…).
+let fase = 'inicio';
+const enFase = (nombre) => { fase = nombre; };
+
+/** Escritura con diagnóstico: ante un error de E/S informa fase, operación, ruta del contenedor y código (nunca el contenido). */
 function escribir(ruta, contenido, modo) {
-  writeFileSync(ruta, typeof contenido === 'string' ? contenido : `${JSON.stringify(contenido, null, 2)}\n`, { mode: modo });
-  chmodSync(ruta, modo);
+  conDiagnostico(fase, 'escribir', ruta, () => {
+    writeFileSync(ruta, typeof contenido === 'string' ? contenido : `${JSON.stringify(contenido, null, 2)}\n`, { mode: modo });
+    chmodSync(ruta, modo);
+  });
+}
+
+function copiar(origen, destino) {
+  conDiagnostico(fase, 'copiar a', destino, () => copyFileSync(origen, destino));
 }
 
 async function descargarOpenapi(baseUrl) {
@@ -84,16 +96,23 @@ async function principal() {
   const trabajo = resolve(argumentos.trabajo);
   const privado = resolve(argumentos.privado);
   const idEjecucion = argumentos.id;
-  mkdirSync(trabajo, { recursive: true });
-  mkdirSync(privado, { recursive: true });
 
+  // Lo PRIMERO: comprobar que los directorios de datos se pueden escribir, antes de contactar al backend o de crear cuentas. Los
+  // directorios existen (los crea la imagen/volumen); si no son del usuario del contenedor, el error dice quién es su dueño.
+  enFase('montajes');
+  registrar(`Montajes de datos: ${identidad()} · ${trabajo}, ${privado}`);
+  comprobarEscritura(fase, [trabajo, privado]);
+
+  enFase('configuración');
   const configuracion = validarConfiguracion();
   const { baseUrl } = configuracion;
   registrar(`Preparación ZAP · ejecución ${idEjecucion} · destino ${configuracion.destino.host} (${configuracion.destino.porNombre ? 'identificado como QA por nombre' : 'confirmado explícitamente'})`);
 
   const alcance = validarAlcance(JSON.parse(readFileSync(join(RAIZ, 'alcance', 'operaciones.json'), 'utf8')));
 
+  enFase('backend');
   await esperarBackend({ baseUrl, esperaSegundos: configuracion.esperaSegundos, registrar });
+  enFase('openapi');
   const original = await descargarOpenapi(baseUrl);
   validarEstructura(original);
   const problemas = problemasDeDestino(original, baseUrl);
@@ -114,11 +133,13 @@ async function principal() {
   if (ausentes.length) registrar(`Aviso: ${ausentes.length} operación(es) clasificada(s) ya no existen en el OpenAPI: ${ausentes.map((o) => `${o.metodo} ${o.ruta}`).join(', ')}`);
 
   // ---- Autenticación y datos sintéticos (estado incremental: la limpieza funciona aunque esto falle a medias) ----
+  enFase('estado');
   const anio = anioActualEnLima();
   const estado = { id_ejecucion: idEjecucion, usuario_id: null, empresa_id: null, token_superadmin: null, token_administrador: null, secretos: [] };
   const guardarEstado = () => escribir(join(privado, 'estado.json'), estado, 0o600);
   guardarEstado();
 
+  enFase('autenticación');
   const login = await pedir(baseUrl, 'POST', '/auth/login', { json: { correo: configuracion.superadminCorreo, password: configuracion.superadminPassword } });
   if (login.estado !== 200 || !login.cuerpo?.access_token) {
     const detalle = login.estado === 401 || login.estado === 423 ? ' La cuenta no se reintenta para no bloquearla (5 intentos): revise la credencial IGUALAB_QA_SUPERADMIN.' : '';
@@ -153,16 +174,18 @@ async function principal() {
   guardarEstado();
   registrar('Cuenta Administrador y empresa SINTÉTICAS creadas (se deshabilitan/desactivan al terminar).');
 
+  enFase('acceso-autenticado');
   const comprobaciones = await demostrarAcceso({ baseUrl, tokenSuper: estado.token_superadmin, tokenAdmin: estado.token_administrador, empresaId: estado.empresa_id, anio });
 
   // ---- Entrada de ZAP ----
+  enFase('entrada-de-zap');
   const filtrada = especificacionFiltrada(original, { baseUrl, incluidas, empresaId: estado.empresa_id, anio });
   escribir(join(trabajo, 'openapi-filtrado.json'), filtrada, 0o644);
   escribir(join(trabajo, 'hook-config.json'), configuracionDelHook({ baseUrl, incluidas, excluidas }), 0o644);
-  copyFileSync(join(RAIZ, 'reglas', 'zap-api-scan.reglas.conf'), join(trabajo, 'zap-api-scan.reglas.conf'));
-  copyFileSync(join(RAIZ, 'hooks', 'zap_hooks.py'), join(trabajo, 'zap_hooks.py'));
-  // ZAP corre con otro usuario del contenedor: solo este archivo (tokens efímeros de sesiones que se revocan al terminar) es legible por él.
-  escribir(join(privado, 'credenciales.json'), { superadmin: estado.token_superadmin, administrador: estado.token_administrador }, 0o644);
+  copiar(join(RAIZ, 'reglas', 'zap-api-scan.reglas.conf'), join(trabajo, 'zap-api-scan.reglas.conf'));
+  copiar(join(RAIZ, 'hooks', 'zap_hooks.py'), join(trabajo, 'zap_hooks.py'));
+  // ZAP corre con el mismo usuario (uid 1000) que este contenedor: las credenciales efímeras quedan en 0600 dentro de un volumen 0700.
+  escribir(join(privado, 'credenciales.json'), { superadmin: estado.token_superadmin, administrador: estado.token_administrador }, 0o600);
   escribir(join(trabajo, 'preparacion.json'), {
     id_ejecucion: idEjecucion,
     destino: { url_base: baseUrl, host: configuracion.destino.host, verificacion: configuracion.destino.porNombre ? 'nombre del host identifica a QA' : 'host confirmado con ZAP_CONFIRMO_DESTINO_QA' },
@@ -181,7 +204,12 @@ principal().then(
       console.error(`ERROR: ${error.message}`);
       process.exit(error.codigoSalida);
     }
-    console.error(`ERROR inesperado: ${error?.name ?? 'Error'} (${describirFallo(error)})`);
+    if (esErrorDeArchivo(error)) {
+      // Cualquier error de E/S que no pasó por `escribir`: igualmente con fase, operación, ruta y código (nunca solo «Error (EACCES)»).
+      console.error(`ERROR: ${mensajeDeArchivo(fase, error.syscall, error.path ?? '(sin ruta)', error)}`);
+      process.exit(SALIDA.ARCHIVOS);
+    }
+    console.error(`ERROR inesperado en la fase «${fase}»: ${error?.name ?? 'Error'} (${describirFallo(error)})`);
     process.exit(SALIDA.ERROR_ZAP);
   },
 );

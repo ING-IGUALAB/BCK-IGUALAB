@@ -121,3 +121,37 @@ class PaginaDocumentos(BaseModel):
     pagina: int
     tamano: int
     paginas: int
+
+
+class EstadoEspacio(str, enum.Enum):
+    """Estado de un espacio ambiente/empresa/año/tipo según la RESERVA que usa la carga (`reserva_activa`)."""
+
+    DISPONIBLE = "DISPONIBLE"  # sin reserva activa: una carga podría reservarlo
+    EN_PROCESO = "EN_PROCESO"  # una carga lo tiene reservado y está procesando
+    PUBLICACION_PENDIENTE = "PUBLICACION_PENDIENTE"  # completado, publicación vectorial pendiente; sigue ocupado
+    OCUPADO = "OCUPADO"  # documento completado y publicado
+    LIMPIEZA_PENDIENTE = "LIMPIEZA_PENDIENTE"  # intento fallido cuya limpieza no terminó; la reserva sigue retenida
+
+
+class DisponibilidadTipo(BaseModel):
+    model_config = ConfigDict(use_enum_values=False)
+
+    tipo: TipoDocumento
+    estado: EstadoEspacio
+    cargable: bool = Field(description="True si el espacio está DISPONIBLE y la empresa está activa. Informativo.")
+    documento_id: uuid.UUID | None = Field(default=None, description="Documento que ocupa el espacio; null si está disponible.")
+    nombre_archivo: str | None = None
+    reservado_en: datetime | None = None
+
+
+class DisponibilidadIngestaResponse(BaseModel):
+    ambiente: str
+    empresa_id: uuid.UUID
+    empresa_nombre: str
+    empresa_activa: bool
+    anio: int
+    tipos: list[DisponibilidadTipo] = Field(description="Un elemento por cada tipo de documento admitido, en orden estable.")
+    aviso: str = Field(
+        default="Consulta informativa: la carga vuelve a comprobar empresa/año/tipo y el SHA-256 del contenido. "
+        "El SHA-256 no puede anticiparse sin el archivo.",
+    )

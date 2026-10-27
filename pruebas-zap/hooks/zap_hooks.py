@@ -29,6 +29,16 @@ LINEA_PETICION = re.compile(r'^([A-Z]+)\s+(\S+)\s+HTTP/')
 LINEA_ESTADO = re.compile(r'^HTTP/\S+\s+(\d{3})')
 ESTADOS_COMPLETOS = ('complete', 'skipped')
 
+# Diagnóstico de 5xx: SOLO propiedades de la entrada, nunca su contenido. Los cuerpos JSON de ZAP escapan los caracteres especiales
+# (p. ej. NUL llega como la secuencia de 6 caracteres «\u0000»), por eso se buscan también los escapes.
+CABECERA_TIPO_CONTENIDO = re.compile(r'(?im)^content-type:\s*([^;\r\n]+)')
+CABECERA_ID_PETICION = re.compile(r'(?im)^x-request-id:\s*([0-9a-fA-F-]{36})\s*$')
+UUID = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+ESCAPE_NUL = re.compile(r'\\u0000', re.I)
+ESCAPE_CONTROL = re.compile(r'\\u00(?:0[0-8bcef]|1[0-9a-f])', re.I)
+ESCAPE_SUSTITUTO = re.compile(r'\\ud[89a-f][0-9a-f]{2}', re.I)
+CONTROL_CRUDO = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]')
+
 _ESTADO = {'reglas_autenticacion': [], 'reglas_de_barrera': 0, 'exclusiones_de_ataque': 0, 'urls_importadas': None, 'revision_previa': None}
 
 
@@ -40,6 +50,41 @@ def _cargar(ruta):
 # ---------------------------------------------------------------------------------------------------------------- análisis puro
 def _coincide(patron, texto):
     return re.search(patron, texto) is not None
+
+
+def diagnostico_5xx(mensaje, metodo, partes, operacion, codigo):
+    """Qué hace falta para diagnosticar un 5xx sin guardar nada sensible: método, ruta SIN consulta, el `request_id` (se busca tal cual en
+    el log del backend), el código de error de la API y metadatos de la entrada (tamaño, tipo y si trae NUL, controles o sustitutos).
+    No incluye cuerpos, cabeceras ni valores: ni contraseñas, ni tokens, ni el texto del ataque."""
+    cuerpo = mensaje.get('requestBody') or ''
+    tipo = CABECERA_TIPO_CONTENIDO.search(mensaje.get('requestHeader') or '')
+    encontrado = CABECERA_ID_PETICION.search(mensaje.get('responseHeader') or '')
+    request_id = encontrado.group(1).lower() if encontrado else None
+    codigo_de_error = None
+    try:
+        respuesta = json.loads(mensaje.get('responseBody') or '')
+        error = respuesta.get('error') if isinstance(respuesta, dict) else None
+        if isinstance(error, dict):
+            codigo_de_error = str(error.get('code'))[:60]
+            if request_id is None and UUID.match(str(error.get('request_id'))):
+                request_id = str(error['request_id']).lower()
+    except (ValueError, TypeError):
+        pass
+    return {
+        'metodo': metodo,
+        'ruta': (partes.path or '/')[:200],
+        'operacion': operacion,
+        'estado_http': codigo,
+        'request_id': request_id,
+        'codigo_de_error': codigo_de_error,
+        'id_mensaje_zap': str(mensaje['id']) if mensaje.get('id') is not None else None,
+        'tiene_consulta': bool(partes.query),
+        'tipo_de_contenido': tipo.group(1).strip().lower()[:60] if tipo else None,
+        'tamano_cuerpo': len(cuerpo),
+        'cuerpo_con_nul': '\x00' in cuerpo or bool(ESCAPE_NUL.search(cuerpo)),
+        'cuerpo_con_caracteres_de_control': bool(CONTROL_CRUDO.search(cuerpo)) or bool(ESCAPE_CONTROL.search(cuerpo)),
+        'cuerpo_con_sustituto_suelto': bool(ESCAPE_SUSTITUTO.search(cuerpo)),
+    }
 
 
 def analizar_mensajes(mensajes, config, tokens=None):
@@ -62,6 +107,8 @@ def analizar_mensajes(mensajes, config, tokens=None):
     incorrectas = []
     incorrectas_total = 0
     token_desconocido = 0
+    errores_5xx = []
+    errores_5xx_total = 0
     ajenos = set()
     total = 0
     for mensaje in mensajes:
@@ -97,6 +144,11 @@ def analizar_mensajes(mensajes, config, tokens=None):
         con_autorizacion = coincidencia_token is not None
 
         operacion = next((op for op in incluidas if op['metodo'] == metodo and _coincide(op['regex'], ruta)), None)
+        if 500 <= codigo <= 599:
+            errores_5xx_total += 1
+            if len(errores_5xx) < MAX_LISTA:
+                clave_5xx = f"{operacion['metodo']} {operacion['ruta']}" if operacion else None
+                errores_5xx.append(diagnostico_5xx(mensaje, metodo, partes, clave_5xx, codigo))
         if operacion is None:
             prohibida = next((op for op in excluidas if op['metodo'] == metodo and _coincide(op['regex'], ruta)), None)
             if prohibida is not None:
@@ -105,8 +157,12 @@ def analizar_mensajes(mensajes, config, tokens=None):
                     violaciones.append({'metodo': metodo, 'ruta': prohibida['ruta'], 'estado_http': codigo})
             continue
         clave = f"{operacion['metodo']} {operacion['ruta']}"
-        datos = por_operacion.setdefault(clave, {'rol': operacion['rol'], 'peticiones': 0, 'autenticadas': 0, 'alcanzaron_la_logica': 0, 'estados': {}})
+        datos = por_operacion.setdefault(
+            clave, {'rol': operacion['rol'], 'peticiones': 0, 'autenticadas': 0, 'alcanzaron_la_logica': 0, 'estados': {}, 'estados_todos': {}}
+        )
         datos['peticiones'] += 1
+        # Todas las peticiones (también las sin credencial, p. ej. /auth/login): `estados` solo cuenta las autenticadas.
+        datos['estados_todos'][str(codigo)] = datos['estados_todos'].get(str(codigo), 0) + 1
         if con_autorizacion:
             datos['autenticadas'] += 1
             if codigo not in (0, 401, 403):
@@ -129,6 +185,8 @@ def analizar_mensajes(mensajes, config, tokens=None):
         'autorizacion_incorrecta': incorrectas,
         'autorizacion_incorrecta_total': incorrectas_total,
         'cabecera_authorization_con_valor_desconocido': token_desconocido,
+        'errores_5xx': errores_5xx,
+        'errores_5xx_total': errores_5xx_total,
     }
 
 
@@ -317,6 +375,8 @@ def zap_pre_shutdown(zap):
             'autorizacion_incorrecta_total': analisis['autorizacion_incorrecta_total'],
             'analisis_activo': resumir_analisis_activo(escaneos, progresos),
             'cobertura_autenticada': cobertura_autenticada(analisis, config),
+            'errores_5xx': analisis['errores_5xx'],
+            'errores_5xx_total': analisis['errores_5xx_total'],
             'por_operacion': analisis['por_operacion'],
         })
     except Exception as error:

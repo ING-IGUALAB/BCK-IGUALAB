@@ -36,7 +36,7 @@ Comando efectivo (lo imprime el stage; no contiene secretos):
 
 ```
 docker run -d --name igualab-zap-<BUILD_TAG> --network proxy_net --label igualab.zap.ejecucion=<BUILD_TAG> \
-  -v <ws>/zap-trabajo:/zap/wrk:rw -v <ws>/zap-privado:/zap/privado:ro \
+  -v igualab-zap-trabajo-<BUILD_TAG>:/zap/wrk:rw -v igualab-zap-privado-<BUILD_TAG>:/zap/privado:ro \
   zaproxy/zap-stable:2.17.0@sha256:5ccfff9a… zap-api-scan.py -t openapi-filtrado.json -f openapi \
   -c zap-api-scan.reglas.conf -r backend-zap.html -J backend-zap.json --hook=/zap/wrk/zap_hooks.py -T 10 \
   -z "-config scanner.threadPerHost=3 -config scanner.delayInMs=0 -config scanner.maxScanDurationInMins=60 -config scanner.maxRuleDurationInMins=5"
@@ -52,7 +52,7 @@ docker run -d --name igualab-zap-<BUILD_TAG> --network proxy_net --label igualab
 ```sh
 export IGUALAB_API_URL=http://igualab-backend-qa-backend-1:8000 IGUALAB_PRUEBAS_ENTORNO=qa
 export IGUALAB_E2E_SUPERADMIN_CORREO=...                       # la contraseña con: read -rs IGUALAB_E2E_SUPERADMIN_PASSWORD; export IGUALAB_E2E_SUPERADMIN_PASSWORD
-sh pruebas-zap/scripts/ejecutar-zap.sh                          # crea zap-trabajo/, zap-privado/ y zap-resultados/ en la raíz del repositorio
+sh pruebas-zap/scripts/ejecutar-zap.sh                          # deja zap-resultados/ en la raíz del repositorio (los datos viven en volúmenes de Docker)
 ```
 
 ## Qué hace el stage, en orden
@@ -168,6 +168,7 @@ No se ignora ninguna alerta para obtener verde: un FAIL se corrige o se document
 | 9 | Sin evidencia: hook sin resumen, sin análisis activo o sin cobertura autenticada | FAILURE |
 | 10 | No se pudo cerrar la cuenta o la empresa sintéticas | FAILURE |
 | 11 | Petición a una operación excluida o fuera del destino | FAILURE |
+| 12 | Un directorio de datos no es escribible o falló una operación de archivo (permisos/propietario) | FAILURE |
 
 Nada se oculta con `exit 0` ni `|| true`; un reporte ausente o vacío nunca se presenta como análisis exitoso.
 
@@ -192,12 +193,33 @@ Se archiva **solo** `zap-resultados/` (incluso si el stage falla):
 | `backend-zap.html`, `backend-zap.json` | Reportes de ZAP, con la evidencia útil (URL, método, parámetro, ataque, evidencia) y **sin secretos** |
 | `resumen-zap.md` / `resumen-zap.json` | Veredicto, alcance, cobertura autenticada, limpieza, reportes, limitaciones pendientes |
 | `alcance-zap.json`, `openapi-filtrado.json` | Qué se incluyó/excluyó y por qué; la especificación que se importó |
-| `cobertura-zap.json` | Evidencia del hook: análisis activo real, cobertura por rol y por operación, violaciones de alcance |
+| `cobertura-zap.json` | Evidencia del hook: análisis activo real, cobertura por rol y por operación (`estados_todos` incluye las peticiones sin credencial), violaciones de alcance y **diagnóstico de 5xx** |
 | `consola-zap.log` | Consola filtrada |
 
-`zap-trabajo/` (reportes crudos) y `zap-privado/` (tokens y estado) **nunca** se archivan. Se redactan JWT, `Authorization`/`Bearer` y las contraseñas/tokens de la ejecución (también escapados para
-JSON/HTML/URL), en consola y en los artefactos; después se **verifica** que no quede ninguno (si queda, ese archivo se elimina y el código es 8). Los tokens se entregan a ZAP por un archivo montado de solo lectura
-(`credenciales.json`, legible por el usuario de ZAP mientras dura el escaneo; sus sesiones se revocan al terminar), no por línea de comandos.
+Estado, credenciales y reportes crudos **nunca** se archivan: viven en tres **volúmenes nombrados de Docker** (`igualab-zap-trabajo|privado|resultados-<BUILD_TAG>`) que se eliminan al terminar.
+Se redactan JWT, `Authorization`/`Bearer` y las contraseñas/tokens de la ejecución (también escapados para JSON/HTML/URL), en consola y en los artefactos; después se **verifica** que no quede ninguno (si queda,
+ese archivo se elimina y el código es 8). Los tokens se entregan a ZAP en un archivo 0600 de un volumen 0700 montado de solo lectura, no por línea de comandos ni en el espacio de trabajo.
+
+## Permisos y propietarios (por qué volúmenes)
+
+**Fallo del build 36 (QA):** la preparación terminó con `Error (EACCES)` y el cierre también falló, sin dejar resumen. Reproducido con Docker real: la **primera escritura** de la preparación tras `Alcance: …` es
+`writeFileSync('/privado/estado.json')`, y devuelve `EACCES` cuando el uid del contenedor no es dueño de `/privado` (p. ej. directorio creado como root 755 por otro contenedor o por el daemon). La causa de que en el nodo
+de QA esa carpeta no perteneciera al uid del contenedor **no se pudo determinar** con los artifacts (ver «Causas posibles»); la corrección elimina la dependencia.
+
+**Corrección:**
+* Los datos ya no están en carpetas del espacio de trabajo de Jenkins. Son volúmenes nombrados que **heredan de la imagen** `pruebas-zap` el propietario `1000:1000` (usuario `node` de la imagen y `zap` del contenedor de ZAP) y el modo
+  (`/privado` 0700, `/trabajo` y `/resultados` 0750). Los tres contenedores (preparación, ZAP, cierre) corren como `1000:1000`: **ninguno es root y no hay `chmod 777`**.
+* Al anfitrión solo vuelve, con `docker cp` (propiedad del usuario de Jenkins), `zap-resultados/` ya redactada, así que `deleteDir()` no choca con archivos de otro usuario.
+* La preparación comprueba **antes de tocar el backend** que puede escribir en `/trabajo` y `/privado`; si no, sale con el código **12** y un mensaje con **fase, operación, ruta del contenedor, código de error, uid/gid y propietario/modo de la carpeta**
+  (nunca contenido ni secretos). El cierre tolera una preparación incompleta (estado ilegible o truncado: busca los recursos por su nombre determinista `zap-<id>@igualab-zap.example.com` / `ZAP <id> Empresa` y, si no puede comprobarlo, **no** da la limpieza por buena),
+  informa qué pudo limpiar y, si no puede escribir `/resultados`, muestra el resumen por consola y sale con 12. Si el cierre no deja su resumen, `ejecutar-zap.sh` escribe uno mínimo: nunca queda un artifact sin explicación.
+* El log de consola empieza con el uid:gid del orquestador, si corre dentro de un contenedor y las opciones de seguridad de Docker (`rootless`, `userns`, `selinux`…), para distinguir la causa si algo vuelve a fallar.
+
+**Causas posibles del propietario incorrecto en QA (no determinadas):** Docker rootless o con user namespaces (el uid del contenedor no coincide con el dueño de la carpeta), SELinux enforcing sin etiqueta de montaje, o Jenkins
+dentro de un contenedor cuyo `$WORKSPACE` no existe en el anfitrión del daemon (Docker crea entonces la carpeta de montaje como root). Los volúmenes nombrados no dependen de ninguna de las tres.
+
+**Regresión:** `sh pruebas-zap/pruebas/permisos-real.sh` (Linux con Docker; sin red ni root en el anfitrión) reproduce el caso con uid no root y carpetas «de otro contenedor» y comprueba el diagnóstico, el cierre tolerante, el resumen garantizado y los
+propietarios de los volúmenes. `node --test pruebas-zap/scripts/pruebas/permisos.test.mjs` cubre la parte portable (y la de Docker cuando está disponible).
 
 ## Retención y limpieza
 
@@ -218,6 +240,10 @@ El destino es la URL **interna HTTP** del contenedor en `proxy_net`. Permite ana
 4. Si es **FAILURE técnico (≥3)**: leer el «Motivo» de `resumen-zap.md` y `consola-zap.log`; el análisis **no** se considera realizado. Comprobar luego `limpieza` (cuenta/empresa sintéticas).
 5. Para un FAIL real: corregir el código; para un falso positivo: documentar la excepción en `reglas/zap-api-scan.reglas.conf` con su motivo (no bajar el nivel para obtener verde).
 6. No olvidar las **limitaciones**: la parte excluida (OCI/DeepSeek/correo) sigue pendiente del TA.
+7. **Respuestas 5xx**: `resumen-zap.md` → «Errores 5xx (diagnóstico)» (y `errores_5xx` en `resumen-zap.json`/`cobertura-zap.json`) lista, por cada una, método, ruta **sin consulta**, `request_id`, código de error de la API y metadatos de la
+   entrada (tamaño del cuerpo y si traía NUL, caracteres de control o sustitutos sueltos). **No** se guardan cuerpos, contraseñas, tokens, cabeceras ni el texto del ataque. Para ver la excepción, buscar ese `request_id` en el log del backend de QA
+   (`docker logs igualab-backend-qa-backend-1 | grep <request_id>`: líneas «Error inesperado» o «Error de base de datos» con su traza). Nota: el 500 uniforme lleva el `request_id` en el **cuerpo** pero no en la cabecera `x-request-id`
+   (comportamiento previo de los middlewares); el hook lo toma de donde esté.
 
 ## Verificación (qué se hizo y qué no)
 

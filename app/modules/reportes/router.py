@@ -6,7 +6,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from typing import Annotated
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from app.core.config import settings
@@ -15,8 +15,14 @@ from app.core.exceptions import ServiceUnavailableError
 
 from app.modules.ingesta.domain.parametros import ambiente_desde_app_env
 from app.modules.reportes.infrastructure.pdf import compilar_html_a_pdf
-from app.modules.reportes.schemas import GenerarReporteRequest, ReporteResumen
-from app.modules.reportes.service import generar_reporte, listar_reportes, obtener_pdf, vista_previa
+from app.modules.reportes.schemas import DisponibilidadReportesResponse, GenerarReporteRequest, ReporteResumen
+from app.modules.reportes.service import (
+    disponibilidad_de_reportes,
+    generar_reporte,
+    listar_reportes,
+    obtener_pdf,
+    vista_previa,
+)
 
 router = APIRouter(prefix="/reportes", tags=["Reportes de Prospección"])
 
@@ -115,6 +121,27 @@ async def generar(
 )
 async def listar(db: DatabaseSession, usuario: AdministradorUser) -> list[ReporteResumen]:
     return await listar_reportes(db)
+
+
+@router.get(
+    "/disponibilidad",
+    summary="Años disponibles para generar el reporte de una empresa",
+    description=(
+        "Años con documentos elegibles (o con reporte ya generado) y su punto del flujo: `PENDIENTE_REVISION`, "
+        "`PENDIENTE_VALIDACION`, `VALIDACION_VIGENTE`, `REPORTE_GENERADO` o `SIN_CODIGOS_GRI`. Con `anio` siempre responde ese año "
+        "(`SIN_DOCUMENTACION_ELEGIBLE` si no hay documentos elegibles). Solo lectura e informativo: la generación vuelve a comprobar "
+        "la validación vigente y responde 409 `REPORT_ALREADY_EXISTS` si ya hay un reporte."
+    ),
+    responses={**_RESPUESTAS_COMUNES, 404: {"description": "Empresa inexistente (`COMPANY_NOT_FOUND`)."}},
+)
+async def disponibilidad(
+    db: DatabaseSession,
+    ambiente: Ambiente,
+    usuario: AdministradorUser,
+    empresa_id: uuid.UUID,
+    anio: Annotated[int | None, Query(ge=2000, le=9999, description="Limita la respuesta a un año.")] = None,
+) -> DisponibilidadReportesResponse:
+    return await disponibilidad_de_reportes(db, ambiente=ambiente, empresa_id=empresa_id, anio=anio)
 
 
 @router.get(

@@ -113,7 +113,7 @@ describe('desenlaces del script oficial de ZAP', () => {
       }
       const resumen = e.leerJson('resumen-zap.json');
       assert.equal(resumen.veredicto, 'EXITOSO');
-      assert.equal(resumen.alcance.incluidas.length, 19);
+      assert.equal(resumen.alcance.incluidas.length, 21);
       assert.equal(resumen.alcance.excluidas.length, 14);
       assert.ok(resumen.hook.cobertura_autenticada.demostrada);
       assert.match(readFileSync(join(e.resultados, 'resumen-zap.md'), 'utf8'), /PENDIENTE DE ACEPTACIÓN DEL TA/);
@@ -143,6 +143,26 @@ describe('desenlaces del script oficial de ZAP', () => {
       assert.equal(e.codigo, 2, e.salida);
       assert.match(e.leerJson('resumen-zap.json').veredicto, /INESTABLE/);
       sinSecretos(e); datosSinteticosCerrados(e);
+    } finally { await e.cerrar(); }
+  });
+
+  test('2 · con respuestas 5xx: el resumen lista método, ruta, request_id y metadatos, y NO archiva secretos', async () => {
+    const e = await escenario({ zap: 'con-5xx' });
+    try {
+      assert.equal(e.codigo, 2, e.salida);
+      const md = readFileSync(join(e.resultados, 'resumen-zap.md'), 'utf8');
+      assert.match(md, /## Errores 5xx \(diagnóstico\)/);
+      assert.match(md, /3f2b8c1e-5d4a-4e7b-9c0d-1a2b3c4d5e6f/, 'el request_id llega al resumen para buscarlo en el log del backend');
+      assert.match(md, /Error inesperado/);
+      const resumen = e.leerJson('resumen-zap.json');
+      assert.equal(resumen.hook.errores_5xx_total, 2);
+      assert.equal(resumen.hook.errores_5xx[0].cuerpo_con_nul, true);
+      assert.equal(resumen.hook.errores_5xx[0].operacion, 'POST /auth/login');
+      // La ruta del segundo diagnóstico traía algo con forma de JWT: ni el resumen, ni la cobertura, ni la consola pueden conservarlo.
+      sinSecretos(e);
+      assert.ok(!leerTodo(e.resultados).includes('firmaQueNoDebeArchivarse1234'));
+      assert.ok(!/password/i.test(md), 'el resumen no incluye campos ni valores de cuerpos de petición');
+      assert.ok(!md.includes('Bearer ey'), 'ni cabeceras de autenticación');
     } finally { await e.cerrar(); }
   });
 
@@ -217,7 +237,11 @@ describe('límite global y cancelación', () => {
       assert.equal(e.codigo, 6, e.salida);
       const eliminados = e.acciones.split('\n').filter((l) => l.startsWith('REMOVIDO '));
       assert.deepEqual(eliminados, [`REMOVIDO igualab-zap-${e.id}`]);
-      assert.ok(e.acciones.split('\n').filter((l) => l.startsWith('rm ')).every((l) => l.endsWith(`igualab-zap-${e.id}`)), 'solo se ejecutó docker rm sobre el contenedor de ZAP');
+      const objetivosDeRm = e.acciones.split('\n').filter((l) => l.startsWith('rm ')).map((l) => l.split(' ').at(-1));
+      assert.ok(objetivosDeRm.every((n) => [`igualab-zap-${e.id}`, `igualab-zap-datos-${e.id}`].includes(n)), `docker rm solo sobre recursos de esta ejecución: ${objetivosDeRm}`);
+      const volumenes = e.acciones.split('\n').filter((l) => l.startsWith('VOLUMEN-ELIMINADO '));
+      assert.equal(volumenes.length, 3, 'se liberan los tres volúmenes de datos de la ejecución');
+      assert.ok(volumenes.every((l) => l.endsWith(`-${e.id}`)), 'y solo los de esta ejecución');
       assert.match(e.leerJson('resumen-zap.json').motivo, /límite global/);
       datosSinteticosCerrados(e);
       sinSecretos(e);

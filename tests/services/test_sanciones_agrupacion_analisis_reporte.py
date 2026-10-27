@@ -251,7 +251,7 @@ def test_el_reporte_muestra_la_agrupacion_con_todas_sus_citas_y_suma_un_solo_imp
     assert datos["sanciones_total"] == 2  # menciones
     assert datos["money"] == [{"unidad": "S/", "total": "12,500"}]  # 12 500, no 25 000: las menciones repetidas no se suman
     assert datos["money_disponible"] is True
-    assert "Total monetario no disponible" not in renderizar(datos)
+    assert "Total no disponible" not in renderizar(datos)
 
 
 def test_con_posibles_duplicados_no_hay_total_pero_se_conservan_los_importes_individuales():
@@ -263,11 +263,12 @@ def test_con_posibles_duplicados_no_hay_total_pero_se_conservan_los_importes_ind
     assert len(grupo) == 2
     assert datos["money"] == []  # ninguna suma parcial se presenta como total
     assert datos["money_disponible"] is False
-    assert any("posibles duplicados" in m for m in datos["money_motivos"])
+    assert datos["money_motivos_codigos"] == ["POSIBLE_MISMA_MULTA"]
     html = renderizar(datos)
     assert "Posible sanción duplicada" in html
-    assert "Posibles duplicados sin resolver" in html
-    assert "Total monetario no disponible" in html
+    assert "Referencias que podrían ser la misma multa" in html
+    assert "Total no disponible" in html
+    assert "Algunas referencias podrían corresponder a la misma multa." in html
     assert "S/ 9000" in html
 
 
@@ -276,13 +277,18 @@ def test_el_reporte_muestra_el_importe_ambiguo_con_su_aviso_y_no_lo_suma():
     (tarjeta,) = datos["sanciones"]
     assert tarjeta["monto"] == "S/ 59.078"
     assert tarjeta["estado_importe"] == "REQUIERE_REVISION"
-    assert tarjeta["advertencias"] == ["Importe que requiere revisión"]
+    assert tarjeta["advertencias"] == []  # la revisión se muestra junto al monto, no como una advertencia repetida
+    assert tarjeta["monto_etiqueta"] == "Monto pendiente de revisión"
     assert datos["money"] == []
     assert datos["money_disponible"] is False
+    assert datos["money_motivos_codigos"] == ["REVISION"]
     html = renderizar(datos)
-    assert "Importe que requiere revisión" in html
-    assert "S/ 59.078" in html
-    assert "Total monetario no disponible" in html
+    assert "Monto pendiente de revisión" in html
+    assert "El formato del número puede tener más de una interpretación. Por eso no se suma al total." in html
+    assert "S/ 59.078" in html  # el monto se conserva tal cual: no se convierte
+    assert "Total no disponible" in html
+    assert "Hay montos que necesitan revisión." in html
+    assert "importe" not in html.lower()
 
 
 def test_el_reporte_de_un_analisis_antiguo_no_lo_presenta_como_deduplicado():
@@ -292,10 +298,11 @@ def test_el_reporte_de_un_analisis_antiguo_no_lo_presenta_como_deduplicado():
     assert datos["money"] == []
     assert datos["money_disponible"] is False
     html = renderizar(datos)
-    assert "Mención sin agrupación evaluada" in html
-    assert "no se presentan como deduplicadas" in html
-    assert "Sanción agrupada" not in html
-    assert "Total monetario no disponible" in html
+    assert "No se ha comprobado si esta referencia repite una multa" in html
+    assert "El análisis guardado no incluye la comparación entre referencias" in html
+    assert "Multa agrupada" not in html
+    assert "Total no disponible" in html
+    assert "El análisis guardado no incluye la información necesaria para calcular el total." in html
 
 
 def test_un_importe_con_escala_o_decimales_impide_el_total_pero_se_muestra():
@@ -303,9 +310,9 @@ def test_un_importe_con_escala_o_decimales_impide_el_total_pero_se_muestra():
     datos = datos_desde_analisis(analisis_real([doc(texto)]), "2026-10-19")
     assert datos["money"] == []
     assert datos["money_disponible"] is False
-    assert any("escala o decimales" in m for m in datos["money_motivos"])
+    assert datos["money_motivos_codigos"] == ["NO_SUMABLES"]
     assert {t["monto"] for t in datos["sanciones"]} == {"S/ 5 millones", "S/ 3000.50"}  # sin interpretar ni convertir
-    assert "Total monetario no disponible" in renderizar(datos)
+    assert "Total no disponible" in renderizar(datos)
 
 
 def test_cuando_el_total_si_es_completo_se_suma_un_solo_importe_por_agrupacion_y_moneda():
@@ -331,10 +338,11 @@ def test_una_sancion_distinta_sin_importe_impide_presentar_una_suma_parcial_como
     assert (conocida["estado_importe"], sin_importe["estado_importe"]) == ("CUANTIFICADO", estado)
     assert datos["money"] == []  # S/ 1000 no se presenta como total
     assert datos["money_disponible"] is False
-    assert any("sin importe determinado" in m for m in datos["money_motivos"])
+    assert datos["money_motivos_codigos"] == ["SIN_MONTO"]
     html = renderizar(datos)
-    assert "Total monetario no disponible" in html
-    assert "S/ 1000" in html  # el importe individual y las citas se conservan
+    assert "Total no disponible" in html
+    assert "No se detectó el monto de algunas multas." in html
+    assert "S/ 1000" in html  # el monto individual y las citas se conservan
     assert all(t["citas"] for t in datos["sanciones"])
 
 
@@ -350,14 +358,18 @@ def test_una_agrupacion_con_monto_en_una_cita_y_ausente_en_otra_no_bloquea_el_to
     datos = datos_desde_analisis(analisis, "2026-10-19")
     assert datos["money_disponible"] is True
     assert datos["money"] == [{"unidad": "S/", "total": "3,000"}]
-    assert "Total monetario no disponible" not in renderizar(datos)
+    assert "Total no disponible" not in renderizar(datos)
 
 
 def test_sin_sanciones_el_reporte_lo_dice_y_el_total_no_se_inventa():
     datos = datos_desde_analisis(analisis_real([doc("# Informe\n\nTexto sin sanciones.\n")]), "2026-10-19")
     assert datos["sanciones"] == []
     assert datos["money"] == []
-    assert "No se identificaron sanciones." in renderizar(datos)
+    assert datos["sin_sanciones"] is True
+    html = renderizar(datos)
+    assert "No se detectaron sanciones económicas" in html
+    assert "Total no disponible" not in html  # ausencia de sanciones no es un total imposible de calcular
+    assert "---" not in html
 
 
 # ============================================ evaluación PARCIAL ============================================
@@ -378,12 +390,13 @@ def test_superar_el_limite_de_comparacion_no_elimina_menciones_ni_citas_y_se_ind
     assert datos["agrupacion"]["evaluacion"] == "PARCIAL"
     assert len(datos["sanciones"]) == 3
     assert datos["money"] == []
-    assert any("PARCIAL" in m for m in datos["money_motivos"])
+    assert datos["money_motivos_codigos"] == ["NO_COMPARADAS"]
     html = renderizar(datos)
-    assert "Evaluación de agrupación PARCIAL" in html
-    assert "Total monetario no disponible" in html
-    for importe in ("S/ 1100", "S/ 2200", "S/ 3300"):  # los importes individuales siguen visibles
-        assert importe in html
+    assert "Solo se compararon entre sí algunas referencias" in html
+    assert "No se pudo comprobar si todas las referencias corresponden a multas distintas." in html
+    assert "Total no disponible" in html
+    for monto in ("S/ 1100", "S/ 2200", "S/ 3300"):  # los montos individuales siguen visibles
+        assert monto in html
 
 
 def test_el_snapshot_de_un_analisis_parcial_conserva_todas_las_menciones_y_el_estado(monkeypatch):
@@ -403,7 +416,7 @@ def test_el_pdf_real_muestra_agrupaciones_y_advertencias():
     html = renderizar(datos_desde_analisis(analisis_real([doc(MISMA_EN_PARRAFO_Y_TABLA), doc(POSIBLE_DUPLICADA)]), "2026-10-19"))
     lector = pypdf.PdfReader(BytesIO(compilar_html_a_pdf(html)))
     texto = " ".join(pagina.extract_text() for pagina in lector.pages)
-    assert "Sanción agrupada" in texto
+    assert "Multa agrupada" in texto
     assert "Posible sanción duplicada" in texto
     assert "0456-2024-SUNAFIL/IR" in texto
 
@@ -476,7 +489,7 @@ async def test_el_snapshot_de_un_reporte_nuevo_conserva_agrupaciones_citas_y_adv
     assert {adv["mensaje"] for a in agrupaciones for adv in a["advertencias"]} == {"Posible sanción duplicada"}
     assert all(s["agrupacion_id"] for s in reporte.snapshot["sanciones"])
     assert reporte.snapshot["resumen_sanciones"]["posibles_duplicados"] == 1
-    assert "Sanción agrupada" in html_compilado[0]
+    assert "Multa agrupada" in html_compilado[0]
 
 
 async def test_un_reporte_existente_no_se_modifica_aunque_el_analisis_actual_tenga_agrupaciones(monkeypatch):

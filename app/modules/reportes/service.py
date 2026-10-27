@@ -21,11 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.models import Empresa, ReporteProspeccion, ResultadoAuditoria, TipoEventoAuditoria, Usuario
-from app.modules.analisis_gri.application.servicio import obtener_analisis_validado
+from app.modules.analisis_gri.application.servicio import obtener_analisis_validado, resumen_por_anio
+from app.modules.analisis_gri.schemas import EstadoFlujo
 from app.modules.auditoria.service import registrar_evento
 from app.modules.reportes.domain.plantilla import datos_desde_analisis, renderizar
 from app.modules.reportes.infrastructure.pdf import compilar_html_a_pdf
-from app.modules.reportes.schemas import ReporteResumen
+from app.modules.reportes.schemas import AnioDisponible, DisponibilidadReportesResponse, EstadoAnioReporte, ReporteResumen
 
 
 async def _nombres(db: AsyncSession, empresa_id: uuid.UUID, usuario_id: uuid.UUID) -> tuple[str, str]:
@@ -170,3 +171,64 @@ async def obtener_pdf(db: AsyncSession, reporte_id: uuid.UUID, *, usuario_id: uu
     )
     await db.commit()
     return reporte.pdf
+
+
+# --- Disponibilidad de años (consulta informativa) ------------------------------------------------------------------
+
+_ESTADO_POR_FLUJO = {
+    EstadoFlujo.PENDIENTE_ESTADOS: EstadoAnioReporte.PENDIENTE_REVISION,
+    EstadoFlujo.LISTO_PARA_VALIDAR: EstadoAnioReporte.PENDIENTE_VALIDACION,
+    EstadoFlujo.VALIDADO: EstadoAnioReporte.VALIDACION_VIGENTE,
+    EstadoFlujo.SIN_CODIGOS_GRI: EstadoAnioReporte.SIN_CODIGOS_GRI,
+}
+
+
+async def disponibilidad_de_reportes(
+    db: AsyncSession, *, ambiente: str, empresa_id: uuid.UUID, anio: int | None = None
+) -> DisponibilidadReportesResponse:
+    """Años de la empresa con documentos elegibles (o con reporte ya generado) y en qué punto del flujo está cada uno.
+
+    No basta con que exista un documento: la elegibilidad y el estado del flujo salen de las mismas reglas que usa la generación
+    (`obtener_analisis_validado`). Un año con reporte figura `REPORTE_GENERADO` aunque después cambie el análisis: el reporte es
+    inmutable y se sigue descargando. Con `anio`, el año consultado figura siempre (`SIN_DOCUMENTACION_ELEGIBLE` si no hay nada).
+    Solo lectura, sin proveedores externos ni embeddings; el costo no crece con el número de años (consultas conjuntas)."""
+    empresa = (
+        await db.execute(select(Empresa.id, Empresa.nombre, Empresa.activa).where(Empresa.id == empresa_id))
+    ).one_or_none()
+    if empresa is None:
+        await db.rollback()
+        raise NotFoundError("COMPANY_NOT_FOUND", "La empresa indicada no existe.")
+    filtro = [ReporteProspeccion.empresa_id == empresa_id]
+    if anio is not None:
+        filtro.append(ReporteProspeccion.anio == anio)
+    emitidos = {
+        f.anio: f
+        for f in (
+            await db.execute(select(ReporteProspeccion.anio, ReporteProspeccion.id, ReporteProspeccion.creado_en).where(*filtro))
+        ).all()
+    }
+    await db.rollback()  # el resumen abre su propia lectura
+    pendientes = await resumen_por_anio(
+        db, ambiente=ambiente, empresa_id=empresa_id, anio=anio, excluir_anios=frozenset(emitidos)
+    )
+    anios: dict[int, AnioDisponible] = {}
+    for a, reporte in emitidos.items():
+        anios[a] = AnioDisponible(
+            anio=a, estado=EstadoAnioReporte.REPORTE_GENERADO, puede_generar=False,
+            reporte_id=reporte.id, reporte_creado_en=reporte.creado_en,
+        )
+    for a, resumen in pendientes.items():
+        estado = _ESTADO_POR_FLUJO[resumen.flujo]
+        anios[a] = AnioDisponible(
+            anio=a, estado=estado, puede_generar=estado is EstadoAnioReporte.VALIDACION_VIGENTE,
+            documentos_elegibles=resumen.documentos, filas_gri=resumen.filas, filas_sin_estado=resumen.filas_sin_estado,
+            validacion_anterior_no_vigente=resumen.validacion_no_vigente,
+        )
+    if anio is not None and anio not in anios:
+        anios[anio] = AnioDisponible(
+            anio=anio, estado=EstadoAnioReporte.SIN_DOCUMENTACION_ELEGIBLE, puede_generar=False, documentos_elegibles=0
+        )
+    return DisponibilidadReportesResponse(
+        ambiente=ambiente, empresa_id=empresa.id, empresa_nombre=empresa.nombre, empresa_activa=empresa.activa,
+        anios=[anios[a] for a in sorted(anios, reverse=True)],
+    )

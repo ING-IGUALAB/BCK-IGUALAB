@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
@@ -76,44 +77,53 @@ async def _empresa(db: AsyncSession, empresa_id: uuid.UUID) -> Empresa:
     return fila
 
 
+def _condiciones_de_elegibilidad(ambiente: str, empresa_id: uuid.UUID) -> list:
+    """Qué hace elegible a un documento (sin el año): ÚNICA definición, compartida por la consulta del análisis, la validación,
+    la generación del reporte y la disponibilidad de años."""
+    return [
+        Documento.ambiente == ambiente,
+        Documento.empresa_id == empresa_id,
+        Documento.estado_procesamiento == EstadoProcesamiento.COMPLETADO,
+        Documento.resultado_analisis.is_not(None),
+        Documento.analisis.is_not(None),
+        Documento.vector_publicado_en.is_not(None),
+        Empresa.activa.is_(True),
+    ]
+
+
+def _documento_base(f) -> DocumentoBase:
+    return DocumentoBase(
+        id=f.id,
+        nombre_archivo=f.nombre_archivo,
+        sha256=f.sha256,
+        tipo=f.tipo,
+        resultado_analisis=f.resultado_analisis,
+        completado_en=f.completado_en,
+        analisis=f.analisis,
+    )
+
+
+_COLUMNAS_DE_DOCUMENTO = (
+    Documento.id,
+    Documento.nombre_archivo,
+    Documento.sha256,
+    Documento.tipo,
+    Documento.resultado_analisis,
+    Documento.completado_en,
+    Documento.analisis,
+)
+
+
 async def _documentos_elegibles(
     db: AsyncSession, ambiente: str, empresa_id: uuid.UUID, anio: int
 ) -> list[DocumentoBase]:
     consulta = (
-        select(
-            Documento.id,
-            Documento.nombre_archivo,
-            Documento.sha256,
-            Documento.tipo,
-            Documento.resultado_analisis,
-            Documento.completado_en,
-            Documento.analisis,
-        )
+        select(*_COLUMNAS_DE_DOCUMENTO)
         .join(Empresa, Empresa.id == Documento.empresa_id)
-        .where(
-            Documento.ambiente == ambiente,
-            Documento.empresa_id == empresa_id,
-            Documento.anio == anio,
-            Documento.estado_procesamiento == EstadoProcesamiento.COMPLETADO,
-            Documento.resultado_analisis.is_not(None),
-            Documento.analisis.is_not(None),
-            Documento.vector_publicado_en.is_not(None),
-            Empresa.activa.is_(True),
-        )
+        .where(Documento.anio == anio, *_condiciones_de_elegibilidad(ambiente, empresa_id))
         .order_by(Documento.completado_en, Documento.id)
     )
-    return [
-        DocumentoBase(
-            id=f.id,
-            nombre_archivo=f.nombre_archivo,
-            sha256=f.sha256,
-            tipo=f.tipo,
-            resultado_analisis=f.resultado_analisis,
-            completado_en=f.completado_en,
-            analisis=f.analisis,
-        )
-        for f in (await db.execute(consulta)).all()
-    ]
+    return [_documento_base(f) for f in (await db.execute(consulta)).all()]
 
 
 async def _version_de_control(db: AsyncSession, ambiente: str, empresa_id: uuid.UUID, anio: int, *, bloquear: bool = False) -> int:
@@ -181,8 +191,10 @@ async def _ultima_validacion(db: AsyncSession, ambiente: str, empresa_id: uuid.U
             .limit(1)
         )
     ).one_or_none()
-    if fila is None:
-        return None
+    return None if fila is None else _validacion_desde_fila(fila)
+
+
+def _validacion_desde_fila(fila) -> ValidacionGuardada:
     return ValidacionGuardada(
         numero=fila.numero,
         version_estados=fila.version_estados,
@@ -244,15 +256,23 @@ def _vista_validacion(validacion: ValidacionGuardada | None, motivos: list) -> V
     )
 
 
+def _flujo_de_analisis(
+    filas: list, documentos: list[DocumentoBase], version: int, huella: str, validacion: ValidacionGuardada | None
+) -> tuple[EstadoFlujo, list]:
+    """Estado del flujo y motivos de no vigencia a partir de las filas YA con su estado. Única definición: la consulta del análisis
+    y la disponibilidad de reportes la usan, de modo que lo que la segunda anuncia es lo que la primera (y la generación) decide."""
+    motivos = calculo.motivos_no_vigente(validacion, version, huella)
+    # Una validación solo cuenta si hay filas que respaldar; las vacías no existen (CHECK en la base).
+    vigente = validacion is not None and not motivos and bool(filas)
+    return calculo.determinar_flujo(hay_documentos=bool(documentos), filas=filas, vigente=vigente), motivos
+
+
 def _construir(ambiente: str, anio: int, datos: _Instantanea) -> AnalisisResponse:
     empresa = datos.empresa
     filas, advertencias = calculo.construir_filas(datos.documentos)
     filas = calculo.aplicar_estados(filas, datos.estados)
-    motivos = calculo.motivos_no_vigente(datos.validacion, datos.version, datos.huella)
     hay_documentos = bool(datos.documentos)
-    # Una validación solo cuenta si hay filas que respaldar; las vacías no existen (CHECK en la base).
-    vigente = datos.validacion is not None and not motivos and bool(filas)
-    flujo = calculo.determinar_flujo(hay_documentos=hay_documentos, filas=filas, vigente=vigente)
+    flujo, motivos = _flujo_de_analisis(filas, datos.documentos, datos.version, datos.huella, datos.validacion)
     sanciones, resumen, agrupaciones = calculo.construir_sanciones_y_agrupaciones(datos.documentos)
     return AnalisisResponse(
         ambiente=ambiente,
@@ -326,6 +346,88 @@ async def _registrar_historial(
     return registro.id
 
 
+RESTRICCION_UNICA_DE_ESTADO = "uq_analisis_estado_identidad"
+
+
+def _es_unicidad_de_estado(exc: IntegrityError) -> bool:
+    """Solo la violación de la restricción única por identidad (otra transacción creó antes la primera asignación) es un conflicto
+    esperado. Se identifica por el nombre de la restricción que informa PostgreSQL, no por el tipo de excepción."""
+    causa = getattr(exc.orig, "__cause__", None)
+    return getattr(causa, "constraint_name", None) == RESTRICCION_UNICA_DE_ESTADO
+
+
+def _conflicto_de_fila(identidad: str, version_fila_esperada: int | None = None) -> ConflictError:
+    """409 cuando una condición de versión falla DENTRO de la escritura (el bloqueo de la fila de control ya lo impide en el
+    uso normal): se deshace todo y el cliente debe consultar de nuevo."""
+    return ConflictError(
+        "ANALYSIS_ROW_VERSION_CONFLICT",
+        "La fila cambió mientras se guardaba (otro Administrador asignó un estado): vuelva a consultarla.",
+        details={"identidad": identidad}
+        | ({} if version_fila_esperada is None else {"version_fila_esperada": version_fila_esperada}),
+    )
+
+
+async def _guardar_estado(
+    db: AsyncSession, ambiente: str, empresa_id: uuid.UUID, anio: int, fila, actual: EstadoAsignado | None,
+    estado: EstadoGri, actor: Usuario, ahora: datetime,
+) -> int:
+    """Inserta la primera asignación de la fila o cambia la existente y devuelve la nueva versión de la fila.
+
+    Defensa en profundidad: la fila de control ya está bloqueada, pero el cambio exige además que la versión de la fila siga
+    siendo la leída (UPDATE condicional) y que nadie haya creado ya la primera asignación (UNIQUE por identidad). Si no, es un 409
+    y nada se guarda: nadie pierde una actualización en silencio ni recibe un 500."""
+    identidad = fila.identidad
+    version_leida = 0 if actual is None else actual.version
+    if actual is None:
+        db.add(
+            AnalisisGriEstado(
+                id=uuid.uuid4(), ambiente=ambiente, empresa_id=empresa_id, anio=anio, identidad=identidad,
+                codigo=fila.codigo, edicion=fila.edicion, identidad_tipo=fila.identidad_tipo.value,
+                estado=estado.value, version=1, asignado_por=actor.id, asignado_en=ahora,
+            )
+        )
+    else:
+        actualizada = await db.execute(
+            update(AnalisisGriEstado)
+            .where(
+                AnalisisGriEstado.ambiente == ambiente,
+                AnalisisGriEstado.empresa_id == empresa_id,
+                AnalisisGriEstado.anio == anio,
+                AnalisisGriEstado.identidad == identidad,
+                AnalisisGriEstado.version == actual.version,
+            )
+            .values(estado=estado.value, version=actual.version + 1, asignado_por=actor.id, asignado_en=ahora)
+        )
+        if actualizada.rowcount != 1:
+            raise _conflicto_de_fila(identidad, version_leida)
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        if not _es_unicidad_de_estado(exc):
+            raise  # cualquier otra violación (clave foránea, CHECK…) es un defecto real: no se oculta como conflicto
+        raise _conflicto_de_fila(identidad, version_leida) from None
+    return version_leida + 1
+
+
+async def _subir_version(
+    db: AsyncSession, ambiente: str, empresa_id: uuid.UUID, anio: int, version_antes: int, version_nueva: int,
+    ahora: datetime, identidad: str,
+) -> None:
+    """Incrementa la versión del análisis solo si sigue siendo la leída bajo el bloqueo."""
+    control = await db.execute(
+        update(AnalisisGriControl)
+        .where(
+            AnalisisGriControl.ambiente == ambiente,
+            AnalisisGriControl.empresa_id == empresa_id,
+            AnalisisGriControl.anio == anio,
+            AnalisisGriControl.version == version_antes,
+        )
+        .values(version=version_nueva, actualizado_en=ahora)
+    )
+    if control.rowcount != 1:
+        raise _conflicto_de_fila(identidad)
+
+
 async def asignar_estado(
     db: AsyncSession,
     *,
@@ -343,7 +445,7 @@ async def asignar_estado(
         empresa = await _empresa(db, empresa_id)
         version_antes = await _asegurar_y_bloquear_control(db, ambiente, empresa_id, anio)
         datos = await _leer(db, ambiente, empresa_id, anio, consistente=False)
-        filas, _ = calculo.construir_filas(datos.documentos)
+        filas, _ = calculo.construir_filas(datos.documentos, presentacion=False)  # la escritura no necesita textos legibles
         fila = next((f for f in filas if f.identidad == identidad), None)
         if fila is None:
             raise NotFoundError(
@@ -362,6 +464,7 @@ async def asignar_estado(
                     "version_fila_esperada": version_fila_esperada,
                     "version_fila_actual": version_fila_actual,
                     "estado_actual": None if actual is None else actual.estado.value,
+                    "version_analisis_actual": datos.version,
                 },
             )
         motivos_previos = calculo.motivos_no_vigente(datos.validacion, datos.version, datos.huella)
@@ -376,43 +479,14 @@ async def asignar_estado(
                 validacion_previa_invalidada=False,
             )
         version_nueva = version_antes + 1
-        if actual is None:
-            nueva_version_fila = 1
-            db.add(
-                AnalisisGriEstado(
-                    id=uuid.uuid4(), ambiente=ambiente, empresa_id=empresa_id, anio=anio, identidad=identidad,
-                    codigo=fila.codigo, edicion=fila.edicion, identidad_tipo=fila.identidad_tipo.value,
-                    estado=estado.value, version=1, asignado_por=actor.id, asignado_en=ahora,
-                )
-            )
-        else:
-            nueva_version_fila = actual.version + 1
-            await db.execute(
-                update(AnalisisGriEstado)
-                .where(
-                    AnalisisGriEstado.ambiente == ambiente,
-                    AnalisisGriEstado.empresa_id == empresa_id,
-                    AnalisisGriEstado.anio == anio,
-                    AnalisisGriEstado.identidad == identidad,
-                )
-                .values(estado=estado.value, version=nueva_version_fila, asignado_por=actor.id, asignado_en=ahora)
-            )
-        await db.flush()
+        nueva_version_fila = await _guardar_estado(db, ambiente, empresa_id, anio, fila, actual, estado, actor, ahora)
         await _registrar_historial(
             db, ambiente=ambiente, empresa_id=empresa_id, anio=anio, identidad=identidad, codigo=fila.codigo,
             edicion=fila.edicion, identidad_tipo=fila.identidad_tipo,
             estado_anterior=None if actual is None else actual.estado, estado_nuevo=estado,
             usuario_id=actor.id, cambiado_en=ahora, version_analisis=version_nueva,
         )
-        await db.execute(
-            update(AnalisisGriControl)
-            .where(
-                AnalisisGriControl.ambiente == ambiente,
-                AnalisisGriControl.empresa_id == empresa_id,
-                AnalisisGriControl.anio == anio,
-            )
-            .values(version=version_nueva, actualizado_en=ahora)
-        )
+        await _subir_version(db, ambiente, empresa_id, anio, version_antes, version_nueva, ahora, identidad)
         await db.commit()  # estado + historial + versión: una sola transacción
     except Exception:
         await db.rollback()
@@ -505,7 +579,7 @@ async def validar_analisis(
                 "No hay documentos elegibles (completados, con análisis y publicación vectorial confirmada) de una empresa "
                 "activa para este año: no hay nada que validar.",
             )
-        filas, _ = calculo.construir_filas(datos.documentos)
+        filas, _ = calculo.construir_filas(datos.documentos, presentacion=False)
         filas = calculo.aplicar_estados(filas, datos.estados)
         if not filas:
             raise ConflictError(
@@ -557,6 +631,104 @@ async def validar_analisis(
         estado_flujo=EstadoFlujo.VALIDADO,
         habilita_reporte=True,
     )
+
+
+# --- Disponibilidad de años para reportes -----------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ResumenAnio:
+    """Dónde está el análisis de un año de la empresa (lo mínimo para anunciar si se puede generar el reporte)."""
+
+    anio: int
+    flujo: EstadoFlujo
+    documentos: int
+    filas: int
+    filas_sin_estado: int
+    validacion_no_vigente: bool  # hubo una validación, pero ya no es vigente
+
+
+async def resumen_por_anio(
+    db: AsyncSession, *, ambiente: str, empresa_id: uuid.UUID, anio: int | None = None, excluir_anios: frozenset[int] = frozenset()
+) -> dict[int, ResumenAnio]:
+    """Estado del flujo de CADA año de la empresa con documentos elegibles, en consultas conjuntas (documentos, versiones, estados y
+    validaciones de todos los años a la vez: ninguna consulta por año). Solo lectura. `anio` limita a un año; `excluir_anios`
+    omite años que no hace falta calcular (p. ej. los que ya tienen reporte).
+
+    Aplica las MISMAS reglas que `consultar_analisis` (elegibilidad, identidades, huella, versión y vigencia), por lo que un año
+    `VALIDADO` aquí es un año que `obtener_analisis_validado` entrega. No calcula textos legibles ni sanciones."""
+    try:
+        condiciones = _condiciones_de_elegibilidad(ambiente, empresa_id)
+        if anio is not None:
+            condiciones.append(Documento.anio == anio)
+        if excluir_anios:
+            condiciones.append(Documento.anio.not_in(excluir_anios))
+        filas_doc = (
+            await db.execute(
+                select(Documento.anio.label("anio"), *_COLUMNAS_DE_DOCUMENTO)
+                .join(Empresa, Empresa.id == Documento.empresa_id)
+                .where(*condiciones)
+                .order_by(Documento.anio, Documento.completado_en, Documento.id)
+            )
+        ).all()
+        por_anio: dict[int, list[DocumentoBase]] = {}
+        for f in filas_doc:
+            por_anio.setdefault(f.anio, []).append(_documento_base(f))
+        if not por_anio:
+            return {}
+        versiones, estados, validaciones = await _datos_de_anios(db, ambiente, empresa_id, set(por_anio))
+        resultado: dict[int, ResumenAnio] = {}
+        for anio_doc, documentos in por_anio.items():
+            filas, _ = calculo.construir_filas(documentos, presentacion=False)
+            filas = calculo.aplicar_estados(filas, estados.get(anio_doc, {}))
+            version, huella = versiones.get(anio_doc, 0), calculo.huella_de_documentos(documentos)
+            validacion = validaciones.get(anio_doc)
+            flujo, motivos = _flujo_de_analisis(filas, documentos, version, huella, validacion)
+            resultado[anio_doc] = ResumenAnio(
+                anio=anio_doc, flujo=flujo, documentos=len(documentos), filas=len(filas),
+                filas_sin_estado=sum(f.estado is None for f in filas),
+                validacion_no_vigente=validacion is not None and bool(motivos),
+            )
+        return resultado
+    finally:
+        await db.rollback()
+
+
+async def _datos_de_anios(
+    db: AsyncSession, ambiente: str, empresa_id: uuid.UUID, anios: set[int]
+) -> tuple[dict[int, int], dict[int, dict[str, EstadoAsignado]], dict[int, ValidacionGuardada]]:
+    """Versión de control, estados actuales y última validación de varios años: una consulta de cada una."""
+    c, e, v = AnalisisGriControl, AnalisisGriEstado, AnalisisGriValidacion
+    versiones = {
+        f.anio: f.version
+        for f in (
+            await db.execute(
+                select(c.anio, c.version).where(c.ambiente == ambiente, c.empresa_id == empresa_id, c.anio.in_(anios))
+            )
+        ).all()
+    }
+    estados: dict[int, dict[str, EstadoAsignado]] = {}
+    filas_estado = await db.execute(
+        select(e.anio, e.identidad, e.estado, e.version, e.asignado_por, e.asignado_en, Usuario.nombre)
+        .join(Usuario, Usuario.id == e.asignado_por)
+        .where(e.ambiente == ambiente, e.empresa_id == empresa_id, e.anio.in_(anios))
+    )
+    for f in filas_estado.all():
+        estados.setdefault(f.anio, {})[f.identidad] = EstadoAsignado(
+            identidad=f.identidad, estado=EstadoGri(f.estado), version=f.version,
+            asignado_por=ActorResumen(id=f.asignado_por, nombre=f.nombre), asignado_en=f.asignado_en,
+        )
+    ultimas = await db.execute(
+        select(
+            v.anio, v.numero, v.version_estados, v.huella_documentos, v.documentos, v.estados,
+            v.puntaje_suma, v.puntaje_filas, v.validado_por, v.validado_en, Usuario.nombre,
+        )
+        .join(Usuario, Usuario.id == v.validado_por)
+        .where(v.ambiente == ambiente, v.empresa_id == empresa_id, v.anio.in_(anios))
+        .distinct(v.anio)
+        .order_by(v.anio, v.numero.desc())
+    )
+    validaciones = {f.anio: _validacion_desde_fila(f) for f in ultimas.all()}
+    return versiones, estados, validaciones
 
 
 # --- Para el Módulo 7 -------------------------------------------------------------------------------------------------

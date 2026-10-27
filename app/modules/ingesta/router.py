@@ -10,13 +10,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from pydantic import ValidationError
+from pydantic import BeforeValidator, ValidationError
 
 from app.core.dependencies import DatabaseSession, SuperAdminUser
 from app.core.exceptions import ServiceUnavailableError
 from app.models import TipoDocumento
 from app.schemas import MetadatosIngestaRequest
 from app.modules.ingesta.schemas import (
+    DisponibilidadIngestaResponse,
     DocumentoDetalle,
     OperacionCreadaResponse,
     OperacionResponse,
@@ -26,6 +27,7 @@ from app.modules.ingesta.schemas import (
 from app.modules.ingesta.application import operacion_service
 from app.modules.ingesta.application.documento_service import EstadoProgreso
 from app.modules.ingesta.application.gestor import GestorIngesta
+from app.modules.ingesta.domain.reglas import interpretar_anio
 
 router = APIRouter(prefix="/documentos", tags=["Ingesta de Documentos"])
 
@@ -144,6 +146,23 @@ async def listar_documentos(
         pagina=pagina,
         tamano=tamano,
     )
+
+
+@router.get(
+    "/disponibilidad",
+    response_model=DisponibilidadIngestaResponse,
+    responses={**_ERRORES, 404: {"description": "Empresa inexistente (`COMPANY_NOT_FOUND`)."}, 422: {}},
+)
+async def disponibilidad_de_tipos(
+    actor: SuperAdminUser,
+    gestor: GestorDep,
+    db: DatabaseSession,
+    empresa_id: uuid.UUID,
+    anio: Annotated[int, BeforeValidator(interpretar_anio), Query(description="Entero entre 2000 y el año actual (America/Lima).")],
+):
+    """Qué tipos de documento están DISPONIBLES, OCUPADOS o EN PROCESO para la empresa y el año, con el mismo criterio de
+    reserva que la carga. Solo informativo y de solo lectura: la carga vuelve a comprobar sus reglas (y el SHA-256 del contenido)."""
+    return await operacion_service.disponibilidad_de_tipos(db, ambiente=gestor.ambiente, empresa_id=empresa_id, anio=anio)
 
 
 @router.get("/{documento_id}", response_model=DocumentoDetalle, responses={**_ERRORES, 404: {}})
