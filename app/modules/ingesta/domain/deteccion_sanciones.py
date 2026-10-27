@@ -144,11 +144,12 @@ from dataclasses import dataclass, field, replace
 from app.modules.ingesta.domain import distinciones_sanciones as distinciones
 from app.modules.ingesta.domain import markdown
 from app.modules.ingesta.domain.distinciones_sanciones import ReferenciaFormal
+from app.modules.ingesta.domain.texto import recortar_cita
 from app.modules.ingesta.domain.vista_markdown import VistaPlana, construir_vista
 
 # Versión de las reglas de detección. Se persiste en el análisis (`version_detector_sanciones`): un análisis guardado sin
 # ella (o con una anterior) lo produjo un detector previo. Sube con cada cambio que pueda alterar el resultado.
-VERSION_DETECTOR_SANCIONES = "2026-10-26.2"
+VERSION_DETECTOR_SANCIONES = "2026-10-27.1"
 
 SEPARADOR_RUTA = " > "
 MAX_LONGITUD_CITA = 900
@@ -1276,14 +1277,8 @@ class _Analizador:
             cita_inicio, cita_fin = b.unidad.inicio, b.unidad.fin
         else:
             cita_inicio, cita_fin = min(a for a, _ in b.oraciones), max(f for _, f in b.oraciones)
-        if cita_fin - cita_inicio > MAX_LONGITUD_CITA:
-            cita_inicio = max(cita_inicio, termino.inicio - MARGEN_CITA)
-            cita_fin = min(cita_fin, termino.fin + MARGEN_CITA)
-        while cita_inicio < termino.inicio and texto[cita_inicio].isspace():
-            cita_inicio += 1
-        while cita_fin > termino.fin and texto[cita_fin - 1].isspace():
-            cita_fin -= 1
-        return cita_inicio, cita_fin
+        # Mismo recorte que el detector GRI: la ventana se ajusta a límites de palabra y nunca deja fuera el término.
+        return recortar_cita(texto, cita_inicio, cita_fin, termino.inicio, termino.fin, MAX_LONGITUD_CITA, MARGEN_CITA)
 
     def _fechas_en(self, inicio: int, fin: int) -> list[Dato]:
         fechas = []

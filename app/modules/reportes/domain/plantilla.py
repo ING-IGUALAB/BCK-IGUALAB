@@ -89,12 +89,18 @@ def _fmt_puntaje(analisis: AnalisisResponse) -> str:
     return str(int(valor)) if float(valor).is_integer() else str(valor)
 
 
+def _legible(objeto, campo: str) -> str:
+    """Texto para el lector: la versión legible (sin marcas de formato) y, si el análisis no la trae, el original."""
+    return getattr(objeto, f"{campo}_legible", "") or getattr(objeto, campo, "")
+
+
 def _cita_de_fila(fila) -> tuple[str, str]:
-    if not fila.evidencias:
+    """Primer pasaje de la fila (las referencias que repiten el mismo pasaje se muestran una vez); sin pasajes, la primera evidencia."""
+    respaldo = (getattr(fila, "pasajes", None) or fila.evidencias or [None])[0]
+    if respaldo is None:
         return "(sin cita de respaldo)", ""
-    ev = fila.evidencias[0]
-    fuente = " · ".join(x for x in [getattr(ev, "documento_nombre", ""), getattr(ev, "seccion", "")] if x)
-    return ev.cita, fuente
+    fuente = " · ".join(x for x in [getattr(respaldo, "documento_nombre", ""), _legible(respaldo, "seccion")] if x)
+    return _legible(respaldo, "cita"), fuente
 
 
 def _fila_a_dict(fila) -> dict:
@@ -166,8 +172,8 @@ def _sumas_por_unidad(montos: list) -> dict[str, int]:
 # --- Sanciones --------------------------------------------------------------------------------------------------------
 
 def _cita_a_dict(cita) -> dict:
-    fuente = " · ".join(x for x in [cita.documento_nombre, cita.seccion] if x)
-    return {"cita": cita.cita, "fuente": fuente, "posicion": f"{cita.cita_inicio}–{cita.cita_fin}"}
+    fuente = " · ".join(x for x in [cita.documento_nombre, _legible(cita, "seccion")] if x)
+    return {"cita": _legible(cita, "cita"), "fuente": fuente, "posicion": f"{cita.cita_inicio}–{cita.cita_fin}"}
 
 
 def _autoridad(dato) -> tuple[str, str]:
@@ -216,7 +222,7 @@ def _estado_de_mencion(s: SancionVista) -> str:
 
 def _sancion_a_dict(s: SancionVista) -> dict:
     """Una referencia de un documento procesado SIN agrupación: se muestra sola y rotulada, sin afirmar que esté deduplicada."""
-    fuente = " · ".join(x for x in [s.documento_nombre, s.seccion] if x)
+    fuente = " · ".join(x for x in [s.documento_nombre, _legible(s, "seccion")] if x)
     estado = _estado_de_mencion(s)
     entidad, autoridad_texto = _autoridad(s.entidad)
     return {
@@ -230,8 +236,8 @@ def _sancion_a_dict(s: SancionVista) -> dict:
         "infraccion": "",
         **_presentar_monto(estado, [s.monto] if s.monto is not None else []),
         "estado_importe": estado,
-        "citas": [{"cita": s.cita, "fuente": fuente, "posicion": f"{s.cita_inicio}–{s.cita_fin}"}],
-        "descripcion": s.cita,
+        "citas": [{"cita": _legible(s, "cita"), "fuente": fuente, "posicion": f"{s.cita_inicio}–{s.cita_fin}"}],
+        "descripcion": _legible(s, "cita"),
         "fuente": fuente,
         "advertencias": [],
         "a_revisar": estado == "REQUIERE_REVISION",

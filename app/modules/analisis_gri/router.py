@@ -82,7 +82,12 @@ async def consultar_analisis(
     responses={
         **_ERRORES,
         404: {"description": "Empresa o identidad GRI inexistente en el análisis."},
-        409: {"description": "La fila cambió desde que se consultó (`ANALYSIS_ROW_VERSION_CONFLICT`)."},
+        409: {
+            "description": "La fila cambió desde que se consultó (`ANALYSIS_ROW_VERSION_CONFLICT`). `details.version_fila_actual`, "
+            "`estado_actual` y `version_analisis_actual` son los valores en el instante del rechazo (leídos bajo el bloqueo de la "
+            "escritura): sirven para reconciliar, NO garantizan que sigan vigentes; envíe la siguiente petición con la `version_fila` "
+            "que devuelva una respuesta posterior."
+        },
         422: {"description": "Estado fuera de OK / BAJA_SUSTANCIA / SUB_REPORTADO, o cuerpo inválido."},
     },
 )
