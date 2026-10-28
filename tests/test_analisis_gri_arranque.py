@@ -96,7 +96,9 @@ async def test_el_lifespan_prepara_el_esquema_del_modulo_aunque_la_ingesta_no_es
 def test_los_endpoints_del_modulo_estan_registrados_y_documentados():
     from app import main
 
-    rutas = {(m, r.path) for r in main.app.routes if hasattr(r, "methods") for m in r.methods}
+    from tests.ayudantes_rutas import operaciones_openapi
+
+    rutas = set(operaciones_openapi())
     base = "/analisis-gri/empresas/{empresa_id}/anios/{anio}"
     assert {("GET", base), ("PUT", base + "/codigos/{identidad}/estado"), ("GET", base + "/historial"), ("POST", base + "/validacion")} <= rutas
     esquema = main.app.openapi()

@@ -118,6 +118,66 @@ docker compose -p "$COMPOSE_PROJECT" logs --no-color --tail=60 backend
             }
         }
 
+        // Imagen del backend que se analizará con Trivy y, solo si se aprueba, se desplegará (ramas con despliegue: development, qa y uat).
+        // Se construye UNA vez (ci/construir-imagen.sh) y se identifica por ejecución: igualab-backend-<ambiente>:b<build>-<commit> + su ID.
+        // Los deploys no reconstruyen ni descargan nada (`up --no-build --pull never`): ejecutan exactamente esa imagen.
+        stage('Construir imagen') {
+            when {
+                anyOf {
+                    branch 'development'
+                    branch 'qa'
+                    branch 'uat'
+                }
+            }
+            steps {
+                withEnv(["AMBIENTE=${env.BRANCH_NAME}", "NUMERO_BUILD=${env.BUILD_NUMBER}"]) {
+                    sh 'sh ci/construir-imagen.sh'
+                }
+                script {
+                    env.IMAGEN_REF = sh(returnStdout: true, script: '. ci-estado/imagen.env && printf %s "$IMAGEN_REF"').trim()
+                    env.IMAGEN_ID = sh(returnStdout: true, script: '. ci-estado/imagen.env && printf %s "$IMAGEN_ID"').trim()
+                    echo "Imagen a analizar y desplegar: ${env.IMAGEN_REF} (${env.IMAGEN_ID})"
+                }
+            }
+        }
+
+        // Control de vulnerabilidades de la imagen ya construida y ANTES de cualquier operación que detenga o reemplace el servicio actual
+        // (el único `docker compose down` está en ci/desplegar-imagen-analizada.sh, después de este stage). Requisito del TA, sin excepciones:
+        // LOW permitido; MEDIUM, HIGH, CRITICAL (y UNKNOWN, pendiente de clasificación) bloquean, tengan o no corrección. Trivy fijado por versión
+        // y digest. Un error técnico (base de datos, lectura de la imagen, resultado inválido) también bloquea: nunca equivale a «sin hallazgos».
+        // Códigos de ci/trivy/ejecutar-trivy.sh: 0 aprobada · 1 bloqueada por vulnerabilidades · otro: error técnico. No hay UNSTABLE ni bypass.
+        stage('Trivy') {
+            when {
+                anyOf {
+                    branch 'development'
+                    branch 'qa'
+                    branch 'uat'
+                }
+            }
+            steps {
+                timeout(time: 30, unit: 'MINUTES') {
+                    withEnv(["AMBIENTE=${env.BRANCH_NAME}"]) {
+                        script {
+                            def codigo = sh(returnStatus: true, script: 'sh ci/trivy/ejecutar-trivy.sh')
+                            if (codigo == 1) {
+                                error('Trivy: la imagen tiene vulnerabilidades MEDIUM, HIGH, CRITICAL o UNKNOWN. No se despliega; sigue el despliegue anterior. Ver trivy-resultados/resumen-trivy.txt y trivy-report.html en los artefactos.')
+                            } else if (codigo != 0) {
+                                error("Trivy: error técnico (código ${codigo}); el análisis NO se considera realizado y no se despliega. Ver trivy-resultados/resumen-trivy.txt y consola-trivy.log.")
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    // Solo trivy-resultados/ (HTML, JSON saneado, resumen y consola de Trivy). El tar de la imagen y el JSON crudo (trivy-trabajo/)
+                    // nunca se archivan y se eliminan al terminar el script. Se archiva aunque haya vulnerabilidades o error técnico, y antes de
+                    // la limpieza del workspace del post global.
+                    archiveArtifacts artifacts: 'trivy-resultados/**', allowEmptyArchive: true
+                }
+            }
+        }
+
         stage('Deploy Dev (Docker Compose)') {
             when {
                 branch 'development'
@@ -136,8 +196,8 @@ cp "$SECRET_FILE" .env
                         script { incorporarLlaveOci() }
                         sh '''
 set -eu
-docker compose -p "$COMPOSE_PROJECT" down
-docker compose -p "$COMPOSE_PROJECT" up -d --build
+# Imagen ya construida y aprobada por Trivy: reemplaza el servicio (down + up --no-build) y verifica que corre esa imagen.
+sh ci/desplegar-imagen-analizada.sh
 sleep 25
 
 echo '--- Estado del backend ---'
@@ -410,11 +470,8 @@ exit 0
                             cp "$SECRET_FILE" .env
                         '''
                         script { incorporarLlaveOci() }
-                        sh '''
-                            set -eu
-                            docker compose -p "$COMPOSE_PROJECT" down
-                            docker compose -p "$COMPOSE_PROJECT" up -d --build
-                        '''
+                        // Imagen ya construida y aprobada por Trivy: reemplaza el servicio (down + up --no-build) y verifica que corre esa imagen.
+                        sh 'sh ci/desplegar-imagen-analizada.sh'
                     }
                 }
             }
@@ -567,11 +624,8 @@ exit 0
                             cp "$SECRET_FILE" .env
                         '''
                         script { incorporarLlaveOci() }
-                        sh '''
-                            set -eu
-                            docker compose -p "$COMPOSE_PROJECT" down
-                            docker compose -p "$COMPOSE_PROJECT" up -d --build
-                        '''
+                        // Imagen ya construida y aprobada por Trivy: reemplaza el servicio (down + up --no-build) y verifica que corre esa imagen.
+                        sh 'sh ci/desplegar-imagen-analizada.sh'
                     }
                 }
             }

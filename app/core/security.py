@@ -4,7 +4,8 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from jose import jwt, JWTError
+import jwt
+from jwt import PyJWTError
 from passlib.context import CryptContext
 from passlib.utils import MAX_PASSWORD_SIZE
 
@@ -94,8 +95,12 @@ def crear_access_token(usuario_id: uuid.UUID, rol: str, sesion_id: uuid.UUID) ->
 
 def decodificar_token(token: str) -> dict | None:
     try:
-        return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-    except JWTError:
+        # verify_iat=False: python-jose (implementación anterior) no rechazaba un `iat` posterior al momento actual; se conserva ese criterio.
+        # Siguen verificándose firma, algoritmo permitido, `exp` y el tipo de `sub` y `jti`.
+        return jwt.decode(
+            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], options={"verify_iat": False}
+        )
+    except PyJWTError:
         return None
 
 

@@ -38,11 +38,13 @@ def test_cors_se_ejecuta_antes_que_request_id():
 
 
 def test_rutas_principales_estan_registradas():
-    rutas = {
-        route.path
-        for route in app.routes
-    }
+    from fastapi.testclient import TestClient
+
+    from tests.ayudantes_rutas import operaciones_openapi
+
+    rutas = {ruta for _, ruta in operaciones_openapi()}
 
     assert "/auth/login" in rutas
     assert "/usuarios" in rutas
-    assert "/openapi.json" in rutas
+    # /openapi.json no figura en su propio esquema: se comprueba que la aplicación lo sirve.
+    assert TestClient(app).get("/openapi.json").status_code == 200

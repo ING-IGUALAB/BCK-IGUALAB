@@ -1,5 +1,8 @@
 services:
   backend:
+    # Jenkins construye la imagen una sola vez (ci/construir-imagen.sh), la analiza con Trivy y la despliega con BACKEND_IMAGE y
+    # `up --no-build --pull never`: se ejecuta exactamente la imagen analizada. Sin BACKEND_IMAGE (uso local) `build` sigue funcionando.
+    image: ${BACKEND_IMAGE:-igualab-backend:local}
     build: .
     restart: unless-stopped
     env_file:

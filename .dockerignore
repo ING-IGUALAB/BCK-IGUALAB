@@ -24,3 +24,7 @@ pruebas-zap/
 zap-trabajo/
 zap-privado/
 zap-resultados/
+trivy-resultados/
+trivy-trabajo/
+ci-estado/
+ci/
