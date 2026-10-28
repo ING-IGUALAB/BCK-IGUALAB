@@ -20,7 +20,7 @@ from app.models import RolUsuario
 from app.modules.reportes import router as reportes_router
 
 NOSNIFF = "nosniff"
-CORP = "same-site"
+CORP = "same-origin"
 
 
 def con_cabeceras(respuesta):
@@ -115,6 +115,20 @@ def test_cors_no_cambia(cliente_sin_lifespan):
 
     ajeno = cliente_sin_lifespan.get("/health", headers={"Origin": "https://sitio-ajeno.example"})
     assert "access-control-allow-origin" not in ajeno.headers
+
+
+def test_el_frontend_autorizado_sigue_recibiendo_el_pdf_por_cors_con_corp_same_origin(cliente_sin_lifespan, monkeypatch):
+    """CORP no se evalúa en `fetch` modo CORS: la respuesta lleva a la vez el permiso CORS del frontend y `same-origin`."""
+    pdf = b"%PDF-1.4\n%prueba\n"
+    monkeypatch.setattr(reportes_router, "obtener_pdf", AsyncMock(return_value=pdf))
+    admin = SimpleNamespace(id=uuid.uuid4(), rol=RolUsuario.ADMINISTRADOR, habilitado=True)
+    app.dependency_overrides[get_current_user] = lambda: admin
+    origen = settings.CORS_ORIGINS[0]
+    r = cliente_sin_lifespan.get(f"/reportes/{uuid.uuid4()}/archivo", headers={"Origin": origen, "Authorization": "Bearer prueba"})
+    assert r.status_code == 200
+    assert r.content == pdf
+    assert r.headers["access-control-allow-origin"] == origen
+    assert r.headers["cross-origin-resource-policy"] == "same-origin"
 
 
 def test_no_se_anaden_otras_politicas(cliente_sin_lifespan):
