@@ -208,7 +208,8 @@ def test_medium_high_y_critical_bloquean_pero_el_reporte_se_conserva(entorno, se
     assert proceso.returncode == 1
     assert "Veredicto: BLOQUEADO" in entorno.resumen()
     assert "CVE-2026-0042" in entorno.resumen()
-    assert entorno.resultado(HTML).is_file() and entorno.resultado(JSON).is_file()
+    assert entorno.resultado(HTML).is_file()
+    assert entorno.resultado(JSON).is_file()
     assert sin_compose(entorno)
 
 
@@ -219,7 +220,8 @@ def test_el_analisis_usa_la_imagen_fijada_el_guardado_por_id_y_un_solo_escaneo(e
     escaneos = [c for c in comandos if " image --input " in c]
     assert len(escaneos) == 1
     assert "ghcr.io/aquasecurity/trivy:0.76.1@sha256:" in escaneos[0]
-    assert "--ignore-unfixed" not in escaneos[0] and "--severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL" in escaneos[0]
+    assert "--ignore-unfixed" not in escaneos[0]
+    assert "--severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL" in escaneos[0]
 
 
 # ============================================ el error técnico bloquea y no aparenta un análisis exitoso ============================================
@@ -227,7 +229,8 @@ def test_el_analisis_usa_la_imagen_fijada_el_guardado_por_id_y_un_solo_escaneo(e
 def comprobar_error_tecnico(entorno, proceso, motivo):
     assert proceso.returncode == 2, proceso.stdout + proceso.stderr
     resumen = entorno.resumen()
-    assert "ERROR TÉCNICO" in resumen and motivo in resumen
+    assert "ERROR TÉCNICO" in resumen
+    assert motivo in resumen
     assert "APROBADO" not in resumen
     assert not entorno.resultado(HTML).exists()
     assert not entorno.resultado(JSON).exists()
@@ -300,7 +303,8 @@ def test_los_montajes_son_volumenes_nombrados_sin_bind_mounts_de_rutas_del_agent
         assert re.match(r"^igualab-trivy-(trabajo|resultados|cache)-[a-z0-9-]+:/(trabajo|resultados|cache)(:ro)?$", montaje), montaje
     for comando in comandos:
         if comando.startswith(("run ", "create ")):
-            assert "--mount" not in comando and "--volume" not in comando, comando
+            assert "--mount" not in comando, comando
+            assert "--volume" not in comando, comando
             assert not menciona_la_ruta_del_agente(comando, entorno), comando
 
 
@@ -313,8 +317,10 @@ def test_docker_cp_transfiere_con_rutas_locales_y_la_recuperacion_precede_a_la_l
     assert re.fullmatch(r"cp trivy-trabajo/imagen\.tar igualab-trivy-aux-qa-7-\d+:/trabajo/imagen\.tar", copias[0])
     assert re.fullmatch(r"cp ci/trivy/evaluar_trivy\.py igualab-trivy-aux-qa-7-\d+:/trabajo/evaluar_trivy\.py", copias[1])
     recuperacion = re.fullmatch(r"cp igualab-trivy-aux-qa-7-\d+:/resultados/\. (.+)/trivy-resultados/", copias[2])
-    assert recuperacion and menciona_la_ruta_del_agente(copias[2], entorno), copias[2]
-    assert recuperacion.group(1).endswith(f"/{entorno.trabajo.name}") and not recuperacion.group(1).startswith(("trivy-", "ci/")), "destino absoluto del workspace"
+    assert recuperacion, copias[2]
+    assert menciona_la_ruta_del_agente(copias[2], entorno), copias[2]
+    assert recuperacion.group(1).endswith(f"/{entorno.trabajo.name}"), "destino absoluto del workspace"
+    assert not recuperacion.group(1).startswith(("trivy-", "ci/")), "destino absoluto del workspace"
     for comando in comandos:
         if not comando.startswith("cp "):
             assert not menciona_la_ruta_del_agente(comando, entorno), comando
@@ -327,7 +333,8 @@ def test_el_tar_se_copia_y_se_verifica_desde_un_contenedor_antes_de_analizar(ent
     copia = indice(comandos, "cp trivy-trabajo/imagen.tar igualab-trivy-aux-qa-7-")
     verificacion = indice(comandos, 'sha256sum "$f"')
     assert "[ -f \"$f\" ] && [ -r \"$f\" ] && [ -s \"$f\" ]" in comandos[verificacion]
-    assert "--user " in comandos[verificacion] and ":/trabajo:ro" in comandos[verificacion]
+    assert "--user " in comandos[verificacion]
+    assert ":/trabajo:ro" in comandos[verificacion]
     assert copia < verificacion < indice(comandos, " image --input ")
 
 
@@ -371,7 +378,8 @@ def test_bloqueada_elimina_los_recursos_y_deja_los_reportes_en_el_workspace(ento
 def test_solo_se_eliminan_los_volumenes_de_esa_ejecucion_no_la_cache_de_la_base(entorno):
     entorno.con_reporte(reporte()).trivy()
     borrados = " ".join(c for c in entorno.comandos() if c.startswith("volume rm"))
-    assert "igualab-trivy-trabajo-qa-7-" in borrados and "igualab-trivy-resultados-qa-7-" in borrados
+    assert "igualab-trivy-trabajo-qa-7-" in borrados
+    assert "igualab-trivy-resultados-qa-7-" in borrados
     assert "cache" not in borrados
     assert (entorno.volumenes / "igualab-trivy-cache-qa").is_dir()
 
