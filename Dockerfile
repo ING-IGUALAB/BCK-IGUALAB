@@ -11,7 +11,9 @@ RUN apk add --no-cache gcc musl-dev libffi-dev postgresql-dev
 # Usa SOLO requirements.txt (producción) — nunca requirements-dev.txt,
 # para que pytest/httpx no terminen en la imagen final.
 COPY requirements.txt .
-RUN pip install --user --no-cache-dir -r requirements.txt
+# --no-compile: pip no genera __pycache__/*.pyc al instalar. Son ~22 000 de los ~48 000 archivos que luego copia `COPY --from=build`
+# (17 000 solo del SDK de OCI) y no se necesitan: Python regenera el bytecode al importar. Menos archivos que copiar entre etapas.
+RUN pip install --user --no-cache-dir --no-compile -r requirements.txt
 
 
 # --- Etapa 2: producción — imagen final, sin herramientas de compilación ni pip ---
