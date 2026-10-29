@@ -284,13 +284,41 @@ def volumenes_de_la_ejecucion(entorno):
     return sorted(p.name for p in entorno.volumenes.iterdir() if p.name.startswith(("igualab-trivy-trabajo-", "igualab-trivy-resultados-", "_aux_")))
 
 
-def test_el_tar_y_los_resultados_viajan_por_volumenes_nombrados_sin_rutas_del_agente(entorno):
+def menciona_la_ruta_del_agente(comando, entorno):
+    """La carpeta del agente es única por prueba; se busca por su nombre porque `pwd` del script la escribe distinto según el sistema
+    (Linux: igual que Python; Git Bash en Windows: /c/Users/... o /tmp/... en lugar de la ruta de Windows)."""
+    return f"/{entorno.trabajo.name}" in comando or str(entorno.trabajo) in comando or entorno.trabajo.as_posix() in comando
+
+
+def test_los_montajes_son_volumenes_nombrados_sin_bind_mounts_de_rutas_del_agente(entorno):
+    """Defecto del build 81: `-v <ruta del workspace>:/trabajo` lo resuelve el demonio en SU host y llega vacío."""
     entorno.con_reporte(reporte()).trivy()
-    montajes = [parte for c in entorno.comandos() for anterior, parte in zip(c.split(), c.split()[1:]) if anterior == "-v"]
+    comandos = entorno.comandos()
+    montajes = [parte for c in comandos for anterior, parte in zip(c.split(), c.split()[1:]) if anterior == "-v"]
     assert montajes
     for montaje in montajes:
         assert re.match(r"^igualab-trivy-(trabajo|resultados|cache)-[a-z0-9-]+:/(trabajo|resultados|cache)(:ro)?$", montaje), montaje
-    assert str(entorno.trabajo) not in "\n".join(entorno.comandos())
+    for comando in comandos:
+        if comando.startswith(("run ", "create ")):
+            assert "--mount" not in comando and "--volume" not in comando, comando
+            assert not menciona_la_ruta_del_agente(comando, entorno), comando
+
+
+def test_docker_cp_transfiere_con_rutas_locales_y_la_recuperacion_precede_a_la_limpieza(entorno):
+    """`docker cp` sí usa rutas del agente (viaja por la API de Docker): entrada con rutas relativas, salida a trivy-resultados/ del workspace."""
+    entorno.con_reporte(reporte()).trivy()
+    comandos = entorno.comandos()
+    copias = [c for c in comandos if c.startswith("cp ")]
+    assert len(copias) == 3, copias
+    assert re.fullmatch(r"cp trivy-trabajo/imagen\.tar igualab-trivy-aux-qa-7-\d+:/trabajo/imagen\.tar", copias[0])
+    assert re.fullmatch(r"cp ci/trivy/evaluar_trivy\.py igualab-trivy-aux-qa-7-\d+:/trabajo/evaluar_trivy\.py", copias[1])
+    recuperacion = re.fullmatch(r"cp igualab-trivy-aux-qa-7-\d+:/resultados/\. (.+)/trivy-resultados/", copias[2])
+    assert recuperacion and menciona_la_ruta_del_agente(copias[2], entorno), copias[2]
+    assert recuperacion.group(1).endswith(f"/{entorno.trabajo.name}") and not recuperacion.group(1).startswith(("trivy-", "ci/")), "destino absoluto del workspace"
+    for comando in comandos:
+        if not comando.startswith("cp "):
+            assert not menciona_la_ruta_del_agente(comando, entorno), comando
+    assert indice(comandos, " image --input ") < comandos.index(copias[2]) < indice(comandos, "rm -f igualab-trivy-aux-qa-7-") < indice(comandos, "volume rm")
 
 
 def test_el_tar_se_copia_y_se_verifica_desde_un_contenedor_antes_de_analizar(entorno):
