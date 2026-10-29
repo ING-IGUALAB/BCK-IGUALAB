@@ -69,3 +69,8 @@ Desktop.ini
 zap-trabajo/
 zap-privado/
 zap-resultados/
+
+# Trivy: resultados archivados, directorio de trabajo (tar de la imagen) y estado entre stages que genera ci/ en el workspace de Jenkins
+trivy-resultados/
+trivy-trabajo/
+ci-estado/

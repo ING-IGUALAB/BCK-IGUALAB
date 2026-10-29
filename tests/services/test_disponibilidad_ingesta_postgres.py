@@ -199,8 +199,8 @@ async def test_la_base_rechaza_dos_reservas_activas_del_mismo_espacio_aunque_se_
 
     async with mundo.fabrica() as db:
         await sembrar_documento(db, mundo.empresa, mundo.superadmin, analisis=ANALISIS_MINIMO, tipo=MEMORIA)
-    with pytest.raises(IntegrityError):
-        async with mundo.fabrica() as db:
+    async with mundo.fabrica() as db:
+        with pytest.raises(IntegrityError):
             await sembrar_documento(db, mundo.empresa, mundo.superadmin, analisis=ANALISIS_MINIMO, tipo=MEMORIA)
 
 

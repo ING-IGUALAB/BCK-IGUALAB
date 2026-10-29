@@ -118,7 +118,8 @@ def test_el_openapi_publica_el_contrato_de_ingesta():
     cuerpo = rutas["/documentos/operaciones/{operacion_id}/ingesta"]["post"]["requestBody"]["content"]["multipart/form-data"]
     campos = esquema["components"]["schemas"][cuerpo["schema"]["$ref"].rsplit("/", 1)[1]]
     assert set(campos["required"]) == {"archivo", "empresa_id", "anio", "tipo_documento"}
-    assert campos["properties"]["archivo"]["format"] == "binary"
+    # OpenAPI 3.1: un archivo se publica como cadena con `contentMediaType` (FastAPI actual); antes se publicaba como `format: binary`.
+    assert (campos["properties"]["archivo"]["type"], campos["properties"]["archivo"]["contentMediaType"]) == ("string", "application/octet-stream")
     assert {"201", "401", "403", "409", "413", "422", "500", "502", "503", "504"} <= set(
         rutas["/documentos/operaciones/{operacion_id}/ingesta"]["post"]["responses"]
     )
