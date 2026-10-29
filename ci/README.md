@@ -19,6 +19,14 @@ Si aparece un archivo de ignorados o de configuración de Trivy en el repositori
 2. `Trivy` (`trivy/ejecutar-trivy.sh`): `docker save` de la imagen por ID, un único `trivy image --input` con todas las severidades,
    `evaluar_trivy.py` valida y decide sobre ese mismo JSON y `trivy convert` genera el HTML desde él. Trivy y el intérprete del evaluador
    están fijados por versión y digest; el contenedor de Trivy no recibe el socket de Docker ni variables del agente.
+   **Transferencia sin bind mounts:** Jenkins corre dentro de un contenedor y un `-v <ruta del workspace>:/trabajo` lo resuelve el demonio de Docker
+   en SU host, donde esa ruta no existe y llega vacía (fallo del build 81: `open /trabajo/imagen.tar: no such file or directory`). El tar, el
+   evaluador y los resultados viajan por dos volúmenes nombrados creados para cada ejecución (`igualab-trivy-trabajo-<amb>-<build>-<pid>` y
+   `igualab-trivy-resultados-<amb>-<build>-<pid>`) con `docker cp` a un contenedor auxiliar que nunca se inicia. Antes de analizar, un contenedor con
+   el mismo usuario que ejecutará Trivy comprueba que `imagen.tar` existe, es legible, no está vacío y tiene el mismo SHA-256 que el exportado. Los
+   resultados vuelven a `trivy-resultados/` al terminar **y también si falla**, y solo se eliminan los recursos de esa ejecución (la caché de la base
+   `igualab-trivy-cache-<amb>` se conserva). Si el agente fuese abortado con SIGKILL podrían quedar volúmenes `igualab-trivy-trabajo-*` o
+   `igualab-trivy-resultados-*` huérfanos: se pueden borrar con `docker volume rm`.
 3. `Deploy …` (`desplegar-imagen-analizada.sh`): lo único que ejecuta `docker compose down`. Comprueba que `IMAGEN_REF` sigue siendo `IMAGEN_ID`,
    hace `up -d --no-build --pull never` con `BACKEND_IMAGE` y verifica que el contenedor corre ese ID.
 

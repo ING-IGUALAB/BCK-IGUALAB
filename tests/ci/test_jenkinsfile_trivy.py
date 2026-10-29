@@ -146,6 +146,18 @@ def test_las_imagenes_de_trivy_y_del_evaluador_estan_fijadas_por_version_y_diges
     assert ":latest" not in texto
 
 
+def test_el_script_de_trivy_no_monta_rutas_del_agente_solo_volumenes_nombrados():
+    """Jenkins puede correr en un contenedor: un `-v <ruta del workspace>:...` lo resuelve el demonio en SU host y llega vacío (build 81)."""
+    ejecutable = "\n".join(lineas_ejecutables(SCRIPT_TRIVY))
+    montajes = re.findall(r'-v "([^"]+)"', ejecutable)
+    assert montajes
+    for montaje in montajes:
+        assert re.match(r'^\$(VOL_TRABAJO|VOL_RESULTADOS|CACHE_VOLUMEN):/(trabajo|resultados|cache)(:ro)?$', montaje), montaje
+    for ruta_del_agente in ("$TRABAJO:", "$RESULTADOS:", "$RAIZ"):
+        assert not re.search(r'-v\s+"?' + re.escape(ruta_del_agente), ejecutable), ruta_del_agente
+    assert "--mount" not in ejecutable
+
+
 def test_el_contenedor_de_trivy_no_monta_el_socket_de_docker():
     assert "docker.sock" not in "\n".join(lineas_ejecutables(SCRIPT_TRIVY))
 
@@ -168,7 +180,10 @@ def test_solo_se_archiva_trivy_resultados_no_el_tar_ni_el_crudo_ni_el_env():
     archivados = re.findall(r"archiveArtifacts artifacts: '([^']+)'", bloque_del_stage("Trivy"))
     assert archivados == ["trivy-resultados/**"]
     ejecutable = "\n".join(lineas_ejecutables(SCRIPT_TRIVY))
-    assert "trap 'rm -rf \"$TRABAJO\"' EXIT" in ejecutable
+    assert "trap limpiar EXIT" in ejecutable
+    limpieza = ejecutable[ejecutable.index("limpiar() {"):ejecutable.index("trap limpiar EXIT")]
+    assert 'rm -rf "$TRABAJO"' in limpieza and 'docker rm -f "$AUXILIAR"' in limpieza
+    assert 'docker volume rm -f "$VOL_TRABAJO" "$VOL_RESULTADOS"' in limpieza and "CACHE_VOLUMEN" not in limpieza
 
 
 @pytest.mark.parametrize("archivo", [".gitignore", ".dockerignore"])

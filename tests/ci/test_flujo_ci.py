@@ -6,6 +6,7 @@ esto no es un escaneo real ni una ejecución de Jenkins.
 """
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -24,8 +25,47 @@ pytestmark = pytest.mark.skipif(SH is None, reason="se necesita un intérprete s
 
 DOCKER_FALSO = r"""#!/bin/sh
 echo "$*" >> "$FAKE_LOG"
+# Volúmenes simulados: un directorio por volumen en $FAKE_VOLS; el contenedor auxiliar apunta a los suyos con archivos _aux_<nombre>.<punto>.
+sha() { "$FAKE_PYTHON" -c "import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest(), sys.argv[1])" "$1"; }
+destino_en_aux() {
+    aux="${1%%:*}"; ruta="${1#*:}"; punto="${ruta#/}"; punto="${punto%%/*}"
+    vol="$(cat "$FAKE_VOLS/_aux_$aux.$punto")"
+    resto="${ruta#/$punto}"
+    DIR_AUX="$FAKE_VOLS/$vol$resto"
+}
 case "$1" in
-volume) exit 0 ;;
+volume)
+    case "$2" in
+        create) mkdir -p "$FAKE_VOLS/$3" ;;
+        rm) shift 2; for v in "$@"; do case "$v" in -f) ;; *) rm -rf "$FAKE_VOLS/$v" ;; esac; done ;;
+    esac
+    exit 0 ;;
+create)
+    [ -n "${FAKE_CREATE_FALLA:-}" ] && exit 1
+    nombre=""; previo=""
+    for a in "$@"; do
+        [ "$previo" = "--name" ] && nombre="$a"
+        if [ "$previo" = "-v" ]; then
+            case "$a" in *:/trabajo) echo "${a%%:/trabajo}" > "$FAKE_VOLS/_aux_$nombre.trabajo" ;; *:/resultados) echo "${a%%:/resultados}" > "$FAKE_VOLS/_aux_$nombre.resultados" ;; esac
+        fi
+        previo="$a"
+    done
+    exit 0 ;;
+rm)
+    rm -f "$FAKE_VOLS"/_aux_"$3".*
+    exit 0 ;;
+cp)
+    case "$2" in
+        *:/resultados/.)
+            [ -n "${FAKE_RECUPERAR_FALLA:-}" ] && exit 1
+            destino_en_aux "${2%/.}"
+            cp -R "$DIR_AUX/." "$3/"
+            exit 0 ;;
+    esac
+    [ -n "${FAKE_CP_FALLA:-}" ] && exit 1
+    destino_en_aux "$3"
+    if [ -n "${FAKE_TAR_CORRUPTO:-}" ] && [ "${3##*/}" = "imagen.tar" ]; then : > "$DIR_AUX"; else cp "$2" "$DIR_AUX"; fi
+    exit 0 ;;
 image)
     [ -n "${FAKE_SIN_IMAGEN:-}" ] && exit 1
     printf '%s\n' "$FAKE_IMAGE_ID"
@@ -45,26 +85,30 @@ run) ;;
 *) exit 0 ;;
 esac
 shift
-trabajo=""; resultados=""; ci=""; previo=""
+trabajo=""; resultados=""; previo=""
 for a in "$@"; do
     if [ "$previo" = "-v" ]; then
         case "$a" in
-            *:/trabajo | *:/trabajo:ro) trabajo="${a%%:/trabajo*}" ;;
-            *:/resultados) resultados="${a%%:/resultados}" ;;
-            *:/ci:ro) ci="${a%%:/ci:ro}" ;;
+            *:/trabajo | *:/trabajo:ro) trabajo="$FAKE_VOLS/${a%%:/trabajo*}" ;;
+            *:/resultados) resultados="$FAKE_VOLS/${a%%:/resultados}" ;;
         esac
     fi
     previo="$a"
 done
 case " $* " in
+    *" --entrypoint sha256sum "*) sha - ;;
+    *'sha256sum "$f"'*)
+        [ -s "$trabajo/imagen.tar" ] || exit 1
+        sha /trabajo/imagen.tar < "$trabajo/imagen.tar"
+        exit 0 ;;
+    *"trivy version --format json"*)
+        [ -n "${FAKE_VERSION_FALLA:-}" ] && exit 1
+        cp "$FAKE_VERSION" "$trabajo/trivy-version.json"
+        exit 0 ;;
     *" --entrypoint sh "*) exit 0 ;;
     *" image --input "*)
         [ -n "${FAKE_SCAN_FALLA:-}" ] && exit 1
         cp "$FAKE_CRUDO" "$trabajo/trivy-crudo.json"
-        exit 0 ;;
-    *" version --format json "*)
-        [ -n "${FAKE_VERSION_FALLA:-}" ] && exit 1
-        cat "$FAKE_VERSION"
         exit 0 ;;
     *" convert "*)
         [ -n "${FAKE_CONVERT_FALLA:-}" ] && exit 1
@@ -74,7 +118,7 @@ case " $* " in
         flag=0
         for a in "$@"; do
             if [ "$flag" = 0 ]; then
-                if [ "$a" = "/ci/evaluar_trivy.py" ]; then flag=1; set --; fi
+                if [ "$a" = "/trabajo/evaluar_trivy.py" ]; then flag=1; set --; fi
             else
                 case "$a" in
                     /trabajo/*) a="$trabajo/${a#/trabajo/}" ;;
@@ -83,7 +127,7 @@ case " $* " in
                 set -- "$@" "$a"
             fi
         done
-        exec "$FAKE_PYTHON" -I "$ci/evaluar_trivy.py" "$@" ;;
+        exec "$FAKE_PYTHON" -I "$trabajo/evaluar_trivy.py" "$@" ;;
 esac
 exit 0
 """
@@ -101,12 +145,14 @@ class Entorno:
         falso.chmod(falso.stat().st_mode | stat.S_IEXEC)
         self.registro = carpeta / "docker.log"
         self.registro.write_text("", encoding="utf-8")
+        self.volumenes = carpeta / "volumenes"
+        self.volumenes.mkdir()
         tar_de_imagen(carpeta / "imagen.tar")
         (carpeta / "version.json").write_text(json.dumps(VERSION), encoding="utf-8")
         self.variables = {
             **{k: v for k, v in os.environ.items() if k != "MSYS_NO_PATHCONV"},
             "PATH": f"{binarios}{os.pathsep}{os.environ['PATH']}",
-            "FAKE_LOG": str(self.registro), "FAKE_IMAGE_ID": ID_CONFIG, "FAKE_TAR": str(carpeta / "imagen.tar"),
+            "FAKE_LOG": str(self.registro), "FAKE_VOLS": str(self.volumenes), "BUILD_NUMBER": "7", "FAKE_IMAGE_ID": ID_CONFIG, "FAKE_TAR": str(carpeta / "imagen.tar"),
             "FAKE_VERSION": str(carpeta / "version.json"), "FAKE_PYTHON": sys.executable, "FAKE_CRUDO": str(carpeta / "crudo.json"),
             "FAKE_IMAGEN_EN_USO": ID_CONFIG, "IMAGEN_REF": IMAGEN_REF, "IMAGEN_ID": ID_CONFIG, "AMBIENTE": "qa",
             "COMPOSE_PROJECT": "proyecto-prueba",
@@ -226,6 +272,80 @@ def test_un_archivo_de_ignorados_detiene_el_analisis_sin_ejecutarlo(entorno):
     proceso = entorno.con_reporte(reporte()).trivy()
     comprobar_error_tecnico(entorno, proceso, "podrían suprimir hallazgos")
     assert not any(" image --input " in c for c in entorno.comandos())
+
+
+# ============================================ transferencia por volúmenes (Jenkins dentro de un contenedor) ============================================
+
+def indice(comandos, fragmento):
+    return next(i for i, c in enumerate(comandos) if fragmento in c)
+
+
+def volumenes_de_la_ejecucion(entorno):
+    return sorted(p.name for p in entorno.volumenes.iterdir() if p.name.startswith(("igualab-trivy-trabajo-", "igualab-trivy-resultados-", "_aux_")))
+
+
+def test_el_tar_y_los_resultados_viajan_por_volumenes_nombrados_sin_rutas_del_agente(entorno):
+    entorno.con_reporte(reporte()).trivy()
+    montajes = [parte for c in entorno.comandos() for anterior, parte in zip(c.split(), c.split()[1:]) if anterior == "-v"]
+    assert montajes
+    for montaje in montajes:
+        assert re.match(r"^igualab-trivy-(trabajo|resultados|cache)-[a-z0-9-]+:/(trabajo|resultados|cache)(:ro)?$", montaje), montaje
+    assert str(entorno.trabajo) not in "\n".join(entorno.comandos())
+
+
+def test_el_tar_se_copia_y_se_verifica_desde_un_contenedor_antes_de_analizar(entorno):
+    entorno.con_reporte(reporte()).trivy()
+    comandos = entorno.comandos()
+    copia = indice(comandos, "cp trivy-trabajo/imagen.tar igualab-trivy-aux-qa-7-")
+    verificacion = indice(comandos, 'sha256sum "$f"')
+    assert "[ -f \"$f\" ] && [ -r \"$f\" ] && [ -s \"$f\" ]" in comandos[verificacion]
+    assert "--user " in comandos[verificacion] and ":/trabajo:ro" in comandos[verificacion]
+    assert copia < verificacion < indice(comandos, " image --input ")
+
+
+def test_si_el_tar_llega_vacio_al_volumen_no_se_analiza(entorno):
+    proceso = entorno.con_reporte(reporte()).trivy(FAKE_TAR_CORRUPTO="1")
+    comprobar_error_tecnico(entorno, proceso, "imagen.tar no existe, no es legible o está vacío")
+    assert not any(" image --input " in c for c in entorno.comandos())
+
+
+def test_si_no_se_puede_copiar_el_tar_al_volumen_es_error_tecnico(entorno):
+    comprobar_error_tecnico(entorno, entorno.con_reporte(reporte()).trivy(FAKE_CP_FALLA="1"), "copiar imagen.tar al volumen")
+    assert not any(" image --input " in c for c in entorno.comandos())
+
+
+def test_si_no_se_pueden_recuperar_los_resultados_es_error_tecnico_aunque_el_analisis_apruebe(entorno):
+    proceso = entorno.con_reporte(reporte([vulnerabilidad("LOW")])).trivy(FAKE_RECUPERAR_FALLA="1")
+    comprobar_error_tecnico(entorno, proceso, "recuperar los resultados")
+
+
+@pytest.mark.parametrize("extra, codigo", [
+    ({}, 0),
+    ({"FAKE_SCAN_FALLA": "1"}, 2),
+    ({"FAKE_TAR_CORRUPTO": "1"}, 2),
+    ({"FAKE_CP_FALLA": "1"}, 2),
+    ({"FAKE_RECUPERAR_FALLA": "1"}, 2),
+], ids=["aprobada", "falla-trivy", "tar-vacio", "falla-copia", "falla-recuperacion"])
+def test_se_eliminan_los_recursos_de_la_ejecucion_con_cualquier_resultado(entorno, extra, codigo):
+    assert entorno.con_reporte(reporte()).trivy(**extra).returncode == codigo
+    assert volumenes_de_la_ejecucion(entorno) == []
+    assert not (entorno.trabajo / "trivy-trabajo").exists()
+    assert any(c.startswith("rm -f igualab-trivy-aux-qa-7-") for c in entorno.comandos())
+
+
+def test_bloqueada_elimina_los_recursos_y_deja_los_reportes_en_el_workspace(entorno):
+    proceso = entorno.con_reporte(reporte([vulnerabilidad("HIGH", "CVE-2026-0042")])).trivy()
+    assert proceso.returncode == 1
+    assert volumenes_de_la_ejecucion(entorno) == []
+    assert all(entorno.resultado(n).is_file() for n in (HTML, JSON, "resumen-trivy.txt", "consola-trivy.log"))
+
+
+def test_solo_se_eliminan_los_volumenes_de_esa_ejecucion_no_la_cache_de_la_base(entorno):
+    entorno.con_reporte(reporte()).trivy()
+    borrados = " ".join(c for c in entorno.comandos() if c.startswith("volume rm"))
+    assert "igualab-trivy-trabajo-qa-7-" in borrados and "igualab-trivy-resultados-qa-7-" in borrados
+    assert "cache" not in borrados
+    assert (entorno.volumenes / "igualab-trivy-cache-qa").is_dir()
 
 
 # ============================================ despliegue: exactamente la imagen analizada ============================================
