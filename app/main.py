@@ -54,6 +54,11 @@ app = FastAPI(
     title="Igualab",
     version="0.1.0",
     lifespan=lifespan,
+    # FastAPI >= 0.132 rechaza (422) un cuerpo JSON sin `Content-Type: application/json`. Con la versión anterior (0.115) se aceptaba, y el
+    # contrato HTTP vigente no cambia con la actualización de dependencias. Un `Content-Type` distinto de JSON (p. ej. text/plain) sigue siendo
+    # rechazado igual que antes. La API se autentica solo con `Authorization: Bearer` (sin cookies), así que esta comprobación no es una defensa
+    # contra CSRF en este servicio.
+    strict_content_type=False,
 )
 
 register_exception_handlers(app)

@@ -5,38 +5,28 @@ Starlette atiende la primera ruta cuyo patrón coincide. `GET /documentos/dispon
 Sin base de datos ni red: solo se evalúa el enrutamiento de `app.main.app`.
 """
 import pytest
-from starlette.routing import Match
 
-from app.main import app
+from tests.ayudantes_rutas import operaciones_openapi, ruta_que_atiende
 
-
-def _primera_ruta_que_atiende(metodo: str, ruta: str):
-    alcance = {"type": "http", "method": metodo, "path": ruta, "root_path": ""}
-    for candidata in app.routes:
-        coincidencia, _ = candidata.matches(alcance)
-        if coincidencia is Match.FULL:
-            return candidata
-    return None
+# El enrutamiento se evalúa despachando por la aplicación real (ver tests/ayudantes_rutas.py): `app.routes` ya no es una lista plana.
 
 
 @pytest.mark.parametrize(
     ("metodo", "ruta"),
     [("GET", "/documentos/disponibilidad"), ("GET", "/reportes/disponibilidad")],
 )
-def test_las_rutas_de_disponibilidad_las_atiende_su_propio_endpoint(metodo, ruta):
-    atiende = _primera_ruta_que_atiende(metodo, ruta)
+async def test_las_rutas_de_disponibilidad_las_atiende_su_propio_endpoint(metodo, ruta):
+    atiende = await ruta_que_atiende(metodo, ruta)
     assert atiende is not None
     assert atiende.path == ruta  # la ruta estática, no una con parámetros
 
 
-def test_ninguna_ruta_estatica_queda_oculta_por_una_con_identificador():
+async def test_ninguna_ruta_estatica_queda_oculta_por_una_con_identificador():
     capturadas = []
-    for ruta in app.routes:
-        metodos = getattr(ruta, "methods", None)
-        if not metodos or "{" in ruta.path:
-            continue
-        for metodo in metodos - {"HEAD", "OPTIONS"}:
-            atiende = _primera_ruta_que_atiende(metodo, ruta.path)
-            if atiende is not ruta:
-                capturadas.append((metodo, ruta.path, getattr(atiende, "path", None)))
+    estaticas = [(metodo, ruta) for metodo, ruta in operaciones_openapi() if "{" not in ruta]
+    assert estaticas, "la aplicación debe documentar rutas estáticas"
+    for metodo, ruta in estaticas:
+        atiende = await ruta_que_atiende(metodo, ruta)
+        if getattr(atiende, "path", None) != ruta or metodo not in atiende.methods:
+            capturadas.append((metodo, ruta, getattr(atiende, "path", None)))
     assert capturadas == []

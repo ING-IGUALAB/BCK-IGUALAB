@@ -78,6 +78,8 @@ def test_ddl_postgresql_tipos_y_unicidad():
 def test_router_integrado_en_aplicacion():
     from app.main import app
 
-    rutas = {ruta.path for ruta in app.routes}
+    from tests.ayudantes_rutas import operaciones_openapi
+
+    rutas = {ruta for _, ruta in operaciones_openapi()}
     assert "/empresas" in rutas
     assert "/empresas/{empresa_id}/desactivar" in rutas
