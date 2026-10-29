@@ -116,7 +116,8 @@ def test_el_stage_trivy_no_tiene_omisiones_ni_estado_inestable():
     for prohibido in ("unstable", "catchError", "|| true", "ignoreFailure", "allowFailure", "buildResult"):
         assert prohibido not in codigo, prohibido
     assert "error(" in codigo
-    assert "codigo == 1" in codigo and "codigo != 0" in codigo
+    assert "codigo == 1" in codigo
+    assert "codigo != 0" in codigo
 
 
 @pytest.mark.parametrize("ruta", SCRIPTS_SH, ids=lambda r: r.name)
@@ -132,8 +133,10 @@ def test_los_scripts_de_ci_no_contienen_omisiones_de_la_politica(ruta):
 def test_el_escaneo_incluye_todas_las_severidades_en_un_solo_json_y_no_sube_el_nivel_de_aprobacion():
     ejecutable = "\n".join(lineas_ejecutables(SCRIPT_TRIVY))
     assert "--severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL" in ejecutable
-    assert "--scanners vuln" in ejecutable and "--pkg-types os,library" in ejecutable
-    assert "--format json" in ejecutable and "--exit-code 0" in ejecutable
+    assert "--scanners vuln" in ejecutable
+    assert "--pkg-types os,library" in ejecutable
+    assert "--format json" in ejecutable
+    assert "--exit-code 0" in ejecutable
     assert ejecutable.count("image --input") == 1, "un único análisis: el HTML sale de convert, no de otro escaneo"
     assert "convert --format template --template \"@/contrib/html.tpl\"" in ejecutable
     assert '--ignorefile ""' in ejecutable
@@ -171,7 +174,8 @@ def test_se_conserva_la_retencion_de_un_build_y_un_artifact():
 def test_trivy_archiva_siempre_y_antes_de_la_limpieza_del_workspace():
     bloque = bloque_del_stage("Trivy")
     post = bloque[bloque.index("post {"):]
-    assert "always" in post and "archiveArtifacts artifacts: 'trivy-resultados/**'" in post
+    assert "always" in post
+    assert "archiveArtifacts artifacts: 'trivy-resultados/**'" in post
     assert "allowEmptyArchive: true" in post
     assert JENKINSFILE.index("archiveArtifacts artifacts: 'trivy-resultados/**'") < JENKINSFILE.index("deleteDir()")
 
@@ -182,8 +186,10 @@ def test_solo_se_archiva_trivy_resultados_no_el_tar_ni_el_crudo_ni_el_env():
     ejecutable = "\n".join(lineas_ejecutables(SCRIPT_TRIVY))
     assert "trap limpiar EXIT" in ejecutable
     limpieza = ejecutable[ejecutable.index("limpiar() {"):ejecutable.index("trap limpiar EXIT")]
-    assert 'rm -rf "$TRABAJO"' in limpieza and 'docker rm -f "$AUXILIAR"' in limpieza
-    assert 'docker volume rm -f "$VOL_TRABAJO" "$VOL_RESULTADOS"' in limpieza and "CACHE_VOLUMEN" not in limpieza
+    assert 'rm -rf "$TRABAJO"' in limpieza
+    assert 'docker rm -f "$AUXILIAR"' in limpieza
+    assert 'docker volume rm -f "$VOL_TRABAJO" "$VOL_RESULTADOS"' in limpieza
+    assert "CACHE_VOLUMEN" not in limpieza
 
 
 @pytest.mark.parametrize("archivo", [".gitignore", ".dockerignore"])
