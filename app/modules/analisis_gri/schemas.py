@@ -141,6 +141,42 @@ class PasajeEvidencia(_Modelo):
     apariciones: list[AparicionPasaje]
 
 
+class UbicacionCita(_Modelo):
+    """Dónde aparece una cita agrupada dentro de su documento: una sección y las menciones que hay en ella."""
+
+    seccion_legible: str = Field(
+        description="Ruta de la sección sin marcas de formato. Cadena vacía si la mención no tiene sección: el frontend debe "
+        "mostrar «Sin sección identificada»."
+    )
+    total_menciones: int = Field(description="Menciones originales de la cita en esta sección.")
+    indices_evidencia: list[int] = Field(
+        description="Posiciones de esas menciones en `FilaGri.evidencias` (que conserva sus posiciones originales)."
+    )
+
+
+class CitaAgrupada(_Modelo):
+    """Presentación: un texto idéntico del MISMO documento y de la misma fila GRI, mostrado una vez con sus menciones y ubicaciones.
+
+    Se calcula al responder, sin escrituras. No sustituye ni elimina `evidencias` ni `pasajes`: cada mención sigue existiendo y se
+    cuenta una vez. Los textos idénticos de documentos distintos (o de filas distintas) son citas agrupadas distintas."""
+
+    documento_id: uuid.UUID
+    documento_nombre: str = Field(description="Nombre del archivo del documento (p. ej. `informe-2025.md`).")
+    cita_legible: str = Field(
+        description="Texto completo a mostrar (el del pasaje, sin marcas de formato y sin truncar). Dos citas son la misma solo si "
+        "este texto es exactamente igual."
+    )
+    total_menciones: int = Field(description="Menciones originales que agrupa. Cada mención se cuenta una sola vez.")
+    referencias: list[str] = Field(
+        description="Referencias GRI originales que respaldan la cita (sin repetidos, en orden de aparición), p. ej. `GRI 3-1`, `GRI 3-2`."
+    )
+    ubicaciones: list[UbicacionCita] = Field(
+        description="Todas las secciones del documento donde aparece el texto, en orden de aparición. Nunca se atribuye a la primera."
+    )
+    indices_evidencia: list[int] = Field(description="Posiciones de todas sus menciones en `FilaGri.evidencias`.")
+    indices_pasaje: list[int] = Field(description="Posiciones de los pasajes que reúne en `FilaGri.pasajes`.")
+
+
 class AdvertenciaFila(_Modelo):
     codigo: str
     mensaje: str
@@ -172,6 +208,17 @@ class FilaGri(_Modelo):
         default_factory=list,
         description="Las mismas evidencias agrupadas por pasaje para presentarlas sin repeticiones artificiales. "
         "`total_menciones` y `evidencias` no cambian.",
+    )
+    citas_agrupadas: list[CitaAgrupada] = Field(
+        default_factory=list,
+        description="LISTA A RENDERIZAR en la tarjeta: cada texto idéntico del mismo documento una sola vez, con el número de "
+        "menciones que agrupa y todas sus ubicaciones. Parte de `pasajes`; `evidencias`, `pasajes` y los conteos no cambian. "
+        "Vacía si el análisis no se presenta. Su tamaño es `total_citas_agrupadas` (no `total_menciones`).",
+    )
+    total_citas_agrupadas: int = Field(
+        default=0,
+        description="Cantidad de citas agrupadas (citas únicas por documento). Es distinta de `total_menciones`: «54 menciones · "
+        "20 citas únicas». «Ver N citas más» = `total_citas_agrupadas` menos las ya mostradas.",
     )
 
 
