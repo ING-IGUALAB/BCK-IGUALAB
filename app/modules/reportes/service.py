@@ -82,6 +82,9 @@ logger = logging.getLogger("igualab.reportes")
 MAX_INTENTOS_DE_VERSION = 3
 RESTRICCION_UNICA_DE_VALIDACION = "uq_reporte_validacion"
 RESTRICCION_UNICA_DE_VERSION = "uq_reporte_empresa_anio_version"
+# Campos de PRESENTACIÓN de la pantalla de Análisis GRI (derivados de `pasajes`) que el snapshot NO guarda: así el snapshot de una
+# emisión nueva conserva exactamente la forma de los anteriores y el reporte no depende de ellos.
+SNAPSHOT_SIN_CITAS_AGRUPADAS = {"filas": {"__all__": {"citas_agrupadas", "total_citas_agrupadas"}}}
 
 
 # --- Consultas de reportes (sin cargar el PDF) ------------------------------------------------------------------------
@@ -267,7 +270,7 @@ async def _publicar(
         return None
     reporte = ReporteProspeccion(
         empresa_id=empresa_id, anio=anio, version=prep.version, validacion_id=prep.validacion.id, generado_por=usuario_id,
-        pdf=pdf, sha256=hashlib.sha256(pdf).hexdigest(), snapshot=prep.analisis.model_dump(mode="json"),
+        pdf=pdf, sha256=hashlib.sha256(pdf).hexdigest(), snapshot=prep.analisis.model_dump(mode="json", exclude=SNAPSHOT_SIN_CITAS_AGRUPADAS),
         creado_en=prep.emitido_en,
     )
     db.add(reporte)

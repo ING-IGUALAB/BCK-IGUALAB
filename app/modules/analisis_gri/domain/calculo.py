@@ -63,6 +63,7 @@ from app.modules.ingesta.application.analisis_ingesta import (
     CATEGORIA_CALIDAD,
     CATEGORIA_GRI,
 )
+from app.modules.analisis_gri.domain.citas_agrupadas import agrupar_citas
 from app.modules.analisis_gri.domain.pasajes import agrupar_pasajes
 from app.modules.ingesta.domain.agrupacion_sanciones import ADV_DATOS_EN_CONFLICTO, ADV_POSIBLE_DUPLICADA
 from app.modules.ingesta.domain.legibilidad import seccion_legible, texto_legible
@@ -260,6 +261,8 @@ def _acumular_grupo(acumuladores: dict[str, _Acumulador], doc: DocumentoBase, gr
 def _fila_desde_acumulador(clave: str, acc: _Acumulador, presentacion: bool = True) -> FilaGri:
     evidencias = [_evidencia(doc, m, presentacion) for doc, m in acc.menciones]
     documentos_fila = list(dict.fromkeys(doc.id for doc, _ in acc.menciones))
+    pasajes = agrupar_pasajes(evidencias) if presentacion else []
+    citas = agrupar_citas(pasajes)
     return FilaGri(
         identidad=clave,
         codigo=acc.codigo,
@@ -279,7 +282,9 @@ def _fila_desde_acumulador(clave: str, acc: _Acumulador, presentacion: bool = Tr
         documentos=documentos_fila,
         advertencias=_advertencias_de_fila(acc.menciones),
         evidencias=evidencias,
-        pasajes=agrupar_pasajes(evidencias) if presentacion else [],
+        pasajes=pasajes,
+        citas_agrupadas=citas,
+        total_citas_agrupadas=len(citas),
     )
 
 
@@ -288,7 +293,7 @@ def construir_filas(
 ) -> tuple[list[FilaGri], list[AdvertenciaAnalisis]]:
     """Filas evaluables (sin estados) y advertencias de referencias desconocidas y de calidad, en orden estable.
     `documentos` ya viene en orden determinista (completado_en, id). Con `presentacion=False` (escrituras, que solo necesitan
-    identidades y estados) no se calculan los textos legibles ni los pasajes agrupados: el resto del resultado es idéntico."""
+    identidades y estados) no se calculan los textos legibles, los pasajes ni las citas agrupadas: el resto del resultado es idéntico."""
     acumuladores: dict[str, _Acumulador] = {}
     advertencias: list[AdvertenciaAnalisis] = []
     for doc in documentos:
