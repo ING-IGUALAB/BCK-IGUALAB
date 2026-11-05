@@ -53,17 +53,55 @@ async def asegurar_esquema_real(url_pg_aislado: str) -> None:
     _ESQUEMA_REAL_APLICADO.add(url_pg_aislado)
 
 
-async def asegurar_esquema_auditoria(url_pg_aislado: str) -> None:
-    """Aplica, una vez por clúster, la migración 0005 REAL (resultado, valor `ACCESO_DENEGADO` y disparadores de solo inserción de
-    `auditoria` y `reportes_prospeccion`) sobre las tablas que ya creó `create_all`: es el mismo orden del arranque."""
-    if url_pg_aislado in _AUDITORIA_APLICADA:
-        return
-    conexion = await asyncpg.connect(url_pg_aislado.replace("+asyncpg", "", 1))
+async def _aplicar_migraciones(url: str, indices: tuple[int, ...]) -> None:
+    conexion = await asyncpg.connect(url.replace("+asyncpg", "", 1))
     try:
-        await conexion.execute(ESQUEMA_TRANSACCIONAL.migraciones[4].sql())
+        for i in indices:
+            await conexion.execute(ESQUEMA_TRANSACCIONAL.migraciones[i].sql())
     finally:
         await conexion.close()
+
+
+async def asegurar_esquema_auditoria(url_pg_aislado: str) -> None:
+    """Aplica, una vez por base, las migraciones 0005, 0006 y 0007 REALES (resultado, valor `ACCESO_DENEGADO`, disparadores de solo
+    inserción de `auditoria` y `reportes_prospeccion`, reportes versionados e integridad de las emisiones) sobre las tablas que ya
+    creó `create_all`: es el mismo orden del arranque. Necesitan las tablas del Módulo 5 (claves foráneas a las validaciones), por
+    eso se aseguran antes."""
+    if url_pg_aislado in _AUDITORIA_APLICADA:
+        return
+    await asegurar_esquema_real(url_pg_aislado)
+    await _aplicar_migraciones(url_pg_aislado, (4, 5, 6))
     _AUDITORIA_APLICADA.add(url_pg_aislado)
+
+
+async def crear_base_aislada(url_servidor: str, prefijo: str = "rep") -> str:
+    """Base NUEVA dentro del clúster aislado (nunca una compartida) con las tablas de los modelos (`create_all`), como el arranque."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.database import Base
+    from tests.ayudantes_migraciones import base_vacia
+
+    url = await base_vacia(url_servidor, prefijo)
+    motor = create_async_engine(url)
+    try:
+        async with motor.begin() as conexion:
+            await conexion.run_sync(Base.metadata.create_all)
+    finally:
+        await motor.dispose()
+    return url
+
+
+async def preparar_esquema_anterior_a_la_0007(url: str) -> None:
+    """Esquema de los ambientes que ya tienen la 0006 pero NO la 0007: Módulo 5 (0004), 0005 y 0006. Permite sembrar reportes
+    históricos (sin validación vinculada) antes de aplicar la 0007 con `completar_esquema_reportes`."""
+    await asegurar_esquema_real(url)
+    await _aplicar_migraciones(url, (4, 5))
+
+
+async def completar_esquema_reportes(url: str) -> None:
+    """Aplica la 0007 (y deja la base como las que pasaron por `asegurar_esquema_auditoria`)."""
+    await _aplicar_migraciones(url, (6,))
+    _AUDITORIA_APLICADA.add(url)
 
 
 async def crear_administrador(db, nombre: str = "Admin de prueba") -> Usuario:

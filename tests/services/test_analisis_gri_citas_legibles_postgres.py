@@ -193,13 +193,16 @@ async def test_un_reporte_emitido_con_el_formato_anterior_se_descarga_y_lista_si
     pdf = b"%PDF-1.4 emitido-antes"
     snapshot = {"anio": 2025, "filas": [{"identidad": "305:2016", "evidencias": [{"cita": "### Emisiones<br>**x**"}]}]}
     reporte_id = uuid.uuid4()
+    await validar_todo(m5)  # un reporte nuevo siempre nace de una validación (la base rechaza uno sin validación)
+    validacion_id = (await sql(m5, "SELECT id FROM analisis_gri_validaciones"))[0][0]
     async with m5.fabrica() as db:
         await db.execute(
             text(
-                "INSERT INTO reportes_prospeccion (id, empresa_id, anio, generado_por, pdf, sha256, snapshot) "
-                "VALUES (:i, :e, 2025, :u, :pdf, :h, CAST(:s AS jsonb))"
+                "INSERT INTO reportes_prospeccion (id, empresa_id, anio, version, validacion_id, generado_por, pdf, sha256, snapshot) "
+                "VALUES (:i, :e, 2025, 1, :v, :u, :pdf, :h, CAST(:s AS jsonb))"
             ),
-            {"i": reporte_id, "e": m5.empresa.id, "u": m5.admin.id, "pdf": pdf, "h": hashlib.sha256(pdf).hexdigest(), "s": json.dumps(snapshot)},
+            {"i": reporte_id, "e": m5.empresa.id, "v": validacion_id, "u": m5.admin.id, "pdf": pdf,
+             "h": hashlib.sha256(pdf).hexdigest(), "s": json.dumps(snapshot)},
         )
         await db.commit()
     antes = await sql(m5, "SELECT id, pdf, sha256, snapshot::text FROM reportes_prospeccion")

@@ -32,6 +32,14 @@ from tests.services.test_auditoria_postgres import base_con_auditoria_anterior
 CLAVE = "ClaveSegura1!"
 CORREO = "acceso@pruebas.example.com"
 TRIGGERS = {"disparador:auditoria.tr_auditoria_solo_insercion", "disparador:reportes_prospeccion.tr_reportes_solo_insercion"}
+# Lo que `create_all` NO deja en `reportes_prospeccion` (las claves foráneas a las validaciones, la unicidad destino de la compuesta
+# y el disparador que exige validación los agregan las migraciones 0006 y 0007; en esta base ni siquiera existen las tablas del Módulo 5).
+FK_REPORTES = {
+    "restriccion:reportes_prospeccion.fk_reporte_validacion",
+    "restriccion:reportes_prospeccion.fk_reporte_validacion_empresa_anio",
+    "restriccion:analisis_gri_validaciones.uq_analisis_validacion_id_empresa_anio",
+    "disparador:reportes_prospeccion.tr_reportes_exigir_validacion",
+}
 
 
 # ================================================ Ayudantes ================================================
@@ -87,11 +95,11 @@ def esquema_hasta(version: int):
 
 async def test_instalacion_nueva_create_all_deja_columna_y_tipo_pero_no_los_disparadores_hasta_migrar(url_pg_aislado):
     url = await base_transaccional_nueva(url_pg_aislado)  # create_all con los modelos actuales, como el arranque
-    assert set(await faltantes(url)) == TRIGGERS  # la columna y el tipo ya vienen de los modelos; los disparadores no
+    assert set(await faltantes(url)) == TRIGGERS | FK_REPORTES  # la columna y el tipo ya vienen de los modelos; los disparadores y la FK no
     with pytest.raises(ErrorMigracion) as capturado:
         await verificar_esquema_central(url)
     assert capturado.value.codigo == CODIGO
-    assert set(capturado.value.detalles["faltan"]) == TRIGGERS
+    assert set(capturado.value.detalles["faltan"]) == TRIGGERS | FK_REPORTES
 
     await migrar(url, ESQUEMA_TRANSACCIONAL)
 
@@ -136,7 +144,7 @@ async def test_actualizacion_con_datos_rechaza_el_esquema_anterior_y_tras_migrar
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert resultado.aplicadas == (1, 2, 3, 4, 5)
+    assert resultado.aplicadas == (1, 2, 3, 4, 5, 6, 7)
     assert await faltantes(url) == []
     despues = await consultar(url, "SELECT id, usuario_id, tipo_evento::text AS t, detalle, fecha_hora_utc FROM auditoria WHERE resultado IS NULL")
     assert [tuple(f) for f in despues] == [tuple(f) for f in antes]  # el evento histórico sigue intacto y sin resultado inventado
@@ -151,7 +159,7 @@ async def test_segundo_arranque_no_aplica_nada_y_la_comprobacion_sigue_pasando(u
     segundo = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
     assert segundo.sin_cambios
-    assert segundo.previas == (1, 2, 3, 4, 5)
+    assert segundo.previas == (1, 2, 3, 4, 5, 6, 7)
     await verificar_esquema_central(url)
 
 
@@ -224,7 +232,7 @@ async def test_si_la_migracion_falla_a_mitad_se_deshace_por_completo_y_no_se_reg
         await iniciar_sesion(url)  # y por eso el arranque no debe anunciar disponibilidad
 
     # Corregida la causa, el siguiente arranque la aplica y todo queda en regla.
-    assert (await migrar(url, ESQUEMA_TRANSACCIONAL)).aplicadas == (5,)
+    assert (await migrar(url, ESQUEMA_TRANSACCIONAL)).aplicadas == (5, 6, 7)
     await verificar_esquema_central(url)
     await iniciar_sesion(url)
 
@@ -280,13 +288,13 @@ async def test_el_lifespan_real_arranca_con_el_esquema_en_regla_y_sirve_el_healt
     for nombre in ("crear_tablas", "crear_superadmin_inicial", "iniciar_ingesta", "detener_ingesta"):
         monkeypatch.setattr(main, nombre, AsyncMock())
 
-    for _ in range(2):  # primer arranque (aplica la 0005) y segundo arranque (sin cambios)
+    for _ in range(2):  # primer arranque (aplica la 0005 y la 0006) y segundo arranque (sin cambios)
         async with main.app.router.lifespan_context(main.app):
             assert main.app.state.analisis_error is None
             transporte = httpx.ASGITransport(app=main.app)
             async with httpx.AsyncClient(transport=transporte, base_url="http://prueba") as cliente:
                 assert (await cliente.get("/health")).json() == {"status": "ok"}
-    assert [v for v, _ in await versiones_registradas(url)] == [1, 2, 3, 4, 5]
+    assert [v for v, _ in await versiones_registradas(url)] == [1, 2, 3, 4, 5, 6, 7]
     await iniciar_sesion(url)
 
 
@@ -298,3 +306,29 @@ async def test_si_la_comprobacion_no_puede_consultar_la_base_el_arranque_tambien
     assert capturado.value.codigo == "MIGRATION_DB_UNAVAILABLE"
     assert "127.0.0.1" not in str(capturado.value)
     assert "pruebas" not in str(capturado.value)
+
+
+# ================================================ Reportes versionados (migración 0006) ================================================
+
+async def test_la_comprobacion_exige_la_forma_versionada_de_los_reportes(url_pg_aislado):
+    url = await base_transaccional_nueva(url_pg_aislado)
+    await migrar(url, ESQUEMA_TRANSACCIONAL)
+    assert await faltantes(url) == []
+
+    # Forma anterior al versionado: sin las columnas ni las restricciones nuevas y con la unicidad por empresa/año.
+    await ejecutar(url, "ALTER TABLE reportes_prospeccion DROP CONSTRAINT uq_reporte_empresa_anio_version, DROP CONSTRAINT uq_reporte_validacion,"
+                        " DROP CONSTRAINT fk_reporte_validacion, DROP CONSTRAINT ck_reporte_version_positiva,"
+                        " DROP COLUMN version, DROP COLUMN validacion_id")
+    await ejecutar(url, "ALTER TABLE reportes_prospeccion ADD CONSTRAINT uq_reporte_empresa_anio UNIQUE (empresa_id, anio)")
+    esperado = {
+        "columna:reportes_prospeccion.version", "columna:reportes_prospeccion.validacion_id",
+        "restriccion:reportes_prospeccion.uq_reporte_empresa_anio_version", "restriccion:reportes_prospeccion.uq_reporte_validacion",
+        "restriccion:reportes_prospeccion.fk_reporte_validacion", "restriccion:reportes_prospeccion.ck_reporte_version_positiva",
+        "restriccion:reportes_prospeccion.fk_reporte_validacion_empresa_anio",  # PostgreSQL la retira junto con la columna
+        "restriccion_obsoleta:reportes_prospeccion.uq_reporte_empresa_anio",
+    }
+    assert set(await faltantes(url)) == esperado
+    with pytest.raises(ErrorMigracion) as capturado:
+        await verificar_esquema_central(url)
+    assert capturado.value.codigo == CODIGO
+    assert set(capturado.value.detalles["faltan"]) == esperado

@@ -418,23 +418,17 @@ async def test_la_vista_previa_usa_los_textos_nuevos_y_no_guarda_nada(monkeypatc
 
 
 async def test_un_reporte_futuro_usa_los_textos_nuevos_y_su_snapshot_conserva_el_analisis(monkeypatch):
-    from app.modules.reportes.service import generar_reporte
+    import app.modules.reportes.service as svc
 
     analisis = analisis_real([doc(DOS_MULTAS_UNA_SIN_MONTO)])
     _parchear(monkeypatch, analisis)
-    db = _FakeDB()
-    compilados = []
-
-    def compilar(html):
-        compilados.append(html)
-        return b"%PDF-1.4 nuevo"
-
-    await generar_reporte(db, ambiente="development", empresa_id=uuid.uuid4(), anio=2025, usuario_id=uuid.uuid4(), compilar_pdf=compilar)
-    (reporte,) = [o for o in db.agregados if hasattr(o, "snapshot")]
-    assert "Total no disponible" in compilados[0]
-    assert "No se detectó el monto de algunas multas." in compilados[0]
-    assert reporte.snapshot == analisis.model_dump(mode="json")  # el snapshot es el análisis, no el texto del reporte
-    assert "descripcion_sanciones" not in reporte.snapshot  # nada del lenguaje del reporte se guarda en el análisis
+    prep = await svc._preparar(_FakeDB(), ambiente="development", empresa_id=uuid.uuid4(), anio=2025)
+    html = prep.html()
+    snapshot = prep.analisis.model_dump(mode="json")  # lo que la emisión guarda como snapshot de la versión
+    assert "Total no disponible" in html
+    assert "No se detectó el monto de algunas multas." in html
+    assert snapshot == analisis.model_dump(mode="json")  # el snapshot es el análisis, no el texto del reporte
+    assert "descripcion_sanciones" not in snapshot  # nada del lenguaje del reporte se guarda en el análisis
 
 
 async def test_la_descarga_de_un_reporte_ya_emitido_entrega_el_pdf_guardado_sin_volver_a_renderizar(monkeypatch):
@@ -447,10 +441,10 @@ async def test_la_descarga_de_un_reporte_ya_emitido_entrega_el_pdf_guardado_sin_
     monkeypatch.setattr(svc, "datos_desde_analisis", no_renderiza)
     snapshot_anterior = {"sanciones": [{"cita": "formato anterior"}], "resumen_sanciones": {"total": 2}}
     emitido = SimpleNamespace(
-        id=uuid.uuid4(), empresa_id=uuid.uuid4(), anio=2024, pdf=b"%PDF-EMITIDO-ANTES", sha256="x",
+        id=uuid.uuid4(), empresa_id=uuid.uuid4(), anio=2024, version=1, pdf=b"%PDF-EMITIDO-ANTES", sha256="x",
         snapshot=copy.deepcopy(snapshot_anterior), generado_por=uuid.uuid4(), creado_en=datetime(2026, 10, 1, tzinfo=timezone.utc),
     )
-    pdf = await svc.obtener_pdf(_FakeDB(existente=emitido), emitido.id, usuario_id=uuid.uuid4())
+    pdf = await svc.obtener_pdf(_FakeDB(reporte=emitido), emitido.id, usuario_id=uuid.uuid4())
     assert pdf == b"%PDF-EMITIDO-ANTES"
     assert (emitido.pdf, emitido.sha256, emitido.snapshot) == (b"%PDF-EMITIDO-ANTES", "x", snapshot_anterior)
 

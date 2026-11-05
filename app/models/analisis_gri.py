@@ -193,6 +193,8 @@ class AnalisisGriValidacion(Base):
             ["analisis_gri_control.ambiente", "analisis_gri_control.empresa_id", "analisis_gri_control.anio"],
         ),
         UniqueConstraint("ambiente", "empresa_id", "anio", "numero", name="uq_analisis_validacion_numero"),
+        # Destino de la FK compuesta de `reportes_prospeccion` (la agrega la migración 0007; redundante con la clave primaria).
+        UniqueConstraint("id", "empresa_id", "anio", name="uq_analisis_validacion_id_empresa_anio"),
         CheckConstraint("numero >= 1", name="ck_analisis_validacion_numero_positivo"),
         CheckConstraint("version_estados >= 1", name="ck_analisis_validacion_version_positiva"),
         CheckConstraint("length(huella_documentos) = 64", name="ck_analisis_validacion_huella"),

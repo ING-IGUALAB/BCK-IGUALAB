@@ -368,6 +368,9 @@ class Pendiente(_Modelo):
 
 
 class ValidacionVista(_Modelo):
+    id: uuid.UUID | None = Field(
+        default=None, description="Identificador de la validación (fila inmutable). Un reporte emitido la registra como su origen."
+    )
     numero: int
     vigente: bool
     motivos_no_vigente: list[MotivoNoVigente]

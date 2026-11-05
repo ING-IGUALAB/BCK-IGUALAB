@@ -407,8 +407,11 @@ def _datos_de_sanciones(analisis: AnalisisResponse) -> dict:
     }
 
 
-def datos_desde_analisis(analisis: AnalisisResponse, fecha_generacion: str) -> dict:
-    """Convierte el análisis validado en el diccionario de la plantilla (valores crudos; jinja2 los escapa)."""
+def datos_desde_analisis(analisis: AnalisisResponse, fecha_generacion: str, version_reporte: int | None = None) -> dict:
+    """Convierte el análisis validado en el diccionario de la plantilla (valores crudos; jinja2 los escapa).
+
+    `version_reporte` y `fecha_generacion` (fecha de emisión) se imprimen en el encabezado y el pie; sin versión (uso heredado) no se
+    muestra la línea de versión."""
     empresa = analisis.empresa
     val = analisis.validacion
 
@@ -428,6 +431,7 @@ def datos_desde_analisis(analisis: AnalisisResponse, fecha_generacion: str) -> d
         "anio": analisis.anio,
         "sector": getattr(empresa.sector, "value", empresa.sector),
         "fecha_generacion": fecha_generacion,
+        "version_reporte": version_reporte,
         "puntaje": puntaje,
         "puntaje_disponible": puntaje != TXT_PUNTAJE_NO_DISPONIBLE,
         "puntaje_texto": f"{puntaje}/100" if puntaje != TXT_PUNTAJE_NO_DISPONIBLE else puntaje,
