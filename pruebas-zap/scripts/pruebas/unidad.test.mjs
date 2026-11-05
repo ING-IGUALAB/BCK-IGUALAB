@@ -22,10 +22,10 @@ const BASE = 'http://igualab-backend-qa-backend-1:8000';
 const EMPRESA = '11111111-2222-4333-8444-555555555555';
 
 describe('alcance', () => {
-  test('el OpenAPI real queda totalmente clasificado: 21 incluidas, 14 excluidas, ninguna sin decidir', () => {
+  test('el OpenAPI real queda totalmente clasificado: 23 incluidas, 14 excluidas, ninguna sin decidir', () => {
     const c = clasificar(real, alcance);
     assert.equal(c.sinClasificar.length, 0);
-    assert.equal(c.incluidas.length, 21);
+    assert.equal(c.incluidas.length, 23);
     assert.equal(c.excluidas.length, 14);
     assert.equal(c.ausentes.length, 0);
   });
@@ -132,7 +132,7 @@ describe('OpenAPI: destinos y especificación filtrada', () => {
     assert.deepEqual(real, original, 'el OpenAPI publicado por la aplicación no se modifica');
     const en = new Set();
     for (const [ruta, item] of Object.entries(filtrada.paths)) for (const m of ['get', 'post', 'put', 'patch', 'delete']) if (item[m]) en.add(`${m.toUpperCase()} ${ruta}`);
-    assert.equal(en.size, 21);
+    assert.equal(en.size, 23);
     for (const o of incluidas) assert.ok(en.has(`${o.metodo} ${o.ruta}`));
     assert.ok(!en.has('POST /asistente/consultas') && !en.has('POST /auth/logout') && !en.has('POST /usuarios'));
     assert.ok(filtrada.paths['/usuarios'].get && !filtrada.paths['/usuarios'].post, 'GET /usuarios queda y POST /usuarios no');

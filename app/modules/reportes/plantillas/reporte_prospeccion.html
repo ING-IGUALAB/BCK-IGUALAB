@@ -10,6 +10,7 @@
   .top-label { color: #555; font-size: 11px; letter-spacing: 1px; }
   .empresa { font-size: 28px; font-weight: bold; margin: 8px 0 10px; }
   .anio-sector { color: #0F5D4A; font-size: 18px; border-bottom: 2px solid #0F5D4A; padding-bottom: 5px; display: inline-block; }
+  .version-reporte { color: #555; font-size: 12px; margin-top: 8px; }
   h2 { color: #0F5D4A; font-size: 18px; border-bottom: 1px solid #0F5D4A; padding-bottom: 5px; margin: 26px 0 12px; }
   h2 svg { vertical-align: -3px; margin-right: 8px; }
   .cards { display: table; width: 100%; border-spacing: 10px 0; }
@@ -50,6 +51,7 @@
 <div class="top-label">REPORTE DE PROSPECCIÓN</div>
 <div class="empresa">{{ empresa_nombre }}</div>
 <div class="anio-sector">Año {{ anio }} · Sector: {{ sector }}</div>
+{% if version_reporte %}<div class="version-reporte">Versión {{ version_reporte }} del reporte · Emitido el {{ fecha_generacion }}</div>{% endif %}
 
 <h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F5D4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg> Resumen ejecutivo</h2>
 <div class="cards">
@@ -137,6 +139,7 @@ Brechas GRI por estado: <strong>{{ conteo_ok }} OK</strong>, <strong>{{ conteo_b
 </div>
 
 <div class="footer">
+  {% if version_reporte %}<div class="l">Versión {{ version_reporte }} · Emitido el {{ fecha_generacion }}</div>{% endif %}
   <div class="r">Igualab Intelligence</div>
 </div>
 

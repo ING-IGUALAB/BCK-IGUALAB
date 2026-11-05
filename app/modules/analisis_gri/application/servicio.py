@@ -9,8 +9,12 @@ persistido y su publicación vectorial está CONFIRMADA (`vector_publicado_en`),
 publicaciones pendientes no se exponen. OBSERVADO sí es elegible (está indexado para RAG) pero no aporta filas GRI ni habilita
 por sí solo el reporte, y tampoco bloquea un análisis sustentado en otros documentos.
 
-CONCURRENCIA. Toda escritura bloquea la fila `analisis_gri_control` de la empresa/año (`FOR UPDATE`): asignaciones y validaciones
-de una misma empresa/año se serializan. Dos controles optimistas evitan sobrescrituras silenciosas (409):
+CONCURRENCIA. Toda escritura, y la comprobación final de una emisión, adquieren la protección común del origen
+(`coordinacion.proteger_origen_de_analisis`: empresa en modo compartido y fila `analisis_gri_control` con `FOR UPDATE`).
+También la toma la ingesta al confirmar `vector_publicado_en` (el instante en que un documento pasa a ser elegible) y la
+usa el cambio de actividad de la empresa a través del bloqueo exclusivo de la fila de la empresa. Así asignaciones,
+validaciones, emisiones, publicaciones y desactivaciones del mismo origen se serializan. Dos controles optimistas evitan
+sobrescrituras silenciosas (409):
 - por fila: `version_fila_esperada` al asignar un estado;
 - por análisis: `version` (cambios de estado) y `huella_documentos` (documentos elegibles) al validar.
 Estado, historial y versión se confirman en UNA transacción; si cualquier paso falla no queda nada.
@@ -24,7 +28,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +42,7 @@ from app.models.analisis_gri import (
     TipoIdentidadGri,
 )
 from app.models.documento_ingesta import Documento, EstadoProcesamiento
+from app.modules.analisis_gri.application.coordinacion import proteger_origen_de_analisis
 from app.modules.analisis_gri.schemas import (
     ActorResumen,
     AnalisisResponse,
@@ -139,13 +143,9 @@ async def _version_de_control(db: AsyncSession, ambiente: str, empresa_id: uuid.
 
 
 async def _asegurar_y_bloquear_control(db: AsyncSession, ambiente: str, empresa_id: uuid.UUID, anio: int) -> int:
-    """Crea (si falta) la fila de control y la bloquea hasta el fin de la transacción. Devuelve su versión."""
-    await db.execute(
-        pg_insert(AnalisisGriControl)
-        .values(ambiente=ambiente, empresa_id=empresa_id, anio=anio)
-        .on_conflict_do_nothing(index_elements=["ambiente", "empresa_id", "anio"])
-    )
-    return await _version_de_control(db, ambiente, empresa_id, anio, bloquear=True)
+    """Protección común del origen del análisis (empresa en modo compartido y fila de control exclusiva) hasta el fin de la
+    transacción. Devuelve la versión de estados. La comparten ingesta, asignaciones, validaciones y emisiones: ver `coordinacion`."""
+    return await proteger_origen_de_analisis(db, ambiente=ambiente, empresa_id=empresa_id, anio=anio)
 
 
 async def _estados_actuales(db: AsyncSession, ambiente: str, empresa_id: uuid.UUID, anio: int) -> dict[str, EstadoAsignado]:
@@ -182,7 +182,7 @@ async def _ultima_validacion(db: AsyncSession, ambiente: str, empresa_id: uuid.U
     fila = (
         await db.execute(
             select(
-                v.numero, v.version_estados, v.huella_documentos, v.documentos, v.estados,
+                v.id, v.numero, v.version_estados, v.huella_documentos, v.documentos, v.estados,
                 v.puntaje_suma, v.puntaje_filas, v.validado_por, v.validado_en, Usuario.nombre,
             )
             .join(Usuario, Usuario.id == v.validado_por)
@@ -196,6 +196,7 @@ async def _ultima_validacion(db: AsyncSession, ambiente: str, empresa_id: uuid.U
 
 def _validacion_desde_fila(fila) -> ValidacionGuardada:
     return ValidacionGuardada(
+        id=fila.id,
         numero=fila.numero,
         version_estados=fila.version_estados,
         huella_documentos=fila.huella_documentos,
@@ -242,6 +243,7 @@ def _vista_validacion(validacion: ValidacionGuardada | None, motivos: list) -> V
     if validacion is None:
         return None
     return ValidacionVista(
+        id=validacion.id,
         numero=validacion.numero,
         vigente=not motivos,
         motivos_no_vigente=motivos,
@@ -603,9 +605,10 @@ async def validar_analisis(
         puntaje = calculo.calcular_puntaje(filas, vigente=True, hay_documentos=True)
         ahora = _ahora_utc()
         numero = 1 if datos.validacion is None else datos.validacion.numero + 1
+        validacion_id = uuid.uuid4()
         db.add(
             AnalisisGriValidacion(
-                id=uuid.uuid4(), ambiente=ambiente, empresa_id=empresa_id, anio=anio, numero=numero,
+                id=validacion_id, ambiente=ambiente, empresa_id=empresa_id, anio=anio, numero=numero,
                 version_estados=datos.version, huella_documentos=datos.huella,
                 documentos=calculo.documentos_en_foto(datos.documentos), estados=calculo.estados_en_foto(filas),
                 puntaje_suma=puntaje.suma_puntos, puntaje_filas=puntaje.filas_contadas,
@@ -620,7 +623,7 @@ async def validar_analisis(
         "Análisis GRI validado (empresa=%s, anio=%s, numero=%s, version=%s)", empresa_id, anio, numero, datos.version
     )
     validacion = ValidacionGuardada(
-        numero=numero, version_estados=datos.version, huella_documentos=datos.huella,
+        id=validacion_id, numero=numero, version_estados=datos.version, huella_documentos=datos.huella,
         documentos=calculo.documentos_en_foto(datos.documentos), estados=calculo.estados_en_foto(filas),
         puntaje_suma=puntaje.suma_puntos, puntaje_filas=puntaje.filas_contadas,
         validado_por=ActorResumen(id=actor.id, nombre=actor.nombre), validado_en=ahora,
@@ -645,14 +648,25 @@ class ResumenAnio:
     filas: int
     filas_sin_estado: int
     validacion_no_vigente: bool  # hubo una validación, pero ya no es vigente
+    # Última validación del año (vigente o no) para decidir si un reporte emitido la refleja (BUG-15). `None` si nunca se validó.
+    validacion_id: uuid.UUID | None = None
+    validacion_numero: int | None = None
+    validacion_huella: str | None = None
 
 
 async def resumen_por_anio(
-    db: AsyncSession, *, ambiente: str, empresa_id: uuid.UUID, anio: int | None = None, excluir_anios: frozenset[int] = frozenset()
+    db: AsyncSession,
+    *,
+    ambiente: str,
+    empresa_id: uuid.UUID,
+    anio: int | None = None,
+    excluir_anios: frozenset[int] = frozenset(),
+    liberar: bool = True,
 ) -> dict[int, ResumenAnio]:
     """Estado del flujo de CADA año de la empresa con documentos elegibles, en consultas conjuntas (documentos, versiones, estados y
     validaciones de todos los años a la vez: ninguna consulta por año). Solo lectura. `anio` limita a un año; `excluir_anios`
-    omite años que no hace falta calcular (p. ej. los que ya tienen reporte).
+    omite años que no hace falta calcular (p. ej. los que ya tienen reporte). Con `liberar=False` NO termina la transacción de
+    `db`: el llamador la gestiona (p. ej. una lectura coherente del Módulo 7 con una sola instantánea).
 
     Aplica las MISMAS reglas que `consultar_analisis` (elegibilidad, identidades, huella, versión y vigencia), por lo que un año
     `VALIDADO` aquí es un año que `obtener_analisis_validado` entrega. No calcula textos legibles ni sanciones."""
@@ -687,10 +701,14 @@ async def resumen_por_anio(
                 anio=anio_doc, flujo=flujo, documentos=len(documentos), filas=len(filas),
                 filas_sin_estado=sum(f.estado is None for f in filas),
                 validacion_no_vigente=validacion is not None and bool(motivos),
+                validacion_id=None if validacion is None else validacion.id,
+                validacion_numero=None if validacion is None else validacion.numero,
+                validacion_huella=None if validacion is None else validacion.huella_documentos,
             )
         return resultado
     finally:
-        await db.rollback()
+        if liberar:
+            await db.rollback()
 
 
 async def _datos_de_anios(
@@ -719,7 +737,7 @@ async def _datos_de_anios(
         )
     ultimas = await db.execute(
         select(
-            v.anio, v.numero, v.version_estados, v.huella_documentos, v.documentos, v.estados,
+            v.anio, v.id, v.numero, v.version_estados, v.huella_documentos, v.documentos, v.estados,
             v.puntaje_suma, v.puntaje_filas, v.validado_por, v.validado_en, Usuario.nombre,
         )
         .join(Usuario, Usuario.id == v.validado_por)
@@ -732,6 +750,64 @@ async def _datos_de_anios(
 
 
 # --- Para el Módulo 7 -------------------------------------------------------------------------------------------------
+
+async def ultimas_validaciones(
+    db: AsyncSession, *, ambiente: str, empresa_id: uuid.UUID, anios: set[int], liberar: bool = True
+) -> dict[int, ValidacionGuardada]:
+    """Última validación (vigente o no) de cada año pedido, en una sola consulta. No evalúa vigencia ni lee documentos: sirve para
+    saber si un reporte emitido corresponde a la última validación aunque el año ya no tenga documentos elegibles. Solo lectura."""
+    if not anios:
+        return {}
+    v = AnalisisGriValidacion
+    try:
+        filas = await db.execute(
+            select(
+                v.anio, v.id, v.numero, v.version_estados, v.huella_documentos, v.documentos, v.estados,
+                v.puntaje_suma, v.puntaje_filas, v.validado_por, v.validado_en, Usuario.nombre,
+            )
+            .join(Usuario, Usuario.id == v.validado_por)
+            .where(v.ambiente == ambiente, v.empresa_id == empresa_id, v.anio.in_(anios))
+            .distinct(v.anio)
+            .order_by(v.anio, v.numero.desc())
+        )
+        return {f.anio: _validacion_desde_fila(f) for f in filas.all()}
+    finally:
+        if liberar:
+            await db.rollback()
+
+
+async def confirmar_validacion_vigente(
+    db: AsyncSession, *, ambiente: str, empresa_id: uuid.UUID, anio: int, validacion_id: uuid.UUID
+) -> bool:
+    """Comprobación FINAL antes de publicar un reporte (BUG-15). Devuelve True solo si `validacion_id` sigue siendo la ÚLTIMA
+    validación y sigue VIGENTE (mismos estados y mismos documentos elegibles).
+
+    Cómo se coordina. La comprobación se hace bajo `coordinacion.proteger_origen_de_analisis`: primero bloquea la fila de la empresa
+    en modo compartido y después la fila de `analisis_gri_control` del ambiente, la empresa y el año. Esa misma protección la toman
+    las asignaciones de estado, las validaciones y la confirmación de la publicación vectorial de un documento (el instante en que
+    pasa a ser elegible; `publicacion._confirmar_publicacion`), y el cambio de actividad de la empresa usa el bloqueo exclusivo de la
+    fila de la empresa. Así ninguna de esas operaciones puede intercalarse entre esta comprobación y el commit de quien llama.
+
+    Los bloqueos permanecen hasta el fin de la transacción del llamador, que debe ser corta: no hay renderizado del PDF ni
+    llamadas externas dentro de ellos. La validación se recomprueba aquí, ya bajo la protección, con una lectura del análisis hecha
+    en esa transacción. Esta función no escribe nada ni confirma.
+
+    El bloqueo serializa; no sustituye la detección del cambio. Una operación futura que modifique el origen (qué documentos son
+    elegibles, los estados o la actividad de la empresa) debe llamar a `proteger_origen_de_analisis` y, cuando corresponda,
+    actualizar los datos con que se detecta el cambio (la versión de estados del control o la huella de documentos), para que la
+    validación deje de ser vigente."""
+    await _empresa(db, empresa_id)
+    await _asegurar_y_bloquear_control(db, ambiente, empresa_id, anio)
+    datos = await _leer(db, ambiente, empresa_id, anio, consistente=False)
+    validacion = datos.validacion
+    if validacion is None or validacion.id != validacion_id:
+        return False
+    if calculo.motivos_no_vigente(validacion, datos.version, datos.huella):
+        return False
+    filas, _ = calculo.construir_filas(datos.documentos, presentacion=False)
+    filas = calculo.aplicar_estados(filas, datos.estados)
+    return bool(filas) and all(f.estado is not None for f in filas)
+
 
 async def obtener_analisis_validado(db: AsyncSession, *, ambiente: str, empresa_id: uuid.UUID, anio: int) -> AnalisisResponse:
     """Función reutilizable por el Módulo 7 (reporte de prospección). Comprueba la elegibilidad EN LA BASE (nunca una bandera

@@ -424,93 +424,76 @@ def test_el_pdf_real_muestra_agrupaciones_y_advertencias():
 # ============================================ reporte: snapshot e inmutabilidad ============================================
 
 class _FakeDB:
-    def __init__(self, existente=None):
-        self.existente = existente
+    """Solo termina transacciones: la preparación del reporte no escribe."""
+
+    def __init__(self, reporte=None):
+        self.reporte = reporte
         self.agregados = []
 
     def add(self, obj):
         self.agregados.append(obj)
 
-    async def commit(self):
-        pass
-
     async def rollback(self):
         pass
 
-    async def refresh(self, obj):
-        obj.id = getattr(obj, "id", None) or uuid.uuid4()
-        obj.creado_en = getattr(obj, "creado_en", None) or datetime.now(timezone.utc)
-
-    async def execute(self, _q):
-        existente = self.existente
-
-        class R:
-            def scalar_one_or_none(self):
-                return existente
-
-            def first(self):
-                return existente
-
-        return R()
+    async def commit(self):
+        pass
 
     async def get(self, _modelo, _id):
-        return self.existente
+        return self.reporte
 
 
-def _parchear(monkeypatch, analisis):
+def _parchear(monkeypatch, analisis, existente=None, maximo=0):
+    """El análisis validado llega del Módulo 5; la base (versión y reporte ya emitido) se sustituye por valores fijos."""
     import app.modules.reportes.service as svc
 
     async def validado(*_a, **_k):
         return analisis
 
-    async def nombres(*_a, **_k):
-        return ("Empresa de prueba", "Usuario de prueba")
+    async def de_validacion(*_a, **_k):
+        return existente
+
+    async def version_maxima(*_a, **_k):
+        return maximo
 
     monkeypatch.setattr(svc, "obtener_analisis_validado", validado)
-    monkeypatch.setattr(svc, "_nombres", nombres)
+    monkeypatch.setattr(svc, "_reporte_de_validacion", de_validacion)
+    monkeypatch.setattr(svc, "_version_maxima", version_maxima)
+    return svc
 
 
 async def test_el_snapshot_de_un_reporte_nuevo_conserva_agrupaciones_citas_y_advertencias(monkeypatch):
-    analisis = analisis_real([doc(MISMA_EN_PARRAFO_Y_TABLA), doc(POSIBLE_DUPLICADA)])
-    _parchear(monkeypatch, analisis)
-    db = _FakeDB()
-    html_compilado = []
-
-    def compilar(html):
-        html_compilado.append(html)
-        return b"%PDF-1.4 fake"
-
-    await generar_reporte(db, ambiente="development", empresa_id=uuid.uuid4(), anio=2025, usuario_id=uuid.uuid4(), compilar_pdf=compilar)
-    (reporte,) = [o for o in db.agregados if hasattr(o, "snapshot")]
-    agrupaciones = reporte.snapshot["agrupaciones_sanciones"]
+    svc = _parchear(monkeypatch, analisis_real([doc(MISMA_EN_PARRAFO_Y_TABLA), doc(POSIBLE_DUPLICADA)]))
+    prep = await svc._preparar(_FakeDB(), ambiente="development", empresa_id=uuid.uuid4(), anio=2025)
+    assert prep.existente is None
+    assert prep.version == 1
+    snapshot = prep.analisis.model_dump(mode="json")  # lo que `_publicar` guarda como snapshot de la versión
+    agrupaciones = snapshot["agrupaciones_sanciones"]
     assert len(agrupaciones) == 3
     assert sum(a["agrupada"] for a in agrupaciones) == 1
     assert [len(a["citas"]) for a in agrupaciones if a["agrupada"]] == [2]
     assert {adv["mensaje"] for a in agrupaciones for adv in a["advertencias"]} == {"Posible sanción duplicada"}
-    assert all(s["agrupacion_id"] for s in reporte.snapshot["sanciones"])
-    assert reporte.snapshot["resumen_sanciones"]["posibles_duplicados"] == 1
-    assert "Multa agrupada" in html_compilado[0]
+    assert all(s["agrupacion_id"] for s in snapshot["sanciones"])
+    assert snapshot["resumen_sanciones"]["posibles_duplicados"] == 1
+    html = prep.html()
+    assert "Multa agrupada" in html
+    assert "Versión 1 del reporte" in html
 
 
-async def test_un_reporte_existente_no_se_modifica_aunque_el_analisis_actual_tenga_agrupaciones(monkeypatch):
-    from app.core.exceptions import ConflictError
-
-    _parchear(monkeypatch, analisis_real([doc(MISMA_EN_PARRAFO_Y_TABLA)]))
-    snapshot_anterior = {"empresa": {"nombre": "Empresa"}, "sanciones": [{"cita": "formato anterior"}]}
+async def test_una_validacion_con_version_emitida_no_se_regenera_aunque_el_analisis_tenga_agrupaciones(monkeypatch):
     existente = SimpleNamespace(
-        id=uuid.uuid4(), empresa_id=uuid.uuid4(), anio=2025, pdf=b"%PDF-ORIGINAL", sha256="x", snapshot=copy.deepcopy(snapshot_anterior),
-        generado_por=uuid.uuid4(), creado_en=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        id=uuid.uuid4(), empresa_id=uuid.uuid4(), empresa_nombre="Empresa", anio=2025, version=3, es_ultima_version=True,
+        validacion_id=uuid.uuid4(), validacion_numero=2, generado_por=uuid.uuid4(), generado_por_nombre="Ana", sha256="x",
+        creado_en=datetime(2026, 10, 1, tzinfo=timezone.utc),
     )
-    db = _FakeDB(existente=existente)
-    usuario_id = uuid.uuid4()
+    _parchear(monkeypatch, analisis_real([doc(MISMA_EN_PARRAFO_Y_TABLA)]), existente=existente)
+    db = _FakeDB()
 
     def no_compila(_html):
-        raise AssertionError("un reporte existente no se regenera")
+        raise AssertionError("una versión ya emitida para la validación no se regenera")
 
-    with pytest.raises(ConflictError) as capturado:
-        await generar_reporte(
-            db, ambiente="development", empresa_id=existente.empresa_id, anio=2025, usuario_id=usuario_id, compilar_pdf=no_compila
-        )
-    assert capturado.value.code == "REPORT_ALREADY_EXISTS"
+    resultado = await generar_reporte(
+        db, ambiente="development", empresa_id=existente.empresa_id, anio=2025, usuario_id=uuid.uuid4(), compilar_pdf=no_compila
+    )
+    assert (resultado.id, resultado.version, resultado.reutilizado, resultado.sha256) == (existente.id, 3, True, "x")
     assert db.agregados == []
-    assert (existente.pdf, existente.sha256, existente.snapshot) == (b"%PDF-ORIGINAL", "x", snapshot_anterior)
