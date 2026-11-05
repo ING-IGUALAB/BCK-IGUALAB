@@ -259,7 +259,8 @@ async def test_ninguna_consulta_altera_pdf_snapshot_version_ni_fecha(ent):
     await get(ent, RUTA)
     comprobar_error(await descargar_vigente(ent), 409, "REPORT_UPDATE_PENDING")
     assert await reportes(ent) == antes  # id, versión, validación, autor, PDF, SHA-256, snapshot y fecha
-    assert (len(await eventos(ent, "GENERACION_REPORTE")), len(await eventos(ent, "DESCARGA"))) == eventos_antes
+    eventos_despues = (len(await eventos(ent, "GENERACION_REPORTE")), len(await eventos(ent, "DESCARGA")))
+    assert eventos_despues == eventos_antes
 
 
 # ============================================ Disponibilidad y estados coherentes ============================================

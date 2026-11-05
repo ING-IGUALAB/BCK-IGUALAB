@@ -151,7 +151,7 @@ async def _ultimos_reportes(db: AsyncSession, empresa_id: uuid.UUID, anios: set[
 async def _versiones_por_anio(db: AsyncSession, empresa_id: uuid.UUID) -> dict[int, int]:
     r = ReporteProspeccion
     filas = await db.execute(select(r.anio, func.count()).where(r.empresa_id == empresa_id).group_by(r.anio))
-    return {anio: total for anio, total in filas.all()}
+    return dict(filas.all())
 
 
 def _validacion_ref(validacion) -> ValidacionRef | None:
@@ -577,18 +577,24 @@ def _anio_disponible(a: int, fila, contexto: _ContextoDeAnio, versiones: int) ->
     evaluacion, verificable = _evaluacion(fila, contexto)
     resumen = contexto.resumen
     ultima = contexto.ultima
-    datos = dict(
-        anio=a,
-        estado=evaluacion.estado,
-        puede_generar=evaluacion.puede_generar,
-        motivo_no_generar=evaluacion.motivo_no_generar,
-        documentos_elegibles=(0 if fila is None else None) if resumen is None else resumen.documentos,
-        filas_gri=None if resumen is None else resumen.filas,
-        filas_sin_estado=None if resumen is None else resumen.filas_sin_estado,
-        validacion_anterior_no_vigente=evaluacion.validacion_anterior_no_vigente,
-        ultima_validacion_numero=None if ultima is None else ultima.numero,
-        actualizacion_pendiente=evaluacion.actualizacion_pendiente,
-    )
+    if resumen is not None:
+        documentos_elegibles = resumen.documentos
+    elif fila is None:
+        documentos_elegibles = 0
+    else:
+        documentos_elegibles = None
+    datos = {
+        "anio": a,
+        "estado": evaluacion.estado,
+        "puede_generar": evaluacion.puede_generar,
+        "motivo_no_generar": evaluacion.motivo_no_generar,
+        "documentos_elegibles": documentos_elegibles,
+        "filas_gri": None if resumen is None else resumen.filas,
+        "filas_sin_estado": None if resumen is None else resumen.filas_sin_estado,
+        "validacion_anterior_no_vigente": evaluacion.validacion_anterior_no_vigente,
+        "ultima_validacion_numero": None if ultima is None else ultima.numero,
+        "actualizacion_pendiente": evaluacion.actualizacion_pendiente,
+    }
     if fila is None:
         return AnioDisponible(**datos)
     return AnioDisponible(
