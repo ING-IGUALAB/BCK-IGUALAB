@@ -135,6 +135,10 @@ async def editar_empresa(
 async def cambiar_estado_empresa(
     db: AsyncSession, empresa_id: uuid.UUID, activa: bool
 ) -> Empresa:
-    empresa = await obtener_empresa(db, empresa_id)
+    """Activa o desactiva la empresa. Cambia la elegibilidad de los documentos de TODOS sus años, por eso toma el bloqueo
+    exclusivo de la fila de la empresa (FOR NO KEY UPDATE) ANTES de modificar: espera a las validaciones, emisiones y
+    publicaciones vectoriales en curso (que la tienen en modo compartido, ver `analisis_gri.application.coordinacion`) y las que
+    empiecen después ya ven la actividad nueva. No enumera años ni filas: una incorporación concurrente queda cubierta."""
+    empresa = await obtener_empresa_bloqueada(db, empresa_id, para_modificar=True)
     empresa.activa = activa
     return await _guardar(db, empresa)

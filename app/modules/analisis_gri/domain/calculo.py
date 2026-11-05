@@ -131,6 +131,8 @@ class ValidacionGuardada:
     puntaje_filas: int
     validado_por: ActorResumen
     validado_en: datetime
+    # Identificador de la fila de `analisis_gri_validaciones`: es el vínculo inequívoco con el reporte emitido (BUG-15).
+    id: uuid.UUID | None = None
 
 
 # --- Identidad -------------------------------------------------------------------------------------------------------

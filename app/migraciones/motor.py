@@ -50,6 +50,8 @@ DIRECTORIO = Path(__file__).resolve().parent
 TABLA_REGISTRO = "igualab_migraciones"
 ORIGEN_APLICADA = "aplicada"
 ORIGEN_ADOPTADA = "adoptada"
+# SQLSTATE propio (clase IG) con que una migración avisa de datos existentes incompatibles con la regla que introduce.
+SQLSTATE_DATOS_INCOMPATIBLES = "IG001"
 
 _DDL_REGISTRO = f"""
 CREATE TABLE IF NOT EXISTS {TABLA_REGISTRO} (
@@ -370,6 +372,15 @@ async def _aplicar(conn: asyncpg.Connection, m: Migracion, base: str) -> None:
             await conn.execute(m.sql())
             await _registrar(conn, m, ORIGEN_APLICADA)
     except asyncpg.PostgresError as exc:
+        if exc.sqlstate == SQLSTATE_DATOS_INCOMPATIBLES:
+            # La propia migración detectó datos existentes que no cumplen la regla nueva y se detuvo sin modificar nada.
+            raise ErrorMigracion(
+                "MIGRATION_DATA_INCOMPATIBLE",
+                f"La migración {m.version:04d} ({m.nombre}) no se aplicó en la base {base}: hay datos existentes que no cumplen la regla "
+                "nueva. No se modificó nada; revise la cabecera de la migración para listarlos y resolverlos manualmente.",
+                base,
+                {"version": m.version, "sqlstate": exc.sqlstate},
+            ) from None
         # No se registra aquí: el mensaje de PostgreSQL puede incluir nombres de objetos, valores de columnas o hosts. El
         # `ErrorMigracion` lleva versión y SQLSTATE y quien lo captura lo registra (ver `iniciar_ingesta`).
         raise ErrorMigracion(

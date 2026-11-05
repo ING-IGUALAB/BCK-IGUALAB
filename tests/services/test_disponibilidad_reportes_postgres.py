@@ -2,14 +2,14 @@
 
 La consulta es INFORMATIVA y de solo lectura. Aquí se comprueba que (1) no basta con que exista un documento, (2) distingue revisión
 pendiente, validación pendiente, validación vigente y reporte generado, (3) lo que anuncia coincide con lo que decide la generación
-real (`generar_reporte`: 201 solo si el año figura `puede_generar`), (4) conserva el 409 de una segunda generación y la descarga del
-reporte emitido aunque cambie el análisis, y (5) no hace una consulta por año. El motor HTML→PDF es un doble; no hay proveedores
+real (`generar_reporte`: 201 solo si el año figura `puede_generar`), (4) un año con reporte sigue consultable y descargable aunque cambie el
+análisis, y la repetición de la emisión reutiliza la versión (BUG-15; el versionado completo está en `test_reportes_versionado_postgres.py`)
+y (5) no hace una consulta por año. El motor HTML→PDF es un doble; no hay proveedores
 externos. Sin PostgreSQL estas pruebas se OMITEN (`pytest -rs`).
 """
 import uuid
 from types import SimpleNamespace
 
-import pytest
 import pytest_asyncio
 from sqlalchemy import event, text
 
@@ -101,9 +101,12 @@ async def coincide_con_la_generacion(m7, anio: int, anunciado: dict) -> None:
     if anunciado["puede_generar"]:
         assert (await generar(m7, anio)).anio == anio
         return
-    with pytest.raises(ConflictError) as rechazo:
-        await generar(m7, anio)
-    assert rechazo.value.code in {"ANALYSIS_NOT_VALIDATED", "REPORT_ALREADY_EXISTS"}
+    try:
+        resultado = await generar(m7, anio)
+    except ConflictError as rechazo:
+        assert rechazo.code == "ANALYSIS_NOT_VALIDATED"
+    else:  # año con reporte actualizado: la emisión devuelve la versión existente, sin crear otra
+        assert resultado.reutilizado is True
     assert (await _contar_reportes(m7), m7.compilador.llamadas) == antes
 
 
@@ -191,7 +194,7 @@ async def test_documentos_sin_codigos_gri_no_habilitan_el_reporte(m7):
 
 # ============================================ Reporte generado ============================================
 
-async def test_un_reporte_emitido_figura_generado_se_rechaza_una_segunda_generacion_y_la_descarga_sigue(m7):
+async def test_un_reporte_emitido_figura_generado_la_repeticion_lo_reutiliza_y_la_descarga_sigue(m7):
     await sembrar(m7, MD_GRI_204_305, 2025)
     await asignar_todos(m7)
     await validar(m7)
@@ -199,12 +202,15 @@ async def test_un_reporte_emitido_figura_generado_se_rechaza_una_segunda_generac
     generado = (await por_anio(m7))[2025]
     assert (generado["estado"], generado["puede_generar"], generado["reporte_id"]) == ("REPORTE_GENERADO", False, str(resumen.id))
     assert generado["reporte_creado_en"] is not None
-    assert generado["documentos_elegibles"] is None
-    await coincide_con_la_generacion(m7, 2025, generado)  # 409 REPORT_ALREADY_EXISTS
+    assert (generado["reporte_version"], generado["reporte_actualizado"], generado["versiones_emitidas"]) == (1, True, 1)
+    await coincide_con_la_generacion(m7, 2025, generado)  # reutiliza la versión existente
 
     # El análisis cambia después: el reporte emitido sigue figurando y se descarga igual, sin recompilar.
     await sembrar(m7, MD_GRI_204_Y_302, 2025, tipo=REPORTE_GRI)
-    assert (await por_anio(m7))[2025]["estado"] == "REPORTE_GENERADO"
+    cambiado = (await por_anio(m7))[2025]
+    assert cambiado["estado"] == "PENDIENTE_REVISION"  # el estado refleja el análisis actual: el documento nuevo trae filas sin estado
+    assert cambiado["reporte_id"] == str(resumen.id)  # y el reporte emitido queda como referencia, descargable
+    assert cambiado["reporte_actualizado"] is False
     compilaciones = m7.compilador.llamadas
     async with cliente_http(app_reportes(m7, m7.admin)) as c:
         descarga = await c.get(f"/reportes/{resumen.id}/archivo")
@@ -214,11 +220,13 @@ async def test_un_reporte_emitido_figura_generado_se_rechaza_una_segunda_generac
     # Otro año de la misma empresa no queda bloqueado por ese reporte.
     await sembrar(m7, MD_GRI_204_305, 2024)
     anios = await por_anio(m7)
-    assert (anios[2025]["estado"], anios[2024]["estado"]) == ("REPORTE_GENERADO", "PENDIENTE_REVISION")
+    assert (anios[2025]["estado"], anios[2024]["estado"]) == ("PENDIENTE_REVISION", "PENDIENTE_REVISION")
+    assert (anios[2025]["reporte_id"], anios[2024]["reporte_id"]) == (str(resumen.id), None)
     assert list(anios) == [2025, 2024]  # del más reciente al más antiguo
 
 
 async def test_un_reporte_existente_figura_aunque_la_empresa_ya_no_tenga_documentos_elegibles(m7):
+    """El reporte se conserva como referencia, pero ya no se anuncia actualizado: sin documentos elegibles no hay validación vigente."""
     await sembrar(m7, MD_GRI_204_305, 2025)
     await asignar_todos(m7)
     await validar(m7)
@@ -226,7 +234,12 @@ async def test_un_reporte_existente_figura_aunque_la_empresa_ya_no_tenga_documen
     async with m7.fabrica() as db:
         await db.execute(text("UPDATE empresas SET activa = false WHERE id = :i"), {"i": m7.empresa.id})
         await db.commit()
-    assert (await por_anio(m7))[2025]["estado"] == "REPORTE_GENERADO"
+    sin_documentos = (await por_anio(m7))[2025]
+    assert sin_documentos["estado"] == "SIN_DOCUMENTACION_ELEGIBLE"
+    assert sin_documentos["reporte_actualizado"] is False
+    assert sin_documentos["puede_generar"] is False
+    assert sin_documentos["motivo_no_generar"] == "SIN_DOCUMENTACION_ELEGIBLE"
+    assert sin_documentos["reporte_id"] is not None
 
 
 # ============================================ Permisos, aislamiento y errores ============================================

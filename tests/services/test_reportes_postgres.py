@@ -1,6 +1,9 @@
-"""Reportes de prospección (Módulo 7) — inmutabilidad (LTX:RN-041, CU006) sobre un PostgreSQL REAL, AISLADO y TEMPORAL.
+"""Reportes de prospección (Módulo 7) — inmutabilidad de cada versión (LTX:RN-041, CU006) sobre un PostgreSQL REAL, AISLADO y TEMPORAL.
 
-REAL: la restricción única `uq_reporte_empresa_anio`, el disparador de solo inserción (migración 0005 real), las transacciones y la
+El versionado (varias versiones por empresa/año, nueva validación, concurrencia, migración) se prueba en
+`test_reportes_versionado_postgres.py`; aquí quedan la primera emisión, la idempotencia, los roles y la inmutabilidad.
+
+REAL: las restricciones únicas por versión y por validación, el disparador de solo inserción (migración 0005 real), las transacciones y la
 carrera entre dos generaciones, la auditoría, los roles por HTTP y el análisis validado (migración 0004 real y el servicio del
 Módulo 5). CONTROLADO: el motor HTML→PDF (un doble que cuenta sus llamadas y devuelve bytes distintos en cada una, para detectar
 cualquier recompilación); no se prueba WeasyPrint aquí.
@@ -21,7 +24,6 @@ from sqlalchemy.exc import DBAPIError
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.exception_handlers import register_exception_handlers
-from app.core.exceptions import ConflictError
 from app.core.request_id import RequestIDMiddleware
 from app.models.analisis_gri import EstadoGri
 from app.modules.analisis_gri.application import servicio
@@ -40,7 +42,7 @@ from tests.ayudantes_analisis_gri import (
 )
 
 RUTA = "/reportes"
-COLUMNAS = "id, empresa_id, anio, generado_por, pdf, sha256, snapshot::text AS snapshot, creado_en"
+COLUMNAS = "id, empresa_id, anio, generado_por, pdf, sha256, snapshot::text AS snapshot, creado_en, version, validacion_id"
 
 
 class CompiladorControlado:
@@ -153,23 +155,25 @@ async def test_primera_generacion_crea_el_reporte_con_su_snapshot_su_hash_y_su_e
     assert r.json()["sha256"] == fila[5] == hashlib.sha256(pdf).hexdigest()
     assert fila[3] == m7.admin.id
     assert '"estado_flujo": "VALIDADO"' in fila[6]
+    assert (fila[8], r.json()["version"], fila[9] is not None) == (1, 1, True)  # versión 1, con la validación que lo respalda
     assert [(e[0], e[1]) for e in await eventos(m7, "GENERACION_REPORTE")] == [(m7.admin.id, "EXITOSO")]
 
 
-async def test_la_segunda_generacion_se_rechaza_con_409_y_deja_intacto_el_reporte_anterior(m7):
+async def test_repetir_la_generacion_con_la_misma_validacion_devuelve_la_version_existente_sin_cambiar_nada(m7):
     assert (await generar(m7)).status_code == 201
     antes = await reportes_guardados(m7)
     compilaciones = m7.compilador.llamadas
 
     for usuario in (m7.admin, m7.otro):  # el mismo Administrador y otro distinto
         r = await generar(m7, usuario)
-        error = comprobar_error(r, 409, "REPORT_ALREADY_EXISTS")
-        assert error["details"]["reporte_id"] == str(antes[0][0])
-        assert error["details"]["anio"] == 2025
+        assert r.status_code == 200, r.text  # idempotente: no es un error, es la versión ya emitida para esa validación
+        assert r.json()["id"] == str(antes[0][0])
+        assert r.json()["reutilizado"] is True
+        assert r.json()["version"] == 1
 
     assert await reportes_guardados(m7) == antes  # ID, PDF, SHA-256, snapshot, autor y fecha idénticos
     assert m7.compilador.llamadas == compilaciones  # ni siquiera se recompiló
-    assert len(await eventos(m7, "GENERACION_REPORTE")) == 1  # el rechazo no registra una generación exitosa
+    assert len(await eventos(m7, "GENERACION_REPORTE")) == 1  # la repetición no registra una generación nueva
 
 
 async def test_otro_anio_u_otra_empresa_no_estan_bloqueados_por_el_reporte_existente(m7):
@@ -185,39 +189,32 @@ async def test_sin_analisis_validado_no_se_crea_nada_ni_se_registra_evento(m7):
     assert await eventos(m7, "GENERACION_REPORTE") == []
 
 
-async def test_dos_generaciones_simultaneas_dejan_un_solo_reporte_y_una_es_conflicto_de_negocio(m7, monkeypatch):
+async def test_dos_generaciones_simultaneas_dejan_un_solo_reporte_y_ambas_reciben_la_misma_version(m7, monkeypatch):
     from app.modules.reportes import service as servicio_reportes
 
-    # Barrera DESPUÉS de la comprobación previa: ambas solicitudes la superan (no hay reporte aún) y recién entonces avanzan juntas
-    # hacia la inserción, de modo que la carrera es determinista y la decide la restricción de la base, no la comprobación previa.
+    # Barrera DESPUÉS del renderizado: ambas solicitudes superan la comprobación previa (no hay reporte aún) y recién entonces avanzan
+    # juntas hacia la transacción final, de modo que la carrera es determinista y la deciden los bloqueos y la restricción de la base.
     barrera = asyncio.Barrier(2)
-    original = servicio_reportes.obtener_analisis_validado
+    original = servicio_reportes._publicar
 
     async def con_barrera(*args, **kwargs):
         await barrera.wait()
         return await original(*args, **kwargs)
 
-    monkeypatch.setattr(servicio_reportes, "obtener_analisis_validado", con_barrera)
+    monkeypatch.setattr(servicio_reportes, "_publicar", con_barrera)
 
     async def intento(usuario):
         async with m7.fabrica() as db:
-            try:
-                return await generar_reporte(
-                    db, ambiente="development", empresa_id=m7.empresa.id, anio=2025, usuario_id=usuario.id, compilar_pdf=m7.compilador
-                )
-            except ConflictError as exc:
-                return exc
+            return await generar_reporte(
+                db, ambiente="development", empresa_id=m7.empresa.id, anio=2025, usuario_id=usuario.id, compilar_pdf=m7.compilador
+            )
 
     resultados = await asyncio.gather(intento(m7.admin), intento(m7.otro))
-    exitos = [r for r in resultados if not isinstance(r, ConflictError)]
-    conflictos = [r for r in resultados if isinstance(r, ConflictError)]
-    assert m7.compilador.llamadas == 2, "las dos solicitudes debían pasar la comprobación previa para probar la carrera"
-    assert len(exitos) == 1
-    assert len(conflictos) == 1
-    assert conflictos[0].code == "REPORT_ALREADY_EXISTS"
-    assert conflictos[0].details["reporte_id"] == str(exitos[0].id)
+    assert m7.compilador.llamadas == 2, "las dos solicitudes debían renderizar antes de la carrera"
+    assert sorted(r.reutilizado for r in resultados) == [False, True]
+    assert resultados[0].id == resultados[1].id
     (fila,) = await reportes_guardados(m7)
-    assert fila[0] == exitos[0].id
+    assert fila[0] == resultados[0].id
     assert len(await eventos(m7, "GENERACION_REPORTE")) == 1  # el evento de la solicitud perdedora se deshizo con su transacción
 
 
@@ -236,9 +233,9 @@ async def test_la_descarga_entrega_el_pdf_almacenado_sin_recompilar(m7):
     assert [e[1] for e in await eventos(m7, "DESCARGA")] == ["EXITOSO"]
 
 
-async def test_tras_un_rechazo_el_reporte_sigue_consultable_y_descargable(m7):
+async def test_tras_repetir_la_solicitud_el_reporte_sigue_consultable_y_descargable(m7):
     creado = (await generar(m7)).json()
-    comprobar_error(await generar(m7), 409, "REPORT_ALREADY_EXISTS")
+    assert (await generar(m7)).status_code == 200
     async with cliente_http(construir_app(m7, m7.admin)) as c:
         listado = (await c.get(RUTA)).json()
         descarga = await c.get(f"{RUTA}/{creado['id']}/archivo")
@@ -267,16 +264,17 @@ async def test_la_vista_previa_no_crea_ni_modifica_ni_sustituye_el_reporte(m7):
 
 # ================================================ Garantías de la base de datos ================================================
 
-async def test_la_base_impide_un_segundo_reporte_de_la_misma_empresa_y_anio(m7):
+async def test_la_base_impide_emitir_otro_reporte_con_la_misma_validacion(m7):
     assert (await generar(m7)).status_code == 201
+    (existente,) = await sql(m7, "SELECT validacion_id FROM reportes_prospeccion")
     insertar = text(
-        "INSERT INTO reportes_prospeccion (id, empresa_id, anio, generado_por, pdf, sha256, snapshot)"
-        " VALUES (gen_random_uuid(), :e, 2025, :u, :pdf, :h, '{}'::jsonb)"
+        "INSERT INTO reportes_prospeccion (id, empresa_id, anio, version, validacion_id, generado_por, pdf, sha256, snapshot)"
+        " VALUES (gen_random_uuid(), :e, 2025, 2, :v, :u, :pdf, :h, '{}'::jsonb)"
     )
     async with m7.fabrica() as db:
         with pytest.raises(DBAPIError) as e:
-            await db.execute(insertar, {"e": m7.empresa.id, "u": m7.admin.id, "pdf": b"otro", "h": "f" * 64})
-        assert "uq_reporte_empresa_anio" in str(e.value.orig)
+            await db.execute(insertar, {"e": m7.empresa.id, "v": existente[0], "u": m7.admin.id, "pdf": b"otro", "h": "f" * 64})
+        assert "uq_reporte_validacion" in str(e.value.orig)
 
 
 @pytest.mark.parametrize("sentencia", [

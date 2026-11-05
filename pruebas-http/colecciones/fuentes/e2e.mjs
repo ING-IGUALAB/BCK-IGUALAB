@@ -626,8 +626,12 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
       json: { empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
       pruebas: [
         T.estado(201),
-        T.prueba('ReporteResumen: mismo empresa/año, autor = Administrador de la sesión, sha256 del PDF', (j, v) => {
+        T.prueba('ReporteEmision: versión 1 con su validación de origen, autor = Administrador de la sesión, sha256 del PDF', (j, v) => {
           pm.expect(esUuid(j.id)).to.equal(true);
+          pm.expect(j.version).to.equal(1);
+          pm.expect(j.es_ultima_version).to.equal(true);
+          pm.expect(j.reutilizado).to.equal(false);
+          pm.expect(esUuid(j.validacion_id), 'validacion_id').to.equal(true);
           pm.expect(j.empresa_id).to.equal(v('b_empresa_id'));
           pm.expect(j.anio).to.equal(Number(v('anio_b')));
           pm.expect(j.generado_por).to.equal(v('b_admin_id'));
@@ -661,26 +665,55 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
       ],
     }),
     peticion({
-      nombre: 'E3b Una segunda generación para la misma empresa/año se rechaza → 409 REPORT_ALREADY_EXISTS', metodo: 'POST', ruta: '/reportes', token: 'b_token_admin',
+      nombre: 'E3b Repetir la generación con la misma validación reutiliza la versión → 200 reutilizado', metodo: 'POST', ruta: '/reportes', token: 'b_token_admin',
       json: { empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
-      descripcion: 'El reporte es inmutable (RN-041): no hay versiones, sustitución ni regeneración. El conflicto identifica el reporte existente.',
+      descripcion: 'Cada versión es inmutable (RN-041) y la emisión es idempotente por validación: sin una validación nueva no se crea otra versión; se devuelve la existente.',
       pruebas: [
-        T.error(409, 'REPORT_ALREADY_EXISTS', (d, v) => {
-          pm.expect(d.reporte_id).to.equal(v('e_reporte_id'));
-          pm.expect(d.empresa_id).to.equal(v('b_empresa_id'));
-          pm.expect(d.anio).to.equal(Number(v('anio_b')));
+        T.estado(200),
+        T.prueba('misma versión (id y sha256) y reutilizado=true', (j, v) => {
+          pm.expect(j.id).to.equal(v('e_reporte_id'));
+          pm.expect(j.sha256).to.equal(v('e_sha256'));
+          pm.expect(j.version).to.equal(1);
+          pm.expect(j.reutilizado).to.equal(true);
         }),
       ],
     }),
     peticion({
-      nombre: 'E3c El reporte original sigue intacto en el historial tras el rechazo (mismo id y sha256)', ruta: '/reportes', token: 'b_token_admin',
+      nombre: 'E3c El historial conserva una única versión (la original) tras repetir la solicitud (mismo id y sha256)', ruta: '/reportes', token: 'b_token_admin',
       pruebas: [
         T.estado(200),
-        T.prueba('un único reporte de la empresa/año, el original, con su sha256', (j, v) => {
+        T.prueba('una única versión de la empresa/año, la original, con su sha256', (j, v) => {
           const delaEmpresa = j.filter((r) => r.empresa_id === v('b_empresa_id') && r.anio === Number(v('anio_b')));
           pm.expect(delaEmpresa).to.have.length(1);
           pm.expect(delaEmpresa[0].id).to.equal(v('e_reporte_id'));
           pm.expect(delaEmpresa[0].sha256).to.equal(v('e_sha256'));
+        }),
+      ],
+    }),
+    peticion({
+      nombre: 'E3d Última emisión de la empresa/año: demostrablemente actualizada', ruta: '/reportes/vigente?empresa_id={{b_empresa_id}}&anio={{anio_b}}', token: 'b_token_admin',
+      descripcion: 'reporte_actualizado es true solo si se demuestra que la versión respalda la última validación Y esta sigue vigente.',
+      pruebas: [
+        T.estado(200),
+        T.prueba('la versión 1 respalda la validación vigente: sin actualización pendiente ni cambios sin validar', (j, v) => {
+          pm.expect(j.id).to.equal(v('e_reporte_id'));
+          pm.expect(j.version).to.equal(1);
+          pm.expect(j.origen_verificable).to.equal(true);
+          pm.expect(j.reporte_actualizado).to.equal(true);
+          pm.expect(j.actualizacion_pendiente).to.equal(false);
+          pm.expect(j.validacion_anterior_no_vigente).to.equal(false);
+          pm.expect(j.puede_generar).to.equal(false);
+          pm.expect(j.motivo_no_generar).to.equal('REPORTE_ACTUALIZADO');
+        }),
+      ],
+    }),
+    peticion({
+      nombre: 'E3e Descargar el reporte actualizado → application/pdf (misma emisión)', ruta: '/reportes/vigente/archivo?empresa_id={{b_empresa_id}}&anio={{anio_b}}', token: 'b_token_admin',
+      pruebas: [
+        T.estado(200),
+        T.prueba('entrega el PDF almacenado de la versión 1', () => {
+          pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/pdf');
+          pm.expect(pm.response.text().slice(0, 5)).to.equal('%PDF-');
         }),
       ],
     }),

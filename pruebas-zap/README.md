@@ -97,8 +97,10 @@ y al terminar** que ninguna petición fue a una operación excluida o fuera del 
 | GET | `/analisis-gri/empresas/{empresa_id}/anios/{anio}/historial` | Administrador sintético |
 | POST | `/analisis-gri/empresas/{empresa_id}/anios/{anio}/validacion` | Administrador sintético |
 | POST | `/reportes/vista-previa` | Administrador sintético |
-| GET | `/reportes` | Administrador sintético |
+| GET | `/reportes` | Administrador sintético (historial de todas las versiones) |
 | POST | `/reportes` | Administrador sintético (sin análisis validado: 409/404, no crea reportes) |
+| GET | `/reportes/vigente` | Administrador sintético (empresa sin reportes: 404) |
+| GET | `/reportes/vigente/archivo` | Administrador sintético (empresa sin reportes: 404) |
 | GET | `/reportes/{reporte_id}/archivo` | Administrador sintético |
 
 `POST /auth/login` se escanea con una identidad **sin cuenta** (`zap-escaner-sin-cuenta@igualab-zap.example.com`), de modo que ninguna cuenta real puede bloquearse (5 intentos).

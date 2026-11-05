@@ -257,12 +257,14 @@ async def test_repetir_el_estado_no_cambia_nada_y_un_cambio_real_invalida_la_val
 def _carrera_sin_bloqueo(monkeypatch) -> None:
     """Quita el `FOR UPDATE` de la fila de control y hace que las dos peticiones lean ANTES de que alguna escriba: la carrera es
     determinista y solo las condiciones de versión de la propia escritura pueden evitar la pérdida de actualizaciones."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
     leer_real = servicio._leer
     barrera = asyncio.Barrier(2)
 
     async def sin_bloquear(db, ambiente, empresa_id, anio):
         await db.execute(
-            servicio.pg_insert(servicio.AnalisisGriControl)
+            pg_insert(servicio.AnalisisGriControl)
             .values(ambiente=ambiente, empresa_id=empresa_id, anio=anio)
             .on_conflict_do_nothing(index_elements=["ambiente", "empresa_id", "anio"])
         )

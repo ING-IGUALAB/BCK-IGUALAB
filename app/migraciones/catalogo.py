@@ -38,6 +38,13 @@ ESQUEMA_TRANSACCIONAL = EsquemaBase(
         # tablas ya existen (create_all) y los disparadores no forman parte de la firma, así que no hay adopción posible; el SQL
         # es idempotente (ver su cabecera).
         Migracion(5, "auditoria_resultado_y_solo_insercion", "0005_auditoria_resultado_y_solo_insercion.sql", (), carpeta="transaccional"),
+        # Reportes de prospección versionados (BUG-15). Sin `objetos` por la misma razón que la 0005: `reportes_prospeccion` la crea
+        # `create_all` antes de las migraciones; el SQL es idempotente y conserva las filas existentes como versión 1.
+        Migracion(6, "reportes_versionados", "0006_reportes_versionados.sql", (), carpeta="transaccional"),
+        # Integridad de las emisiones (BUG-15, entrega 1): FK compuesta validación/empresa/año, rechazo de reportes nuevos sin validación.
+        # La 0006 no se toca. Sin `objetos` (idempotente), como la 0005 y la 0006; añade una UNIQUE a `analisis_gri_validaciones`
+        # solo como destino de la FK compuesta.
+        Migracion(7, "integridad_de_reportes", "0007_integridad_de_reportes.sql", (), carpeta="transaccional"),
     ),
     # Los crea el arranque de los módulos existentes (`crear_tablas`), que corre ANTES que esta preparación.
     prerrequisitos=(

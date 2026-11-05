@@ -3,6 +3,7 @@
 import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError, ExternalServiceError
+from app.modules.analisis_gri.application.coordinacion import proteger_origen_de_analisis
 from app.modules.auditoria.service import registrar_evento
 from app.models import ResultadoAuditoria, TipoEventoAuditoria
 from app.models.documento_ingesta import Documento, EstadoProcesamiento, EtapaIngesta, ResultadoAnalisis
@@ -146,6 +147,41 @@ async def _registrar_fallo_publicacion(db: AsyncSession, documento_id: uuid.UUID
             pass
 
 
+async def _confirmar_publicacion(
+    db: AsyncSession, documento_id: uuid.UUID, *, ambiente: str, empresa_id: uuid.UUID, anio: int, total: int
+) -> bool:
+    """Registra `vector_publicado_en`: el instante en que el documento pasa a ser ELEGIBLE para el análisis GRI.
+
+    Lo hace bajo la protección común del origen del análisis de su empresa y año (`coordinacion`), tomada ANTES del UPDATE y
+    mantenida hasta el commit o el rollback de esta función: una validación o una emisión en curso termina antes de que el
+    documento sea elegible, o empieza después y lo ve. Las llamadas externas (vectores, MinIO, OCI) ya terminaron y no se repiten
+    aquí. El UPDATE sigue siendo condicional, así que repetir la confirmación (reintento, recuperación) devuelve `False` sin
+    cambiar nada. Cualquier error o cancelación deshace la transacción y libera los bloqueos."""
+    ahora = _ahora()
+    try:
+        await proteger_origen_de_analisis(db, ambiente=ambiente, empresa_id=empresa_id, anio=anio)
+        registrado = await _transicion(
+            db,
+            documento_id,
+            [
+                Documento.estado_procesamiento == EstadoProcesamiento.COMPLETADO,
+                Documento.vector_publicado_en.is_(None),
+            ],
+            {
+                "vector_publicado_en": ahora,
+                "vector_ultimo_error": None,
+                "etapa_actual": EtapaIngesta.FINALIZADO.value,
+                "fragmentos_procesados": total,
+                "progreso_actualizado_en": ahora,
+            },
+        )
+        await db.commit()
+    except BaseException:
+        await db.rollback()
+        raise
+    return registrado
+
+
 async def publicar_en_base_vectorial(
     db: AsyncSession, vectorial: AsyncSession, documento_id: uuid.UUID
 ) -> bool:
@@ -168,6 +204,7 @@ async def publicar_en_base_vectorial(
         await _terminar_lectura(db)
         return False
     ambiente, total, usuario_id = documento.ambiente, documento.fragmentos_total, documento.usuario_id
+    empresa_id, anio = documento.empresa_id, documento.anio
     await _terminar_lectura(db)
 
     try:
@@ -187,23 +224,7 @@ async def publicar_en_base_vectorial(
             "No se pudo confirmar que todos los fragmentos estén publicados; la publicación sigue pendiente.",
         )
 
-    ahora = _ahora()
-    registrado = await _transicion(
-        db,
-        documento_id,
-        [
-            Documento.estado_procesamiento == EstadoProcesamiento.COMPLETADO,
-            Documento.vector_publicado_en.is_(None),
-        ],
-        {
-            "vector_publicado_en": ahora,
-            "vector_ultimo_error": None,
-            "etapa_actual": EtapaIngesta.FINALIZADO.value,
-            "fragmentos_procesados": total,
-            "progreso_actualizado_en": ahora,
-        },
-    )
-    await db.commit()
+    registrado = await _confirmar_publicacion(db, documento_id, ambiente=ambiente, empresa_id=empresa_id, anio=anio, total=total)
     if registrado:
         await auditar_aparte(
             db,
