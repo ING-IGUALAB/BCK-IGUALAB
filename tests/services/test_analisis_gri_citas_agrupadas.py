@@ -259,7 +259,8 @@ def test_conteos_evidencias_estados_y_puntaje_no_cambian_por_las_citas_agrupadas
         return calculo.calcular_puntaje(calculo.aplicar_estados(filas, asignados), vigente=False, hay_documentos=True)
 
     assert puntaje(con) == puntaje(sin)
-    assert (d.id, d.sha256, d.analisis) == original_antes  # construir filas con presentación y agrupación no toca el original
+    original_despues = (d.id, d.sha256, d.analisis)
+    assert original_despues == original_antes  # construir filas con presentación y agrupación no toca el original
     assert calculo.huella_de_documentos([d]) == huella_antes  # y la huella de vigencia no cambió
 
 

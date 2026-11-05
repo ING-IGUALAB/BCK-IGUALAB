@@ -125,8 +125,10 @@ async def test_si_la_numeracion_nunca_se_estabiliza_responde_conflicto_de_versio
         preparaciones=[_preparacion(version=v) for v in range(2, 2 + svc.MAX_INTENTOS_DE_VERSION)],
         publicaciones=[None] * svc.MAX_INTENTOS_DE_VERSION,
     )
+    db = FakeDB()
+    compilar = _compilador()
     with pytest.raises(ConflictError) as e:
-        await _generar(FakeDB(), _compilador())
+        await _generar(db, compilar)
     assert e.value.code == "REPORT_VERSION_CONFLICT"
 
 
@@ -146,8 +148,9 @@ async def test_un_fallo_del_pdf_no_llega_a_publicar(monkeypatch):
     def roto(_html):
         raise ConflictError("PDF_GENERATION_ERROR", "sin motor")
 
+    db = FakeDB()
     with pytest.raises(ConflictError):
-        await _generar(FakeDB(), roto)  # `publicaciones` vacía: si se llamara a `_publicar` fallaría con IndexError
+        await _generar(db, roto)  # `publicaciones` vacía: si se llamara a `_publicar` fallaría con IndexError
 
 
 # --- traducción de violaciones de restricciones -------------------------------------------------------------------------
