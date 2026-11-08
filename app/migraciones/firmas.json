@@ -339,6 +339,94 @@
     ]
    }
   },
+  "conversaciones_asistente": {
+   "9": {
+    "columnas": [
+     [
+      "actualizada_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "clave_idempotencia",
+      "uuid",
+      true
+     ],
+     [
+      "creada_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "huella_contenido",
+      "character varying(64)",
+      true
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "sector",
+      "sector_empresa",
+      true
+     ],
+     [
+      "titulo",
+      "character varying(80)",
+      true
+     ],
+     [
+      "usuario_id",
+      "uuid",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "conversaciones_asistente_pkey",
+      true,
+      false
+     ],
+     [
+      "ix_conversaciones_asistente_listado",
+      false,
+      false
+     ],
+     [
+      "uq_conversaciones_asistente_idempotencia",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "ck_conversaciones_asistente_anio",
+     "ck_conversaciones_asistente_fechas",
+     "ck_conversaciones_asistente_huella",
+     "ck_conversaciones_asistente_titulo_no_vacio",
+     "conversaciones_asistente_empresa_id_fkey",
+     "conversaciones_asistente_pkey",
+     "conversaciones_asistente_usuario_id_fkey",
+     "uq_conversaciones_asistente_idempotencia"
+    ]
+   }
+  },
   "documentos": {
    "1": {
     "columnas": [
@@ -773,6 +861,194 @@
      "documentos_empresa_id_fkey",
      "documentos_pkey",
      "documentos_usuario_id_fkey"
+    ]
+   }
+  },
+  "intercambios_asistente": {
+   "10": {
+    "columnas": [
+     [
+      "actualizado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "clave_idempotencia",
+      "uuid",
+      true
+     ],
+     [
+      "codigo_error",
+      "character varying(64)",
+      false
+     ],
+     [
+      "completado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "conversacion_id",
+      "uuid",
+      true
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "estado",
+      "character varying(16)",
+      true
+     ],
+     [
+      "huella_pregunta",
+      "character varying(64)",
+      true
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "intentos",
+      "integer",
+      true
+     ],
+     [
+      "mensaje_pregunta_id",
+      "uuid",
+      false
+     ],
+     [
+      "mensaje_respuesta_id",
+      "uuid",
+      false
+     ],
+     [
+      "token_ejecucion",
+      "uuid",
+      true
+     ],
+     [
+      "vence_en",
+      "timestamp with time zone",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "intercambios_asistente_pkey",
+      true,
+      false
+     ],
+     [
+      "uq_intercambios_asistente_clave",
+      true,
+      false
+     ],
+     [
+      "uq_intercambios_asistente_en_curso",
+      true,
+      true
+     ],
+     [
+      "uq_intercambios_asistente_mensaje_pregunta",
+      true,
+      false
+     ],
+     [
+      "uq_intercambios_asistente_mensaje_respuesta",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "ck_intercambios_asistente_completado_en",
+     "ck_intercambios_asistente_error",
+     "ck_intercambios_asistente_estado",
+     "ck_intercambios_asistente_fechas",
+     "ck_intercambios_asistente_huella",
+     "ck_intercambios_asistente_intentos",
+     "ck_intercambios_asistente_mensajes",
+     "intercambios_asistente_conversacion_id_fkey",
+     "intercambios_asistente_mensaje_pregunta_id_fkey",
+     "intercambios_asistente_mensaje_respuesta_id_fkey",
+     "intercambios_asistente_pkey",
+     "uq_intercambios_asistente_clave",
+     "uq_intercambios_asistente_mensaje_pregunta",
+     "uq_intercambios_asistente_mensaje_respuesta"
+    ]
+   }
+  },
+  "mensajes_asistente": {
+   "9": {
+    "columnas": [
+     [
+      "contenido",
+      "text",
+      true
+     ],
+     [
+      "conversacion_id",
+      "uuid",
+      true
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "datos_respuesta",
+      "jsonb",
+      false
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "orden",
+      "integer",
+      true
+     ],
+     [
+      "procedencia",
+      "character varying(32)",
+      true
+     ],
+     [
+      "rol",
+      "character varying(16)",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "mensajes_asistente_pkey",
+      true,
+      false
+     ],
+     [
+      "uq_mensajes_asistente_orden",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "ck_mensajes_asistente_contenido_no_vacio",
+     "ck_mensajes_asistente_datos_objeto",
+     "ck_mensajes_asistente_datos_solo_asistente",
+     "ck_mensajes_asistente_orden_positivo",
+     "ck_mensajes_asistente_procedencia",
+     "ck_mensajes_asistente_rol",
+     "mensajes_asistente_conversacion_id_fkey",
+     "mensajes_asistente_pkey",
+     "uq_mensajes_asistente_orden"
     ]
    }
   },

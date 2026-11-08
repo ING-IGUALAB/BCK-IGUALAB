@@ -171,8 +171,8 @@ async def test_actualiza_la_etapa_4a_conservando_las_filas_y_el_segundo_arranque
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4, 5, 6, 7, 8))  # 0001 adoptada tras verificarla; 0002 a 0006 aplicadas
-    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada")]
+    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4, 5, 6, 7, 8, 9, 10))  # 0001 adoptada tras verificarla; 0002 a 0006 aplicadas
+    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada")]
     (fila,) = await consultar(url, "SELECT id, nombre_archivo, etapa_actual, fragmentos_procesados, advertencias::text AS adv FROM documentos")
     assert (fila["id"], fila["nombre_archivo"], fila["etapa_actual"], fila["fragmentos_procesados"], fila["adv"]) == (
         documento_id, "viejo.md", "RESERVADO", 0, "[]")
@@ -191,7 +191,7 @@ async def test_actualiza_la_etapa_4a_conservando_las_filas_y_el_segundo_arranque
     monkeypatch.setattr(motor, "_registrar", no_debe_ejecutarse)
     segundo = await migrar(url, ESQUEMA_TRANSACCIONAL)
     assert segundo.sin_cambios
-    assert segundo.previas == (1, 2, 3, 4, 5, 6, 7, 8)
+    assert segundo.previas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
     assert await consultar(url, "SELECT version, aplicada_en, xmin::text AS xmin FROM igualab_migraciones ORDER BY version") == antes
 
 
@@ -246,10 +246,10 @@ async def test_una_instalacion_manual_completa_se_adopta_en_cualquier_version(ur
     aplicar_real = motor._aplicar
 
     async def solo_las_posteriores_a_la_0004(conn, m, base):
-        assert m.version in (5, 6, 7, 8), "adoptar no ejecuta SQL de migración (la 0005 a la 0008, sin objetos, se aplican)"
+        assert m.version in (5, 6, 7, 8, 9, 10), "adoptar no ejecuta SQL de migración (la 0005 a la 0008, sin objetos, y la 0009, cuyas tablas esa base no tiene, se aplican)"
         await aplicar_real(conn, m, base)
 
     monkeypatch.setattr(motor, "_aplicar", solo_las_posteriores_a_la_0004)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
     assert resultado.adoptadas == (1, 2, 3, 4)
-    assert resultado.aplicadas == (5, 6, 7, 8)
+    assert resultado.aplicadas == (5, 6, 7, 8, 9, 10)

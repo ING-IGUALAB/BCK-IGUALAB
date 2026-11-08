@@ -48,6 +48,19 @@ ESQUEMA_TRANSACCIONAL = EsquemaBase(
         # Sector «Otros» (OTROS) en el tipo `sector_empresa`, compartido por `empresas.sector` y `documentos.sector`. Sin `objetos`:
         # los tipos no forman parte de la firma y `create_all` ya lo crea con el valor en una instalación nueva (SQL idempotente).
         Migracion(8, "sector_otros", "0008_sector_otros.sql", (), carpeta="transaccional"),
+        # Historial del Asistente IA, entrega 1 (Módulo 6): conversaciones y mensajes guardados. Tablas NUEVAS (no las crea `create_all`:
+        # están en `TABLAS_SIN_DDL_AUTOMATICO`), así que sí declaran `objetos` y tienen firma versionada, como el Módulo 5.
+        Migracion(
+            9, "historial_asistente", "0009_historial_asistente.sql",
+            ("conversaciones_asistente", "mensajes_asistente"), carpeta="transaccional",
+        ),
+        # Historial del Asistente IA, entrega 2: reservas de consulta (`intercambios_asistente`, tabla nueva) y procedencia ampliada. La
+        # 0009 no se toca. `mensajes_asistente` NO se declara: solo cambia el texto de un CHECK con el mismo nombre, y la firma no compara
+        # el texto de los CHECK (su firma sigue siendo la de la versión 9).
+        Migracion(
+            10, "continuacion_asistente", "0010_continuacion_asistente.sql",
+            ("intercambios_asistente",), carpeta="transaccional",
+        ),
     ),
     # Los crea el arranque de los módulos existentes (`crear_tablas`), que corre ANTES que esta preparación.
     prerrequisitos=(

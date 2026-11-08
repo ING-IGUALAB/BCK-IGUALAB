@@ -57,9 +57,9 @@ async def test_el_esquema_migrado_es_identico_al_de_los_modelos(url_pg_aislado):
 async def test_instalacion_nueva_aplica_las_siete_migraciones_y_registra_la_0004(url_pg_aislado):
     url = await base_transaccional_nueva(url_pg_aislado)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.aplicadas == (1, 2, 3, 4, 5, 6, 7, 8)
+    assert resultado.aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
     assert set(TABLAS_ANALISIS_GRI) <= await tablas(url)
-    assert (await versiones_registradas(url))[-5:] == [(4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada")]
+    assert (await versiones_registradas(url))[-7:] == [(4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada")]
     (fila,) = await consultar(url, "SELECT nombre, checksum FROM igualab_migraciones WHERE version = 4")
     assert fila["nombre"] == "analisis_gri"
     assert fila["checksum"].strip() == ESQUEMA_TRANSACCIONAL.migraciones[3].checksum()
@@ -85,7 +85,7 @@ async def test_actualiza_una_base_con_datos_aplicando_solo_la_0004_y_sin_perder_
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)  # el arranque de la versión nueva
 
-    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((4, 5, 6, 7, 8), (), (1, 2, 3))
+    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((4, 5, 6, 7, 8, 9, 10), (), (1, 2, 3))
     assert set(TABLAS_ANALISIS_GRI) <= await tablas(url)
     assert [tuple(f) for f in await consultar(url, "SELECT * FROM documentos")] == [tuple(f) for f in antes]  # datos intactos
     assert [tuple(f) for f in await consultar(url, "SELECT version, checksum, aplicada_en FROM igualab_migraciones WHERE version <= 3 ORDER BY version")] \
@@ -113,7 +113,7 @@ async def test_segundo_arranque_no_ejecuta_nada_y_una_base_con_datos_del_modulo_
     monkeypatch.setattr(motor, "_registrar", no_debe_ejecutarse)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
     assert resultado.sin_cambios
-    assert resultado.previas == (1, 2, 3, 4, 5, 6, 7, 8)
+    assert resultado.previas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
     assert await consultar(url, "SELECT version, aplicada_en, xmin::text AS xmin FROM igualab_migraciones ORDER BY version") == antes
     assert (await consultar(url, "SELECT estado FROM analisis_gri_estados"))[0]["estado"] == "OK"
 
