@@ -46,6 +46,9 @@ CLAUDE.local.md
 docs/ingesta/
 prompts/
 
+# Informes y notas de trabajo de la IA: se redactan fuera del repositorio (C:\Users\marce\Informes_IA\Backend_igualab)
+informes/
+
 # ZIP de revisión del proyecto
 Backend_igualab_revision*.zip
 
