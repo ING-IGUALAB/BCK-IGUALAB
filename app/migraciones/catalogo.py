@@ -45,6 +45,9 @@ ESQUEMA_TRANSACCIONAL = EsquemaBase(
         # La 0006 no se toca. Sin `objetos` (idempotente), como la 0005 y la 0006; añade una UNIQUE a `analisis_gri_validaciones`
         # solo como destino de la FK compuesta.
         Migracion(7, "integridad_de_reportes", "0007_integridad_de_reportes.sql", (), carpeta="transaccional"),
+        # Sector «Otros» (OTROS) en el tipo `sector_empresa`, compartido por `empresas.sector` y `documentos.sector`. Sin `objetos`:
+        # los tipos no forman parte de la firma y `create_all` ya lo crea con el valor en una instalación nueva (SQL idempotente).
+        Migracion(8, "sector_otros", "0008_sector_otros.sql", (), carpeta="transaccional"),
     ),
     # Los crea el arranque de los módulos existentes (`crear_tablas`), que corre ANTES que esta preparación.
     prerrequisitos=(

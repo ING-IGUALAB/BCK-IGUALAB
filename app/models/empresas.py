@@ -13,6 +13,7 @@ class SectorEmpresa(str, enum.Enum):
     MINERIA = "MINERIA"
     PETROLEO = "PETROLEO"
     ENERGIA = "ENERGIA"
+    OTROS = "OTROS"  # etiqueta visible «Otros»; opción fija del catálogo, sin texto libre ni descripción
 
 
 class Empresa(Base):

@@ -23,7 +23,10 @@ from starlette.datastructures import Headers, UploadFile
 
 from app.core.exception_handlers import register_exception_handlers
 from app.core.exceptions import BusinessValidationError, NotFoundError, PayloadTooLargeError
-from app.models import Empresa, SectorEmpresa
+from pydantic import ValidationError
+
+from app.models import Empresa, SectorEmpresa, TipoDocumento
+from app.schemas import MetadatosIngestaRequest
 from app.core.request_id import RequestIDMiddleware
 from app.modules.ingesta.domain import validacion
 from app.modules.ingesta.domain.reglas import TAMANO_MAXIMO_BYTES
@@ -102,12 +105,37 @@ async def test_empresa_inactiva(db_empresas):
     assert capturado.value.code == "COMPANY_INACTIVE"
 
 
-@pytest.mark.parametrize("sector", [SectorEmpresa.PETROLEO, SectorEmpresa.ENERGIA])
+@pytest.mark.parametrize("sector", [SectorEmpresa.PETROLEO, SectorEmpresa.ENERGIA, SectorEmpresa.OTROS])
 async def test_sector_declarado_incompatible(db_empresas, sector):
     db, activa, _ = db_empresas
     with pytest.raises(BusinessValidationError) as capturado:
         await validacion.obtener_empresa_activa(db, activa.id, sector)
     assert capturado.value.code == "COMPANY_SECTOR_MISMATCH"
+
+
+def test_los_metadatos_de_ingesta_aceptan_el_valor_otros_y_rechazan_su_etiqueta_visible():
+    base = dict(empresa_id=uuid.uuid4(), anio=2025, tipo=TipoDocumento.MEMORIA_ANUAL)
+    assert MetadatosIngestaRequest(**base, sector="OTROS").sector is SectorEmpresa.OTROS
+    assert MetadatosIngestaRequest(**base).sector is None  # sigue siendo opcional y no hay valor predeterminado
+    with pytest.raises(ValidationError):
+        MetadatosIngestaRequest(**base, sector="Otros")
+
+
+async def test_empresa_de_sector_otros_se_toma_de_la_bd_y_solo_se_contrasta_el_declarado():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Empresa.__table__.create(engine)
+    with Session(engine, expire_on_commit=False) as session:
+        otros = Empresa(nombre="Empresa Otros", sector=SectorEmpresa.OTROS, activa=True)
+        session.add(otros)
+        session.commit()
+        db = SimpleNamespace(get=AsyncMock(side_effect=session.get))
+        assert (await validacion.obtener_empresa_activa(db, otros.id)).sector is SectorEmpresa.OTROS
+        assert (await validacion.obtener_empresa_activa(db, otros.id, SectorEmpresa.OTROS)).id == otros.id
+        for declarado in (SectorEmpresa.MINERIA, SectorEmpresa.PETROLEO, SectorEmpresa.ENERGIA):
+            with pytest.raises(BusinessValidationError) as capturado:
+                await validacion.obtener_empresa_activa(db, otros.id, declarado)
+            assert capturado.value.code == "COMPANY_SECTOR_MISMATCH"
+    engine.dispose()
 
 
 # --- T05: tipo real del archivo; extensión y MIME no bastan ------------------

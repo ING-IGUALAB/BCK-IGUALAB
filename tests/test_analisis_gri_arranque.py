@@ -32,7 +32,7 @@ async def test_prepara_solo_la_base_transaccional_con_su_esquema(monkeypatch, ur
     app = SimpleNamespace(state=SimpleNamespace())
     await preparar_esquema_analisis(app)
     assert app.state.analisis_error is None
-    assert llamadas == [(catalogo.settings.DATABASE_URL, "transaccional", [1, 2, 3, 4, 5, 6, 7])]  # nunca la base vectorial
+    assert llamadas == [(catalogo.settings.DATABASE_URL, "transaccional", [1, 2, 3, 4, 5, 6, 7, 8])]  # nunca la base vectorial
 
 
 async def test_un_fallo_de_migracion_deja_el_modulo_no_disponible_sin_secretos_y_sin_tumbar_el_arranque(monkeypatch, caplog, url_secreta):

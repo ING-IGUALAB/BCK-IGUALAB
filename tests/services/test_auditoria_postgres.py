@@ -79,7 +79,7 @@ async def test_la_migracion_actualiza_una_base_existente_sin_inventar_resultados
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert resultado.aplicadas == (1, 2, 3, 4, 5, 6, 7)
+    assert resultado.aplicadas == (1, 2, 3, 4, 5, 6, 7, 8)
     despues = [tuple(f) for f in await consultar(url, "SELECT id, usuario_id, tipo_evento::text, detalle, fecha_hora_utc FROM auditoria")]
     assert despues == antes  # los eventos existentes se conservan intactos
     assert (await consultar(url, "SELECT resultado FROM auditoria"))[0]["resultado"] is None  # no se deduce ni se inventa
