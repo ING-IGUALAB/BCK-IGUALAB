@@ -61,6 +61,9 @@ app = FastAPI(
     # rechazado igual que antes. La API se autentica solo con `Authorization: Bearer` (sin cookies), así que esta comprobación no es una defensa
     # contra CSRF en este servicio.
     strict_content_type=False,
+    # Un único esquema por modelo en OpenAPI. Sin esto, un modelo anidado a dos niveles que se usa de entrada y de salida (p. ej.
+    # `ConsultaResponse`) se desdobla en `-Input`/`-Output` aunque ambos sean idénticos, y cambiaría el nombre de los tipos del contrato.
+    separate_input_output_schemas=False,
 )
 
 register_exception_handlers(app)

@@ -22,7 +22,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.database import get_db
-from app.core.database_vectorial import get_vector_db
 from app.core.dependencies import get_current_user
 from app.core.exceptions import ConflictError
 from app.core.exception_handlers import register_exception_handlers
@@ -39,7 +38,7 @@ from app.modules.asistente.historial_schemas import GuardarConversacionRequest
 from app.modules.asistente.schemas import Afirmacion, Cita, ConsultaResponse
 from tests.ayudantes_analisis_gri import cliente_http, comprobar_error, crear_administrador, crear_empresa
 from tests.ayudantes_migraciones import base_transaccional_nueva, conectar, consultar, ejecutar, tablas, url_de_base
-from tests.services.test_asistente_postgres import EmbeddingsControlado, LlmControlado
+from tests.services.test_asistente_postgres import EmbeddingsControlado, LlmControlado, recursos_controlados
 
 ANIO = 2025
 RUTA = "/asistente/conversaciones"
@@ -99,14 +98,8 @@ def construir_app(h, usuario, ambiente: str = "development", *, con_consultas: b
     if usuario is not None:
         app.dependency_overrides[get_current_user] = lambda: usuario
     if con_consultas:
-        async def vectorial_de_prueba():
-            yield None
-
         app.include_router(asistente.router)
-        app.dependency_overrides[get_vector_db] = vectorial_de_prueba
-        app.dependency_overrides[asistente.esquema_vectorial_listo] = lambda: None
-        app.dependency_overrides[asistente.get_proveedor_embeddings] = lambda: h.embeddings
-        app.dependency_overrides[asistente.get_proveedor_llm] = lambda: h.llm
+        app.dependency_overrides[asistente.get_recursos_consulta] = lambda: recursos_controlados(h.embeddings, h.llm)
     return app
 
 
@@ -600,7 +593,10 @@ async def test_post_consultas_conserva_su_comportamiento_y_no_guarda_nada_en_el_
         )
     assert r.status_code == 200, r.text
     cuerpo_consulta = r.json()
-    assert set(cuerpo_consulta) == {"respuesta", "afirmaciones", "citas", "sin_evidencia", "motivo", "mensaje", "afirmaciones_descartadas"}
+    # Las claves anteriores se conservan; el contrato solo suma dos opcionales: `estado_registrado` (null sin petición de estado) y
+    # `busqueda_documental` (REALIZADA por omisión).
+    assert set(cuerpo_consulta) == {"respuesta", "afirmaciones", "citas", "sin_evidencia", "motivo", "mensaje", "afirmaciones_descartadas", "estado_registrado", "busqueda_documental"}
+    assert (cuerpo_consulta["estado_registrado"], cuerpo_consulta["busqueda_documental"]) == (None, "REALIZADA")
     assert (cuerpo_consulta["sin_evidencia"], cuerpo_consulta["motivo"]) == (True, MOTIVO_SIN_FRAGMENTOS)
     assert h.embeddings.llamadas == 1  # la consulta SÍ usa embeddings: la ruta no cambió
     assert await contar_todo(h) == (0, 0)  # y no guarda nada automáticamente

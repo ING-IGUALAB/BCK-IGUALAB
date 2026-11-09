@@ -17,29 +17,49 @@ import uuid
 
 import pytest
 
-from app.core.exceptions import ExternalServiceError
+from app.core.exceptions import ConflictError, ExternalServiceError, ServiceUnavailableError
+from app.models.analisis_gri import EstadoGri
+from app.modules.analisis_gri.application import servicio as servicio_analisis
 from app.modules.asistente import continuacion_service
+from app.modules.asistente import service as servicio_consultas
+from app.modules.asistente.domain.estado_gri import codigos_para_estado, solo_estado
 from app.modules.asistente.domain.interpretacion import SISTEMA_INTERPRETACION
 from app.modules.asistente.domain.prompt import SISTEMA as SISTEMA_RAG
-from tests.ayudantes_analisis_gri import cliente_http, comprobar_error
+from app.modules.asistente.schemas import (
+    Afirmacion,
+    BusquedaDocumental,
+    ConsultaResponse,
+    EstadoRegistrado,
+    FilaEstadoRegistrado,
+    ValidacionRegistrada,
+)
+from tests.ayudantes_analisis_gri import cliente_http, comprobar_error, sembrar_documento
+from tests.ayudantes_migraciones import conectar
 from tests.services.test_continuacion_asistente_postgres import (  # noqa: F401  (`h` y `p` son fixtures)
     ANIO,
     DOCUMENTO,
     PREGUNTA,
     TEXTO,
+    app_con_recursos_reales,
     conversacion,
     continuar,
     decision_consultar,
     fragmento,
     intercambios,
     mensajes_en_base,
+    post_real,
     vencer,
 )
 from tests.services.test_historial_asistente_postgres import (  # noqa: F401
+    RUTA as RUTA_CONVERSACIONES,
+    cita,
     construir_app,
     con_evidencia,
     contar,
+    cuerpo,
+    guardar,
     h,
+    listar,
     pregunta,
     recuperar,
     respuesta,
@@ -634,3 +654,428 @@ async def test_una_pregunta_de_comprobacion_no_convierte_el_antecedente_historic
     anteriores = (await recuperar(h, c["id"])).json()["mensajes"][:2]
     assert anteriores[1]["respuesta"]["respuesta"].startswith("La empresa pagó una multa")  # y el antecedente sigue como se importó
     assert anteriores[1]["procedencia"] == "APORTADO_POR_CLIENTE"
+
+
+# ============================================ Estado registrado en Análisis GRI (continuación) ============================================
+# La regla vive en `service.responder_consulta`, común a `POST /asistente/consultas` y a la continuación. Aquí se prueba que, en la
+# continuación, se aplica a la pregunta AUTÓNOMA ya interpretada, con el contexto fijo de la conversación, y que respeta la idempotencia y
+# el presupuesto global. Las reglas del texto están en `test_estado_gri_asistente.py`; el flujo por POST /asistente/consultas, en
+# `test_estado_gri_asistente_postgres.py`.
+
+SEGUIMIENTO_ESTADO = "¿Y su estado?"  # no nombra ningún código: el código sale de la interpretación
+AUTONOMA_ESTADO = "¿Qué estado tiene GRI 1 de la empresa en 2025?"
+MD_GRI_1 = "# Reporte 2025\n\n## Acerca de este reporte\n\nLa organización utilizó GRI 1: Fundamentos 2021 como base de elaboración.\n"
+SIN_AFIRMACIONES = json.dumps({"fuera_de_dominio": False, "afirmaciones": []})
+
+
+async def con_estado_gri_1(h, estado: str = "BAJA_SUSTANCIA") -> None:
+    """Análisis GRI REAL de la empresa de la conversación (development, 2025): GRI 1 con estado y validación vigente."""
+    async with h.fabrica() as db:
+        await sembrar_documento(db, h.mineria, h.ana, texto=MD_GRI_1, nombre="reporte-2025.md", anio=ANIO)
+    async with h.fabrica() as db:
+        await servicio_analisis.asignar_estado(
+            db, ambiente="development", empresa_id=h.mineria.id, anio=ANIO, identidad="1:2021", estado=EstadoGri[estado],
+            version_fila_esperada=0, actor=h.ana,
+        )
+    async with h.fabrica() as db:
+        actual = await servicio_analisis.consultar_analisis(db, ambiente="development", empresa_id=h.mineria.id, anio=ANIO)
+    async with h.fabrica() as db:
+        await servicio_analisis.validar_analisis(
+            db, ambiente="development", empresa_id=h.mineria.id, anio=ANIO, version_esperada=actual.version,
+            huella_esperada=actual.huella_documentos, actor=h.ana,
+        )
+
+
+def espiar_lecturas_del_estado(monkeypatch) -> list[dict]:
+    lecturas: list[dict] = []
+    original = servicio_consultas.consultar_analisis
+
+    async def espia(*args, **kwargs):
+        lecturas.append(kwargs)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(servicio_consultas, "consultar_analisis", espia)
+    return lecturas
+
+
+async def test_un_seguimiento_de_estado_informa_el_estado_del_codigo_de_la_pregunta_autonoma_con_el_contexto_de_la_conversacion(h, p, monkeypatch):
+    await con_estado_gri_1(h)
+    lecturas = espiar_lecturas_del_estado(monkeypatch)
+    c = await conversacion(h)
+    p.llm.interpretacion = decision_consultar(AUTONOMA_ESTADO)
+
+    r = await continuar(h, p, c["id"], SEGUIMIENTO_ESTADO)
+
+    assert r.status_code == 201, r.text
+    j = r.json()
+    assert j["pregunta"]["contenido"] == SEGUIMIENTO_ESTADO  # se guarda la pregunta ORIGINAL, no la autónoma
+    estructurada = j["respuesta"]["respuesta"]
+    assert estructurada["sin_evidencia"] is False and estructurada["citas"]  # la evidencia documental y sus citas siguen como siempre
+    assert "GRI 1 (2021): Baja sustancia. Validación vigente (n.º 1" in estructurada["mensaje"]
+    assert "Baja sustancia" not in estructurada["respuesta"] and j["respuesta"]["contenido"] == estructurada["respuesta"]
+    assert [(k["ambiente"], k["empresa_id"], k["anio"]) for k in lecturas] == [("development", h.mineria.id, ANIO)]  # contexto fijo
+    assert "Baja sustancia" not in p.llm.interp_usuario + p.llm.usuario  # ni la interpretación ni el RAG reciben el estado
+    guardado = (await mensajes_en_base(h))[-1]
+    assert "GRI 1 (2021): Baja sustancia" in json.loads(guardado["datos_respuesta"])["mensaje"]  # queda en el historial junto a su respuesta
+
+
+async def test_sin_evidencia_documental_el_estado_queda_visible_y_es_el_contenido_guardado_del_mensaje(h, p):
+    await con_estado_gri_1(h, "SUB_REPORTADO")
+    c = await conversacion(h)
+    p.llm.interpretacion = decision_consultar(AUTONOMA_ESTADO)
+    p.llm.contenido = SIN_AFIRMACIONES  # el modelo no encuentra nada en los fragmentos
+
+    r = await continuar(h, p, c["id"], SEGUIMIENTO_ESTADO)
+
+    assert r.status_code == 201, r.text
+    estructurada = r.json()["respuesta"]["respuesta"]
+    assert (estructurada["sin_evidencia"], estructurada["motivo"], estructurada["citas"]) == (True, "MODELO_SIN_EVIDENCIA", [])
+    assert "GRI 1 (2021): Sub-reportado. Validación vigente" in estructurada["mensaje"]
+    assert "Evidencia documental: No se encontró evidencia" in estructurada["mensaje"]
+    assert r.json()["respuesta"]["contenido"] == estructurada["mensaje"]  # el texto guardado del mensaje es el que el usuario ve
+    assert await contar(h, "mensajes_asistente") == 6
+
+
+async def test_si_la_pregunta_autonoma_no_pide_estado_la_continuacion_no_lee_el_analisis(h, p, monkeypatch):
+    await con_estado_gri_1(h)
+    lecturas = espiar_lecturas_del_estado(monkeypatch)
+    c = await conversacion(h)
+    p.llm.interpretacion = decision_consultar("¿Qué dice el documento sobre GRI 1 en 2025?")
+
+    r = await continuar(h, p, c["id"], SEGUIMIENTO_ESTADO)
+
+    assert r.status_code == 201, r.text
+    assert r.json()["respuesta"]["respuesta"]["mensaje"] is None and lecturas == []
+
+
+async def test_un_reintento_completado_devuelve_lo_guardado_sin_volver_a_leer_el_estado(h, p, monkeypatch):
+    await con_estado_gri_1(h)
+    lecturas = espiar_lecturas_del_estado(monkeypatch)
+    c = await conversacion(h)
+    p.llm.interpretacion = decision_consultar(AUTONOMA_ESTADO)
+    clave = uuid.uuid4()
+    primera = await continuar(h, p, c["id"], SEGUIMIENTO_ESTADO, clave=clave)
+    assert primera.status_code == 201 and len(lecturas) == 1
+
+    # El estado cambia DESPUÉS: la repetición debe devolver el intercambio almacenado, no recomponerlo.
+    async with h.fabrica() as db:
+        await servicio_analisis.asignar_estado(
+            db, ambiente="development", empresa_id=h.mineria.id, anio=ANIO, identidad="1:2021", estado=EstadoGri.OK,
+            version_fila_esperada=1, actor=h.ana,
+        )
+    repeticion = await continuar(h, p, c["id"], SEGUIMIENTO_ESTADO, clave=clave)
+
+    assert repeticion.status_code == 200 and repeticion.json()["reutilizado"] is True
+    assert repeticion.json()["respuesta"] == primera.json()["respuesta"]
+    assert "Baja sustancia" in repeticion.json()["respuesta"]["respuesta"]["mensaje"] and len(lecturas) == 1
+    assert await contar(h, "mensajes_asistente") == 6
+
+
+async def test_el_plazo_global_tambien_cubre_la_lectura_del_estado_sin_dejar_pares_parciales(h, p, monkeypatch):
+    await con_estado_gri_1(h)
+    c = await conversacion(h)
+    p.llm.interpretacion = decision_consultar(AUTONOMA_ESTADO)
+    monkeypatch.setattr(continuacion_service, "PRESUPUESTO_GENERACION_SEGUNDOS", 0.5)
+
+    async def lenta(*args, **kwargs):
+        await asyncio.sleep(2)
+
+    monkeypatch.setattr(servicio_consultas, "consultar_analisis", lenta)
+
+    r = await continuar(h, p, c["id"], SEGUIMIENTO_ESTADO)
+
+    comprobar_error(r, 504, "ASSISTANT_GENERATION_TIMEOUT")
+    assert await contar(h, "mensajes_asistente") == 4  # ni la pregunta ni la respuesta quedaron a medias
+
+
+# ============================================ Solo estado GRI: sin recursos documentales (regresión de la limitación anterior) ============================================
+# Antes, «¿Qué estado tiene GRI 1?» se bloqueaba en la continuación por (1) `recursos.preparar()` antes de reservar, (2) la sesión vectorial
+# después de reservar, (3) la interpretación con el modelo y (4) el RAG. Ahora se decide sobre la pregunta ORIGINAL, tras autorizar la
+# conversación y comprobar cupo y empresa, y ANTES de cualquiera de esos pasos. Lo que no es inequívocamente «solo estado» no cambia.
+
+SOLO_ESTADO = "¿Qué estado tiene GRI 1?"
+SEGUIMIENTO_SIN_CODIGO = "¿Y qué estado tiene ese?"
+MIXTA = "¿Qué estado tiene GRI 1 y qué dice el documento?"
+
+
+async def conversacion_sobre_gri_1(h) -> dict:
+    return await conversacion(h, mensajes=[pregunta("¿Qué dice el documento sobre GRI 1?"), respuesta(sin_evidencia())])
+
+
+def sin_recursos_documentales(p) -> bool:
+    return (
+        (p.construidos, p.sesiones_abiertas, p.llm.interpretaciones, p.embeddings.llamadas, p.llm.llamadas, p.busquedas) == (0, 0, 0, 0, 0, [])
+    )
+
+
+RECURSOS_CAIDOS = ["esquema_vectorial_no_preparado", "proveedores_sin_configurar", "sesion_vectorial", "modelo_de_interpretacion"]
+
+
+async def post_con_recurso_caido(h, p, c, caido: str, texto: str, clave=None):
+    if caido == "proveedores_sin_configurar":
+        p.fallo_al_construir = ServiceUnavailableError("LLM_NOT_CONFIGURED", "El asistente no está disponible: falta configurar el proveedor de IA.")
+    if caido == "sesion_vectorial":
+        p.fallo_al_abrir_sesion = ExternalServiceError("VECTOR_DATABASE_NOT_CONFIGURED", "La base de datos vectorial no está configurada.")
+    if caido == "modelo_de_interpretacion":
+        p.llm.interpretacion = ExternalServiceError("LLM_PROVIDER_ERROR", "El proveedor de chat falló.")
+    if caido == "esquema_vectorial_no_preparado":  # la fábrica REAL de recursos; la app no tiene `app.state.ingesta`
+        return await post_real(h, c["id"], clave or uuid.uuid4(), texto)
+    return await continuar(h, p, c["id"], texto, clave=clave)
+
+
+@pytest.mark.parametrize("caido", RECURSOS_CAIDOS)
+async def test_solo_estado_en_la_continuacion_se_responde_con_los_recursos_caidos_y_sin_tocarlos(h, p, monkeypatch, caido):
+    await con_estado_gri_1(h)
+    lecturas = espiar_lecturas_del_estado(monkeypatch)
+    c = await conversacion(h)
+
+    r = await post_con_recurso_caido(h, p, c, caido, SOLO_ESTADO)
+
+    assert r.status_code == 201, r.text
+    assert sin_recursos_documentales(p)  # ni se prepararon recursos, ni se abrió la sesión vectorial, ni interpretación, ni RAG
+    j = r.json()
+    assert j["pregunta"]["contenido"] == SOLO_ESTADO and j["reutilizado"] is False
+    estructurada = j["respuesta"]["respuesta"]
+    assert (estructurada["sin_evidencia"], estructurada["motivo"], estructurada["busqueda_documental"]) == (False, None, "NO_REALIZADA")
+    assert (estructurada["afirmaciones"], estructurada["citas"], estructurada["mensaje"]) == ([], [], None)
+    assert j["respuesta"]["contenido"] == estructurada["respuesta"] == estructurada["estado_registrado"]["texto"]
+    assert "GRI 1 (2021): Baja sustancia. Validación vigente (n.º 1" in estructurada["respuesta"]
+    assert [(k["ambiente"], k["empresa_id"], k["anio"]) for k in lecturas] == [("development", h.mineria.id, ANIO)]  # contexto fijo
+    assert [i["estado"] for i in await intercambios(h)] == ["COMPLETADO"]
+    assert await contar(h, "mensajes_asistente") == 6  # el par se persistió atómicamente
+
+
+@pytest.mark.parametrize(("caido", "estado", "codigo"), [
+    ("esquema_vectorial_no_preparado", 503, "INGESTION_NOT_CONFIGURED"),
+    ("proveedores_sin_configurar", 503, "LLM_NOT_CONFIGURED"),
+    ("sesion_vectorial", 502, "VECTOR_DATABASE_NOT_CONFIGURED"),
+    ("modelo_de_interpretacion", 502, "LLM_PROVIDER_ERROR"),
+])
+@pytest.mark.parametrize("texto", [MIXTA, SEGUIMIENTO_SIN_CODIGO], ids=["mixta", "seguimiento_ambiguo"])
+async def test_las_preguntas_mixtas_y_los_seguimientos_ambiguos_conservan_los_errores_http_de_siempre(h, p, monkeypatch, caido, estado, codigo, texto):
+    await con_estado_gri_1(h)
+    lecturas = espiar_lecturas_del_estado(monkeypatch)
+    c = await conversacion_sobre_gri_1(h)
+
+    r = await post_con_recurso_caido(h, p, c, caido, texto)
+
+    comprobar_error(r, estado, codigo)  # no se responde con un 200 parcial ni se muestra el estado a medias
+    assert "Estado registrado" not in r.text and "estado_registrado" not in r.text and lecturas == []
+    assert await contar(h, "mensajes_asistente") == 2  # solo los de la conversación original
+
+
+async def test_una_pregunta_mixta_conserva_el_flujo_completo_y_la_verificacion_de_citas(h, p):
+    await con_estado_gri_1(h)
+    c = await conversacion(h)
+
+    r = await continuar(h, p, c["id"], MIXTA)
+
+    assert r.status_code == 201, r.text
+    assert (p.llm.interpretaciones, p.embeddings.llamadas, p.llm.llamadas) == (1, 1, 1)  # interpretación + búsqueda + modelo, como siempre
+    estructurada = r.json()["respuesta"]["respuesta"]
+    assert estructurada["busqueda_documental"] == "REALIZADA" and estructurada["sin_evidencia"] is False and estructurada["citas"]
+    assert estructurada["estado_registrado"]["filas"][0]["estado"] == "BAJA_SUSTANCIA" and "Baja sustancia" not in estructurada["respuesta"]
+
+
+async def test_un_seguimiento_ambiguo_sigue_necesitando_el_modelo_que_aporta_el_codigo_y_sin_el_falla(h, p):
+    """«¿Y qué estado tiene ese?» no tiene código: nunca es «solo estado». Con el modelo, la pregunta autónoma (que sí nombra el código) sigue el
+    flujo documental completo; la decisión de «solo estado» se toma sobre la pregunta ORIGINAL, no sobre la reescrita."""
+    assert solo_estado(SEGUIMIENTO_SIN_CODIGO, ANIO) is None and codigos_para_estado(SEGUIMIENTO_SIN_CODIGO) == []
+    await con_estado_gri_1(h)
+    c = await conversacion_sobre_gri_1(h)
+
+    p.llm.interpretacion = decision_consultar(AUTONOMA_ESTADO)
+    con_modelo = await continuar(h, p, c["id"], SEGUIMIENTO_SIN_CODIGO)
+    assert con_modelo.status_code == 201, con_modelo.text
+    estructurada = con_modelo.json()["respuesta"]["respuesta"]
+    assert estructurada["busqueda_documental"] == "REALIZADA" and "GRI 1 (2021): Baja sustancia" in estructurada["estado_registrado"]["texto"]
+    assert (p.llm.interpretaciones, p.embeddings.llamadas, p.llm.llamadas) == (1, 1, 1)
+
+    p.llm.interpretacion = ExternalServiceError("LLM_PROVIDER_ERROR", "El proveedor de chat falló.")
+    sin_modelo = await continuar(h, p, c["id"], SEGUIMIENTO_SIN_CODIGO)
+    comprobar_error(sin_modelo, 502, "LLM_PROVIDER_ERROR")  # sin el modelo no hay forma de saber de qué código se habla
+    assert "Estado registrado" not in sin_modelo.text
+
+
+async def test_el_seguimiento_que_pide_aclarar_o_cambiar_de_contexto_no_responde_ningun_estado(h, p):
+    await con_estado_gri_1(h)
+    c = await conversacion_sobre_gri_1(h)
+    p.llm.interpretacion = json.dumps({"decision": "ACLARAR", "pregunta_autonoma": None})
+
+    r = await continuar(h, p, c["id"], SEGUIMIENTO_SIN_CODIGO)
+
+    comprobar_error(r, 400, "CONVERSATION_CLARIFICATION_REQUIRED")
+    assert "Estado registrado" not in r.text and (p.embeddings.llamadas, p.llm.llamadas) == (0, 0)
+
+
+async def test_un_reintento_completado_de_solo_estado_devuelve_lo_guardado_sin_releer_el_estado_ni_preparar_recursos(h, p, monkeypatch):
+    await con_estado_gri_1(h)
+    lecturas = espiar_lecturas_del_estado(monkeypatch)
+    c = await conversacion(h)
+    clave = uuid.uuid4()
+    primera = await continuar(h, p, c["id"], SOLO_ESTADO, clave=clave)
+    assert primera.status_code == 201 and len(lecturas) == 1
+
+    async with h.fabrica() as db:  # el estado cambia DESPUÉS: la repetición no debe recomponerlo
+        await servicio_analisis.asignar_estado(
+            db, ambiente="development", empresa_id=h.mineria.id, anio=ANIO, identidad="1:2021", estado=EstadoGri.OK,
+            version_fila_esperada=1, actor=h.ana,
+        )
+    p.fallo_al_construir = ServiceUnavailableError("LLM_NOT_CONFIGURED", "falta configurar el proveedor de IA")  # y los recursos están caídos
+
+    repeticion = await continuar(h, p, c["id"], SOLO_ESTADO, clave=clave)
+
+    assert repeticion.status_code == 200 and repeticion.json()["reutilizado"] is True
+    assert repeticion.json()["respuesta"] == primera.json()["respuesta"] and "Baja sustancia" in repeticion.json()["respuesta"]["respuesta"]["respuesta"]
+    assert len(lecturas) == 1 and sin_recursos_documentales(p) and await contar(h, "mensajes_asistente") == 6
+    otra_pregunta = await continuar(h, p, c["id"], "¿Qué estado tiene GRI 13?", clave=clave)
+    comprobar_error(otra_pregunta, 409, "QUERY_IDEMPOTENCY_CONFLICT")  # la misma clave con otra pregunta sigue siendo un conflicto
+
+
+async def test_si_la_lectura_del_estado_falla_el_intercambio_queda_fallido_y_la_misma_clave_se_recupera(h, p, monkeypatch):
+    await con_estado_gri_1(h)
+    c = await conversacion(h)
+    clave = uuid.uuid4()
+    original = servicio_consultas.consultar_analisis
+
+    async def cambiando(*args, **kwargs):
+        raise ConflictError("ANALYSIS_CHANGING", "El análisis está cambiando; vuelva a consultarlo.")
+
+    monkeypatch.setattr(servicio_consultas, "consultar_analisis", cambiando)
+    r = await continuar(h, p, c["id"], SOLO_ESTADO, clave=clave)
+    comprobar_error(r, 409, "ANALYSIS_CHANGING")
+    assert [i["estado"] for i in await intercambios(h)] == ["FALLIDO"] and await contar(h, "mensajes_asistente") == 4
+
+    monkeypatch.setattr(servicio_consultas, "consultar_analisis", original)
+    recuperado = await continuar(h, p, c["id"], SOLO_ESTADO, clave=clave)
+    assert recuperado.status_code == 201 and [i["estado"] for i in await intercambios(h)] == ["COMPLETADO"]
+    assert sin_recursos_documentales(p)
+
+
+async def test_el_presupuesto_global_tambien_cubre_la_lectura_del_estado_de_solo_estado(h, p, monkeypatch):
+    await con_estado_gri_1(h)
+    c = await conversacion(h)
+    monkeypatch.setattr(continuacion_service, "PRESUPUESTO_GENERACION_SEGUNDOS", 0.5)
+
+    async def lenta(*args, **kwargs):
+        await asyncio.sleep(2)
+
+    monkeypatch.setattr(servicio_consultas, "consultar_analisis", lenta)
+
+    r = await continuar(h, p, c["id"], SOLO_ESTADO)
+
+    comprobar_error(r, 504, "ASSISTANT_GENERATION_TIMEOUT")
+    assert await contar(h, "mensajes_asistente") == 4 and sin_recursos_documentales(p)
+
+
+async def test_la_autorizacion_el_cupo_y_la_empresa_se_comprueban_antes_de_leer_el_estado(h, p, monkeypatch):
+    await con_estado_gri_1(h)
+    lecturas = espiar_lecturas_del_estado(monkeypatch)
+    propia = await conversacion(h)
+    llena = await conversacion(h, mensajes=pares(20))  # 40 mensajes: el límite
+    ajena = await conversacion(h, usuario=h.beto)
+
+    comprobar_error(await continuar(h, p, ajena["id"], SOLO_ESTADO), 404, "CONVERSATION_NOT_FOUND")  # de otro usuario
+    comprobar_error(await continuar(h, p, llena["id"], SOLO_ESTADO), 409, "CONVERSATION_MESSAGE_LIMIT_REACHED")
+    async with cliente_http(app_con_recursos_reales(h, h.superadmin)) as cliente:
+        no_admin = await cliente.post(f"{RUTA_CONVERSACIONES}/{propia['id']}/consultas", json={"clave_idempotencia": str(uuid.uuid4()), "pregunta": SOLO_ESTADO})
+    assert no_admin.status_code == 403
+    assert lecturas == [] and await intercambios(h) == []
+
+    async with h.fabrica() as db:
+        from sqlalchemy import update
+
+        from app.models import Empresa
+
+        await db.execute(update(Empresa).where(Empresa.id == h.mineria.id).values(activa=False))
+        await db.commit()
+    comprobar_error(await continuar(h, p, propia["id"], SOLO_ESTADO), 400, "COMPANY_INACTIVE")
+    assert lecturas == [] and sin_recursos_documentales(p)
+
+
+# ---- Historial: lo guardado se recupera y las conversaciones del contrato anterior se siguen leyendo --------------------------------------
+
+async def test_la_respuesta_de_solo_estado_guardada_se_recupera_con_su_forma_y_su_texto(h, p):
+    await con_estado_gri_1(h)
+    c = await conversacion(h)
+    creada = await continuar(h, p, c["id"], SOLO_ESTADO)
+    assert creada.status_code == 201
+
+    detalle = (await recuperar(h, c["id"])).json()
+
+    ultimo = detalle["mensajes"][-1]
+    assert (ultimo["rol"], ultimo["procedencia"]) == ("asistente", "GENERADO_POR_SERVIDOR")
+    assert ultimo["contenido"] == ultimo["respuesta"]["respuesta"] == ultimo["respuesta"]["estado_registrado"]["texto"]
+    assert ultimo["respuesta"]["busqueda_documental"] == "NO_REALIZADA" and ultimo["respuesta"]["citas"] == []
+    assert detalle["mensajes"][-2]["contenido"] == SOLO_ESTADO  # la pregunta original
+
+
+async def test_las_conversaciones_guardadas_con_el_contrato_anterior_se_siguen_leyendo(h):
+    c = await conversacion(h, mensajes=[pregunta("¿Cuánto redujo su consumo de agua?"), respuesta(con_evidencia(h.mineria.id, citas=1))])
+    # Se simula una fila escrita ANTES de este cambio: sin `estado_registrado` ni `busqueda_documental`.
+    conexion = await conectar(h.url)
+    try:
+        await conexion.execute("UPDATE mensajes_asistente SET datos_respuesta = datos_respuesta - 'estado_registrado' - 'busqueda_documental' WHERE rol = 'asistente'")
+        anteriores = await conexion.fetchval("SELECT count(*) FROM mensajes_asistente WHERE datos_respuesta ? 'busqueda_documental'")
+    finally:
+        await conexion.close()
+    assert anteriores == 0
+
+    r = await recuperar(h, c["id"])
+
+    assert r.status_code == 200, r.text
+    estructurada = r.json()["mensajes"][-1]["respuesta"]
+    assert (estructurada["busqueda_documental"], estructurada["estado_registrado"]) == ("REALIZADA", None)  # valores por omisión
+    assert estructurada["citas"] and estructurada["sin_evidencia"] is False
+    assert (await listar(h)).status_code == 200
+
+
+async def test_guardar_acepta_el_cuerpo_del_contrato_anterior_y_la_forma_nueva_de_solo_estado(h):
+    anterior = respuesta(con_evidencia(h.mineria.id, citas=1))
+    del anterior["respuesta"]["estado_registrado"], anterior["respuesta"]["busqueda_documental"]  # el cuerpo tal como lo enviaba el frontend antes
+    assert (await guardar(h, cuerpo(h, mensajes=[pregunta("¿Cuánto redujo su consumo de agua?"), anterior]))).status_code == 201
+
+    assert (await guardar(h, cuerpo(h, mensajes=[pregunta(SOLO_ESTADO), respuesta(solo_estado_valido())]))).status_code == 201
+
+
+def solo_estado_valido(**cambios) -> ConsultaResponse:
+    texto = "Estado registrado en Análisis GRI (Minera Andina, 2025):\n- GRI 1 (2021): OK. Validación vigente (n.º 1, validada el 2026-11-08)."
+    estado = EstadoRegistrado(
+        texto=texto, codigos_solicitados=["GRI 1"], validacion_vigente=True,
+        filas=[FilaEstadoRegistrado(identidad="1:2021", codigo="1", edicion="2021", estandar="GRI 1 (2021)", estado="OK", estado_etiqueta="OK")],
+        validacion=ValidacionRegistrada(numero=1, validado_en="2026-11-08T15:00:00Z", motivos_no_vigente=[]),
+    )
+    base = dict(respuesta=texto, sin_evidencia=False, estado_registrado=estado, busqueda_documental=BusquedaDocumental.NO_REALIZADA)
+    return ConsultaResponse(**{**base, **cambios})
+
+
+INVALIDAS = ["con_cita", "con_afirmacion", "sin_evidencia", "con_motivo", "con_mensaje", "texto_ajeno", "sin_estado"]
+
+
+def alteracion(nombre: str, h) -> dict:
+    cita_ajena = Afirmacion(texto="El estado es OK.", referencias=[1], cita_textual="redujo el consumo de agua en 12 %")
+    return {
+        "con_cita": dict(citas=[cita(h.mineria.id)], afirmaciones=[cita_ajena]),
+        "con_afirmacion": dict(afirmaciones=[cita_ajena]),
+        "sin_evidencia": dict(sin_evidencia=True, motivo="SIN_FRAGMENTOS", mensaje="No hay documentos."),
+        "con_motivo": dict(motivo="SIN_FRAGMENTOS"),
+        "con_mensaje": dict(mensaje="otro texto"),
+        "texto_ajeno": dict(respuesta="Otro texto que no es el estado registrado."),
+        "sin_estado": dict(estado_registrado=None),
+    }[nombre]
+
+
+@pytest.mark.parametrize("nombre", INVALIDAS)
+async def test_una_respuesta_de_solo_estado_con_algo_mas_se_rechaza_al_guardar(h, nombre):
+    r = await guardar(h, cuerpo(h, mensajes=[pregunta(SOLO_ESTADO), respuesta(solo_estado_valido(**alteracion(nombre, h)))]))
+    assert r.status_code == 422, r.text
+
+
+async def test_sin_busqueda_documental_no_se_puede_colar_una_afirmacion_sin_cita_y_una_documental_sigue_exigiendo_citas(h):
+    # REALIZADA con `sin_evidencia=false` pero sin citas ni afirmaciones: sigue siendo inválida (no se relajó la exigencia de citas).
+    sin_citas = ConsultaResponse(respuesta="La empresa redujo su consumo de agua.", sin_evidencia=False)
+    r = await guardar(h, cuerpo(h, mensajes=[pregunta("¿Cuánto redujo su consumo de agua?"), respuesta(sin_citas)]))
+    assert r.status_code == 422, r.text
+    # ... y marcarla NO_REALIZADA sin estado registrado tampoco la hace válida.
+    r = await guardar(h, cuerpo(h, mensajes=[pregunta("¿Cuánto redujo su consumo de agua?"), respuesta(sin_citas.model_copy(update={"busqueda_documental": BusquedaDocumental.NO_REALIZADA}))]))
+    assert r.status_code == 422, r.text

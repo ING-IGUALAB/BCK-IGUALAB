@@ -23,7 +23,7 @@ from app.modules.asistente.domain.citas import (
     MOTIVO_RESPUESTA_NO_INTERPRETABLE,
     MOTIVO_SIN_FRAGMENTOS,
 )
-from app.modules.asistente.schemas import ConsultaResponse
+from app.modules.asistente.schemas import BusquedaDocumental, ConsultaResponse
 
 # --- Límites (una conversación admitida siempre se puede recuperar completa) ---------------------------------------------------
 MAX_MENSAJES = 40  # 20 pares pregunta/respuesta
@@ -159,10 +159,44 @@ def _problemas_con_evidencia(r: ConsultaResponse, empresa_id: uuid.UUID, anio: i
     return problemas
 
 
+def _problemas_del_estado_adjunto(r: ConsultaResponse) -> list[str]:
+    """El estado registrado que acompaña a una respuesta DOCUMENTAL (no la sustituye ni la exime de sus citas)."""
+    e = r.estado_registrado
+    if e is None:
+        return []
+    if not e.texto.strip() or len(e.texto) > MAX_MENSAJE_AUSENCIA:
+        return ["el estado registrado trae un texto vacío o demasiado largo"]
+    return []
+
+
+def _problemas_solo_estado(r: ConsultaResponse) -> list[str]:
+    """Una respuesta SIN búsqueda documental (`NO_REALIZADA`): válida únicamente como lectura del estado registrado. No es una vía para
+    afirmaciones sin cita: no admite afirmaciones, citas, ausencia de evidencia ni más texto que el del propio estado."""
+    problemas: list[str] = []
+    e = r.estado_registrado
+    if e is None:
+        return ["una respuesta sin búsqueda documental debe traer el estado registrado"]
+    if not e.texto.strip() or len(e.texto) > MAX_MENSAJE_AUSENCIA:
+        problemas.append("el estado registrado trae un texto vacío o demasiado largo")
+    if r.sin_evidencia or r.motivo is not None:
+        problemas.append("una respuesta de solo estado no declara ausencia de evidencia ni trae motivo")
+    if r.afirmaciones or r.citas or r.afirmaciones_descartadas:
+        problemas.append("una respuesta de solo estado no puede traer afirmaciones, citas ni afirmaciones descartadas")
+    if r.mensaje is not None:
+        problemas.append("una respuesta de solo estado no trae mensaje adicional")
+    if r.respuesta != e.texto:
+        problemas.append("la respuesta de solo estado debe ser el texto del estado registrado")
+    return problemas
+
+
 def problemas_de_respuesta(r: ConsultaResponse, empresa_id: uuid.UUID, anio: int) -> list[str]:
     """Reglas violadas por una respuesta del asistente aportada en el historial (lista vacía = estructura consistente)."""
     problemas = _problemas_de_estructura(r)
-    problemas += _problemas_sin_evidencia(r) if r.sin_evidencia else _problemas_con_evidencia(r, empresa_id, anio)
+    if r.busqueda_documental is BusquedaDocumental.NO_REALIZADA:
+        problemas += _problemas_solo_estado(r)
+    else:  # búsqueda REALIZADA (también para toda respuesta anterior a este campo): las exigencias de citas no cambian
+        problemas += _problemas_sin_evidencia(r) if r.sin_evidencia else _problemas_con_evidencia(r, empresa_id, anio)
+        problemas += _problemas_del_estado_adjunto(r)
     if _hay_nul(r.model_dump(mode="json")):
         problemas.append("la respuesta contiene caracteres no admitidos")
     return list(dict.fromkeys(problemas))  # sin repetir, en orden

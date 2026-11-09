@@ -304,9 +304,13 @@ async def test_las_rutas_del_historial_no_dependen_del_llm_los_embeddings_ni_la_
     for metodo, ruta in operaciones:
         despachada = await _ruta_despachada(metodo, ruta)
         assert _dependencias(despachada.dependant).isdisjoint(prohibidas), (metodo, ruta)
-    # 3) La consulta directa conserva sus dependencias reales: la comprobación detectaría la dependencia si existiera.
+    # 3) La consulta directa TAMBIÉN entrega los recursos documentales como DIFERIDOS (`get_recursos_consulta`): ya no declara el esquema
+    #    vectorial, la sesión vectorial ni los proveedores como dependencias, para poder responder una pregunta de solo estado GRI sin ellos.
+    #    Los prepara el servicio solo si la pregunta necesita la búsqueda documental (con los mismos errores 503/502 de siempre).
     consulta = await _ruta_despachada("POST", "/asistente/consultas")
-    assert prohibidas <= _dependencias(consulta.dependant)
+    dependencias_consulta = _dependencias(consulta.dependant)
+    assert prohibidas.isdisjoint(dependencias_consulta)
+    assert asistente.get_recursos_consulta in dependencias_consulta  # la comprobación detecta una dependencia cuando existe
 
     # 4) La continuación usa el RAG, pero NADA vectorial ni de IA es dependencia de la ruta: ni el esquema vectorial, ni la sesión vectorial,
     #    ni los proveedores. Se entregan como recursos DIFERIDOS (`get_recursos_rag`) que el servicio prepara solo para una consulta nueva,

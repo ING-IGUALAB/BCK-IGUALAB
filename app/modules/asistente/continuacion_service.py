@@ -51,7 +51,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import timedelta
@@ -80,6 +80,7 @@ from app.models.asistente import (
     RolMensaje,
 )
 from app.modules.asistente.continuacion_schemas import IntercambioGuardado
+from app.modules.asistente.domain.estado_gri import solo_estado
 from app.modules.asistente.domain.historial import (
     MAX_BYTES_CONVERSACION,
     MAX_MENSAJES,
@@ -104,7 +105,7 @@ from app.modules.asistente.domain.prompt import nuevo_codigo_de_marcador
 from app.modules.asistente.historial_service import _mensaje_guardado, _no_encontrada, _nombre_de_restriccion
 from app.modules.asistente.infrastructure.llm import ProveedorLlm
 from app.modules.asistente.schemas import ConsultaResponse
-from app.modules.asistente.service import _empresa_consultable, responder_consulta
+from app.modules.asistente.service import _empresa_consultable, responder_consulta, responder_solo_estado
 from app.modules.ingesta.domain.embeddings import ProveedorEmbeddingsConsulta
 
 logger = logging.getLogger("igualab.asistente.continuacion")
@@ -153,8 +154,9 @@ class Reserva:
     sector: SectorEmpresa
     anio: int
     empresa_nombre: str
-    embeddings: ProveedorEmbeddingsConsulta
-    llm: ProveedorLlm
+    embeddings: ProveedorEmbeddingsConsulta | None  # None si es una pregunta de solo estado: no se preparan recursos documentales
+    llm: ProveedorLlm | None
+    solo_estado: bool = False
 
 
 class _Reintentar(Exception):
@@ -446,7 +448,10 @@ async def _intentar_reservar(
     await _verificar_cupo(db, conversacion, pregunta)
     # Una consulta NUEVA exige empresa activa y del sector guardado (404/400, las reglas de /asistente/consultas).
     empresa = await _empresa_consultable(db, conversacion.empresa_id, conversacion.sector)
-    embeddings, llm = preparar()  # 503 si falta el esquema vectorial o un proveedor: aún no se escribió nada
+    # Se decide sobre la pregunta ORIGINAL, ya autorizada la conversación y comprobados cupo y empresa, y ANTES de preparar el RAG o de
+    # interpretar con el modelo: una pregunta inequívoca de solo estado no necesita recursos vectoriales, embeddings ni modelo.
+    solo_estado_gri = solo_estado(pregunta, conversacion.anio) is not None
+    embeddings, llm = (None, None) if solo_estado_gri else preparar()  # 503 si falta el esquema vectorial o un proveedor: aún no se escribió nada
 
     token = uuid.uuid4()
     intercambio_id = await _escribir_reserva(
@@ -454,7 +459,7 @@ async def _intentar_reservar(
     )
     return Reserva(
         intercambio_id, token, conversacion.id, conversacion.empresa_id, conversacion.sector, conversacion.anio, empresa.nombre,
-        embeddings, llm
+        embeddings, llm, solo_estado_gri
     )
 
 
@@ -632,6 +637,16 @@ async def _interpretar(db: AsyncSession, reserva: Reserva, pregunta: str) -> str
     return decision.pregunta_autonoma or ""
 
 
+async def _generar_solo_estado(db: AsyncSession, reserva: Reserva, *, pregunta: str, ambiente: str) -> ConsultaResponse:
+    """Fase 2 de una pregunta de SOLO ESTADO: la lee de Análisis GRI (empresa, sector, año y ambiente de la conversación) bajo el mismo
+    presupuesto global, sin contexto, sin interpretación, sin recursos vectoriales y sin llamar a embeddings ni al modelo."""
+    return await _bajo_presupuesto(
+        lambda: responder_solo_estado(
+            db, pregunta=pregunta, ambiente=ambiente, sector=reserva.sector, empresa_id=reserva.empresa_id, anio=reserva.anio
+        )
+    )
+
+
 async def _generar(
     db: AsyncSession, db_vectorial: AsyncSession, reserva: Reserva, *, pregunta: str, ambiente: str
 ) -> ConsultaResponse:
@@ -639,23 +654,32 @@ async def _generar(
     garantiza detener el trabajo externo ya iniciado (p. ej. la llamada a OCI corre en un hilo): el proveedor puede terminar aunque
     aquí se haya agotado el plazo. Por eso la garantía es «como máximo un intercambio persistido por clave», nunca «exactamente una
     llamada al proveedor»."""
+
+    async def interpretar_y_responder() -> ConsultaResponse:
+        autonoma = await _interpretar(db, reserva, pregunta)
+        # B) El RAG ACTUAL, sin cambios: recupera y verifica de nuevo con la pregunta autónoma, la empresa, el sector y el año de
+        # la conversación. El historial no es evidencia y no se reutiliza ninguna cita anterior.
+        return await responder_consulta(
+            db,
+            db_vectorial,
+            pregunta=autonoma,
+            ambiente=ambiente,
+            proveedor_embeddings=reserva.embeddings,
+            proveedor_llm=reserva.llm,
+            sector=reserva.sector,
+            empresa_id=reserva.empresa_id,
+            anio=reserva.anio,
+        )
+
+    return await _bajo_presupuesto(interpretar_y_responder)
+
+
+async def _bajo_presupuesto(operacion: Callable[[], Awaitable[ConsultaResponse]]) -> ConsultaResponse:
+    """Ejecuta la fase 2 bajo el presupuesto global (`PRESUPUESTO_GENERACION_SEGUNDOS`)."""
     plazo = asyncio.timeout(PRESUPUESTO_GENERACION_SEGUNDOS)
     try:
         async with plazo:
-            autonoma = await _interpretar(db, reserva, pregunta)
-            # B) El RAG ACTUAL, sin cambios: recupera y verifica de nuevo con la pregunta autónoma, la empresa, el sector y el año de
-            # la conversación. El historial no es evidencia y no se reutiliza ninguna cita anterior.
-            return await responder_consulta(
-                db,
-                db_vectorial,
-                pregunta=autonoma,
-                ambiente=ambiente,
-                proveedor_embeddings=reserva.embeddings,
-                proveedor_llm=reserva.llm,
-                sector=reserva.sector,
-                empresa_id=reserva.empresa_id,
-                anio=reserva.anio,
-            )
+            return await operacion()
     except TimeoutError:
         if not plazo.expired():
             raise  # un TimeoutError ajeno al presupuesto no se reinterpreta
@@ -696,9 +720,12 @@ async def continuar_conversacion(
         return reserva
 
     try:
-        # Si abrir la sesión vectorial falla (configuración, motor), ocurre DESPUÉS de reservar: se marca FALLIDO como cualquier fallo.
-        async with recursos.sesion_vectorial() as db_vectorial:
-            respuesta = await _generar(db, db_vectorial, reserva, pregunta=pregunta, ambiente=ambiente)
+        if reserva.solo_estado:  # sin sesión vectorial, contexto, interpretación ni RAG
+            respuesta = await _generar_solo_estado(db, reserva, pregunta=pregunta, ambiente=ambiente)
+        else:
+            # Si abrir la sesión vectorial falla (configuración, motor), ocurre DESPUÉS de reservar: se marca FALLIDO como cualquier fallo.
+            async with recursos.sesion_vectorial() as db_vectorial:
+                respuesta = await _generar(db, db_vectorial, reserva, pregunta=pregunta, ambiente=ambiente)
     except Exception as exc:
         # Cancelación (BaseException) no se captura: la reserva vencerá y se recuperará.
         await _marcar_fallido(db, reserva, codigo_seguro(exc))

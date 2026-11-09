@@ -87,7 +87,8 @@ def get_recursos_rag(request: Request) -> RecursosRag:
         409: {
             "description": "`QUERY_IDEMPOTENCY_CONFLICT` (misma clave, otra pregunta); `CONVERSATION_QUERY_IN_PROGRESS` (esta misma consulta sigue "
             "en curso); `CONVERSATION_BUSY` (otra consulta en curso); `CONVERSATION_MESSAGE_LIMIT_REACHED` (40 mensajes); "
-            "`CONVERSATION_SIZE_LIMIT_REACHED` (1 000 000 bytes); `CONVERSATION_QUERY_SUPERSEDED` (la reserva venció y la sustituyó otra)."
+            "`CONVERSATION_SIZE_LIMIT_REACHED` (1 000 000 bytes); `CONVERSATION_QUERY_SUPERSEDED` (la reserva venció y la sustituyó otra); "
+            "`ANALYSIS_CHANGING` (solo una pregunta de SOLO ESTADO GRI: el Análisis GRI está cambiando; reintente con la misma clave)."
         },
         422: {"description": "Pregunta vacía o de más de 2 000 caracteres, o campos no admitidos (`REQUEST_VALIDATION_ERROR`)."},
         500: {
