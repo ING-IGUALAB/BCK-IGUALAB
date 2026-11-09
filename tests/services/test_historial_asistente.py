@@ -271,29 +271,51 @@ def _dependencias(dependant) -> set:
     return llamadas
 
 
-def test_las_rutas_del_historial_no_dependen_del_llm_los_embeddings_ni_la_base_vectorial():
+RUTA_CONTINUACION = "/asistente/conversaciones/{conversacion_id}/consultas"
+
+
+async def _ruta_despachada(metodo: str, ruta: str):
+    """La ruta que el enrutamiento REAL de la aplicación asigna a la petición (ver `tests/ayudantes_rutas.py`). No se recorre
+    `app.routes`: desde FastAPI 0.137 contiene routers incluidos (`_IncludedRouter`), no una lista plana de rutas. El parámetro
+    de ruta se sustituye por un identificador cualquiera; sin credenciales la petición se rechaza, pero la ruta ya quedó elegida."""
+    from tests.ayudantes_rutas import ruta_que_atiende
+
+    atiende = await ruta_que_atiende(metodo, ruta.replace("{conversacion_id}", str(uuid.uuid4())))
+    assert atiende is not None, (metodo, ruta)
+    assert (atiende.path, metodo in atiende.methods) == (ruta, True), (metodo, ruta)  # la ruta pedida, no otra con parámetros
+    return atiende
+
+
+async def test_las_rutas_del_historial_no_dependen_del_llm_los_embeddings_ni_la_base_vectorial():
     from app.core.database_vectorial import get_vector_db
-    from app.main import app
+    from tests.ayudantes_rutas import operaciones_openapi
 
     prohibidas = {
         asistente.get_proveedor_llm, asistente.get_proveedor_embeddings, asistente.esquema_vectorial_listo, get_vector_db,
     }
-    # La continuación (entrega 2, `.../consultas`) SÍ usa el RAG: se comprueba aparte, abajo.
-    rutas = [r for r in app.routes if getattr(r, "path", "").startswith("/asistente/conversaciones") and not r.path.endswith("/consultas")]
-    assert {(m, r.path) for r in rutas for m in r.methods} == {
+    # 1) Las operaciones EXISTEN y se enumeran por la API pública (OpenAPI). La continuación (entrega 2, `.../consultas`) SÍ usa el
+    #    RAG: se comprueba aparte, abajo. Sin duplicados: cada operación se declara una sola vez.
+    operaciones = [(m, r) for m, r in operaciones_openapi() if r.startswith("/asistente/conversaciones") and r != RUTA_CONTINUACION]
+    esperadas = {
         ("POST", "/asistente/conversaciones"), ("GET", "/asistente/conversaciones"), ("GET", "/asistente/conversaciones/{conversacion_id}"),
     }
-    for ruta in rutas:
-        assert _dependencias(ruta.dependant).isdisjoint(prohibidas), ruta.path
-    consulta = next(r for r in app.routes if getattr(r, "path", "") == "/asistente/consultas")
-    assert not _dependencias(consulta.dependant).isdisjoint(prohibidas)  # la comprobación detectaría la dependencia si existiera
+    assert sorted(operaciones) == sorted(esperadas)
+    # 2) OpenAPI no dice qué dependencias tiene una ruta: se inspecciona la ruta REALMENTE despachada para cada operación.
+    for metodo, ruta in operaciones:
+        despachada = await _ruta_despachada(metodo, ruta)
+        assert _dependencias(despachada.dependant).isdisjoint(prohibidas), (metodo, ruta)
+    # 3) La consulta directa conserva sus dependencias reales: la comprobación detectaría la dependencia si existiera.
+    consulta = await _ruta_despachada("POST", "/asistente/consultas")
+    assert prohibidas <= _dependencias(consulta.dependant)
 
-    # La continuación usa el RAG, pero NADA vectorial ni de IA es dependencia de la ruta: ni el esquema vectorial, ni la sesión vectorial,
-    # ni los proveedores. Se entregan como recursos DIFERIDOS (`get_recursos_rag`) que el servicio prepara solo para una consulta nueva,
-    # DESPUÉS de autorizar la conversación y de resolver la idempotencia (una repetición completada no los necesita).
+    # 4) La continuación usa el RAG, pero NADA vectorial ni de IA es dependencia de la ruta: ni el esquema vectorial, ni la sesión vectorial,
+    #    ni los proveedores. Se entregan como recursos DIFERIDOS (`get_recursos_rag`) que el servicio prepara solo para una consulta nueva,
+    #    DESPUÉS de autorizar la conversación y de resolver la idempotencia (una repetición completada no los necesita; ese
+    #    comportamiento se prueba con la ruta real en `test_continuacion_asistente_postgres.py`).
     from app.modules.asistente import continuacion_router
 
-    continuacion = next(r for r in app.routes if getattr(r, "path", "") == "/asistente/conversaciones/{conversacion_id}/consultas")
+    assert ("POST", RUTA_CONTINUACION) in operaciones_openapi()
+    continuacion = await _ruta_despachada("POST", RUTA_CONTINUACION)
     dependencias = _dependencias(continuacion.dependant)
     assert prohibidas.isdisjoint(dependencias)
     assert continuacion_router.get_recursos_rag in dependencias
