@@ -240,11 +240,20 @@ def _advertencias_de_calidad(documento: validacion.DocumentoValidado) -> list[di
     ]
 
 
-def _detalle_rechazo(exc: BaseException, metadatos: MetadatosIngestaRequest, sha256: str | None) -> str:
-    partes = [f"Ingesta rechazada; codigo={codigo_seguro(exc)}", f"empresa_id={metadatos.empresa_id}", f"anio={metadatos.anio}"]
+def _detalle_rechazo(
+    exc: BaseException,
+    metadatos: MetadatosIngestaRequest,
+    sha256: str | None,
+    nombre_archivo: str | None = None,
+) -> str:
+    """Detalle legible para auditoría: sin UUIDs de empresa ni SHA-256 completo (no exponer identificadores crudos)."""
+    partes = [f"Ingesta rechazada; codigo={codigo_seguro(exc)}", f"anio={metadatos.anio}"]
     partes.append(f"tipo={getattr(metadatos.tipo, 'value', metadatos.tipo)}")
+    if nombre_archivo:
+        partes.append(f"archivo={nombre_archivo}")
+    # Prefijo corto del hash solo como pista de depuración; nunca el digest completo.
     if sha256:
-        partes.append(f"sha256={sha256}")
+        partes.append(f"sha256={sha256[:12]}…")
     return "; ".join(partes)
 
 
@@ -349,16 +358,18 @@ async def ingerir_documento(
             with contextlib.suppress(Exception):
                 await db.rollback()
             sha = documento_validado.sha256 if documento_validado is not None else None
+            nombre = documento_validado.nombre_archivo if documento_validado is not None else None
             if isinstance(exc, _RECHAZOS_DEL_CLIENTE):
                 await servicio.auditar_aparte(
-                    db, TipoEventoAuditoria.RECHAZO_DOCUMENTO, _detalle_rechazo(exc, metadatos, sha), usuario_id,
+                    db, TipoEventoAuditoria.RECHAZO_DOCUMENTO,
+                    _detalle_rechazo(exc, metadatos, sha, nombre_archivo=nombre), usuario_id,
                     resultado=ResultadoAuditoria.FALLIDO,
                 )
             else:
                 await servicio.auditar_aparte(
                     db,
                     TipoEventoAuditoria.INGESTA_DATOS,
-                    f"Ingesta no iniciada; codigo={codigo_seguro(exc)}; empresa_id={metadatos.empresa_id}",
+                    f"Ingesta no iniciada; codigo={codigo_seguro(exc)}; anio={metadatos.anio}",
                     usuario_id,
                     resultado=ResultadoAuditoria.FALLIDO,
                 )

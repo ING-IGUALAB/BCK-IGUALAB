@@ -82,7 +82,7 @@ async def crear_operacion(db: AsyncSession, *, usuario_id: uuid.UUID, ambiente: 
     operacion = OperacionIngesta(id=uuid.uuid4(), ambiente=ambiente, usuario_id=usuario_id)
     db.add(operacion)
     registrar_evento(
-        db, TipoEventoAuditoria.INGESTA_DATOS, f"Operación de ingesta creada; operacion_id={operacion.id}", usuario_id,
+        db, TipoEventoAuditoria.INGESTA_DATOS, "Operación de ingesta creada", usuario_id,
         resultado=ResultadoAuditoria.EXITOSO,
     )
     await db.commit()

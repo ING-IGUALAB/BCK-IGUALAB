@@ -204,7 +204,8 @@ async def test_se_audita_una_sola_vez_con_el_actor_y_el_listado_y_el_detalle_dis
 
     ((usuario_id, resultado, detalle),) = await auditoria_de_deshabilitacion(m)
     assert (usuario_id, resultado) == (m.superadmin.id, "EXITOSO")
-    assert f"documento_id={m.memoria.id}" in detalle
+    assert f"archivo={m.memoria.nombre_archivo}" in detalle
+    assert str(m.memoria.id) not in detalle  # sin UUID crudo
     assert MOTIVO in detalle
 
     lista = await get_ingesta(m, RUTA, empresa_id=str(m.empresa.id), anio=2025)

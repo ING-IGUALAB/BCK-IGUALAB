@@ -104,7 +104,8 @@ async def test_se_escribe_un_solo_evento_de_auditoria_con_el_actor_de_la_sesion(
     assert (evento.tipo_evento, evento.resultado, evento.usuario_id) == (
         TipoEventoAuditoria.INGESTA_DATOS, ResultadoAuditoria.EXITOSO.value, e.usuario.id,
     )
-    assert f"documento_id={doc.id}" in evento.detalle
+    assert f"archivo={doc.nombre_archivo}" in evento.detalle
+    assert str(doc.id) not in evento.detalle  # sin UUID crudo
     assert MOTIVO in evento.detalle
     assert "deshabilitado" in evento.detalle.lower()
     assert len(evento.detalle) <= 500

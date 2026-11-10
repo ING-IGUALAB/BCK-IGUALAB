@@ -87,7 +87,7 @@ async def fallar_documento(
     await auditar_aparte(
         db,
         TipoEventoAuditoria.INGESTA_DATOS,
-        f"Ingesta fallida; documento_id={documento_id}; motivo={motivo}; "
+        f"Ingesta fallida; archivo={documento.nombre_archivo}; motivo={motivo}; "
         f"origen={'recuperacion' if vencido_antes_de is not None else 'ejecutor'}",
         usuario_id,
         resultado=ResultadoAuditoria.FALLIDO,

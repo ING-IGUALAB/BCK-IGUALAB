@@ -219,7 +219,8 @@ async def test_la_descarga_exitosa_audita_en_la_misma_transaccion_y_un_rechazo_n
     (evento,) = await eventos(e1, "DESCARGA")
     assert evento[0] == e1.admin.id
     assert evento[1] == "EXITOSO"
-    assert f"reporte={v1['id']}" in evento[2]
+    assert "Descarga de reporte" in evento[2]
+    assert str(v1["id"]) not in evento[2]  # sin UUID crudo
     await escenario_validacion_2(e1)
     comprobar_error(await get(e1, f"{RUTA}/vigente/archivo", **params(e1.empresa)), 409, "REPORT_UPDATE_PENDING")
     assert len(await eventos(e1, "DESCARGA")) == 1

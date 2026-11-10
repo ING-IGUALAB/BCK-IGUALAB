@@ -274,10 +274,13 @@ async def _publicar(
         creado_en=prep.emitido_en,
     )
     db.add(reporte)
+    empresa_nombre = (
+        (await db.execute(select(Empresa.nombre).where(Empresa.id == empresa_id))).scalar_one_or_none() or "(empresa)"
+    )
     registrar_evento(
         db,
         TipoEventoAuditoria.GENERACION_REPORTE,
-        f"Reporte de prospección generado (empresa={empresa_id}, anio={anio}, version={prep.version}, "
+        f"Reporte de prospección generado (empresa={empresa_nombre}, anio={anio}, version={prep.version}, "
         f"validacion={prep.validacion.numero})",
         usuario_id=usuario_id,
         resultado=ResultadoAuditoria.EXITOSO,
@@ -386,10 +389,17 @@ async def listar_reportes(
 
 
 async def _registrar_descarga(db: AsyncSession, reporte_id: uuid.UUID, empresa_id: uuid.UUID, anio: int, version: int, usuario_id) -> None:
+    try:
+        empresa_nombre = (
+            (await db.execute(select(Empresa.nombre).where(Empresa.id == empresa_id))).scalar_one_or_none() or "(empresa)"
+        )
+    except Exception:
+        # Mejor esfuerzo: si la sesión no admite lecturas (dobles de prueba), no bloquea la auditoría.
+        empresa_nombre = "(empresa)"
     registrar_evento(
         db,
         TipoEventoAuditoria.DESCARGA,
-        f"Descarga de reporte (reporte={reporte_id}, empresa={empresa_id}, anio={anio}, version={version})",
+        f"Descarga de reporte (empresa={empresa_nombre}, anio={anio}, version={version})",
         usuario_id=usuario_id,
         resultado=ResultadoAuditoria.EXITOSO,
     )

@@ -88,7 +88,7 @@ async def publicar_documento(
     registrar_evento(
         db,
         TipoEventoAuditoria.INGESTA_DATOS,
-        f"Ingesta completada (base transaccional); documento_id={documento_id}; "
+        f"Ingesta completada (base transaccional); archivo={documento.nombre_archivo}; "
         f"resultado={resultado_analisis.value}; publicacion_vectorial=pendiente",
         documento.usuario_id,
         resultado=ResultadoAuditoria.EXITOSO,
@@ -205,6 +205,7 @@ async def publicar_en_base_vectorial(
         return False
     ambiente, total, usuario_id = documento.ambiente, documento.fragmentos_total, documento.usuario_id
     empresa_id, anio = documento.empresa_id, documento.anio
+    nombre_archivo = documento.nombre_archivo
     await _terminar_lectura(db)
 
     try:
@@ -229,7 +230,7 @@ async def publicar_en_base_vectorial(
         await auditar_aparte(
             db,
             TipoEventoAuditoria.INGESTA_DATOS,
-            f"Publicación vectorial confirmada; documento_id={documento_id}; fragmentos={total}",
+            f"Publicación vectorial confirmada; archivo={nombre_archivo}; fragmentos={total}",
             usuario_id,
             resultado=ResultadoAuditoria.EXITOSO,
         )

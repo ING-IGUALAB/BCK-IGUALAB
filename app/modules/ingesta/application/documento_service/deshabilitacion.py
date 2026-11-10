@@ -30,11 +30,12 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BusinessValidationError, ConflictError
-from app.models import ResultadoAuditoria, TipoEventoAuditoria
+from app.models import Empresa, ResultadoAuditoria, TipoEventoAuditoria
 from app.models.documento_ingesta import MAXIMO_MOTIVO_DESHABILITACION, Documento, EstadoProcesamiento
 from app.modules.analisis_gri.application.coordinacion import proteger_origen_de_analisis
 from app.modules.auditoria.service import registrar_evento
 from app.modules.ingesta.domain.almacenamiento import validar_ambiente
+from sqlalchemy import select
 from ._comun import _ahora, _cargar, _terminar_lectura, _transicion
 from .consultas import estado_de_documento
 
@@ -81,9 +82,9 @@ def _no_deshabilitable(documento: Documento) -> ConflictError:
     )
 
 
-def _detalle_de_auditoria(documento: Documento, motivo: str) -> str:
+def _detalle_de_auditoria(documento: Documento, motivo: str, empresa_nombre: str) -> str:
     base = (
-        f"Documento deshabilitado; documento_id={documento.id}; empresa_id={documento.empresa_id}; anio={documento.anio}; "
+        f"Documento deshabilitado; archivo={documento.nombre_archivo}; empresa={empresa_nombre}; anio={documento.anio}; "
         f"tipo={documento.tipo.value}; motivo="
     )
     return (base + motivo)[:_MAXIMO_DETALLE_AUDITORIA]
@@ -127,8 +128,13 @@ async def deshabilitar_documento(
             },
         )
         if cambiado:
+            empresa_nombre = (
+                (await db.execute(select(Empresa.nombre).where(Empresa.id == documento.empresa_id))).scalar_one_or_none()
+                or "(empresa)"
+            )
             registrar_evento(
-                db, TipoEventoAuditoria.INGESTA_DATOS, _detalle_de_auditoria(documento, motivo), usuario_id,
+                db, TipoEventoAuditoria.INGESTA_DATOS,
+                _detalle_de_auditoria(documento, motivo, empresa_nombre), usuario_id,
                 resultado=ResultadoAuditoria.EXITOSO,
             )
             await db.commit()

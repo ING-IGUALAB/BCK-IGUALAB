@@ -94,7 +94,7 @@ async def test_crear_operacion_registra_ambiente_actor_y_auditoria_sin_documento
     assert (fila.ambiente, fila.usuario_id, fila.estado, fila.documento_id) == ("qa", e.usuario.id, "CREADA", None)
     assert (await e.db.execute(select(Documento))).scalars().all() == []
     auditoria = (await e.db.execute(text("SELECT detalle FROM auditoria"))).scalars().all()
-    assert auditoria == [f"Operación de ingesta creada; operacion_id={creada.operacion_id}"]
+    assert auditoria == ["Operación de ingesta creada"]
 
 
 async def test_un_ambiente_invalido_no_crea_nada(e):

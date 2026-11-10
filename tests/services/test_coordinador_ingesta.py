@@ -577,7 +577,8 @@ async def test_auditoria_de_exito_con_actor_y_fecha_utc_sin_contenido(entorno):
     (exito,) = [e for e in eventos if "Ingesta completada" in e.detalle]
     assert exito.usuario_id == entorno.usuario.id
     assert exito.fecha_hora_utc.utcoffset() == timedelta(0)
-    assert str(resultado.documento_id) in exito.detalle
+    assert "archivo=informe.md" in exito.detalle  # legible, sin documento_id
+    assert str(resultado.documento_id) not in exito.detalle  # sin UUID crudo
     assert "resultado=CON_HALLAZGOS" in exito.detalle
     for evento in eventos:
         assert "alcance 1" not in evento.detalle
