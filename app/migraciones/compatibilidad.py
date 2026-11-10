@@ -8,7 +8,7 @@ inicio de sesión exitoso, de modo que con el esquema anterior TODO inicio de se
 
 QUÉ HACE. Después de preparar el esquema, `exigir_esquema_central` consulta el catálogo de PostgreSQL y comprueba lo que necesita
 el código actual: la columna `auditoria.resultado`, todos los miembros de `TipoEventoAuditoria` en el tipo enumerado (los valores
-se guardan por NOMBRE), la restricción `ck_auditoria_resultado_valido` y los dos disparadores de solo inserción, activos. Si algo
+se guardan por NOMBRE), todos los miembros de `SectorEmpresa` en `sector_empresa` (migración 0008: «Otros»), la restricción `ck_auditoria_resultado_valido` y los dos disparadores de solo inserción, activos. Si algo
 falta, la aplicación NO arranca: lanza `ErrorMigracion("CENTRAL_SCHEMA_INCOMPATIBLE")` desde el `lifespan`, el contenedor sale y
 el despliegue falla a la vista, en lugar de anunciar `/health` y devolver 500 en el login. Eso incluye el caso en que la 0005
 falló (o no llegó a ejecutarse porque falló una anterior): no se degrada a un aviso del módulo de análisis GRI.
@@ -36,7 +36,7 @@ import asyncpg
 from app.core.config import settings
 from app.core.logging_config import paso_de_arranque
 from app.migraciones.motor import ErrorMigracion, _base_no_disponible, _conectar
-from app.models import TipoEventoAuditoria
+from app.models import SectorEmpresa, TipoEventoAuditoria
 
 logger = logging.getLogger("igualab.migraciones")
 
@@ -45,6 +45,7 @@ CODIGO = "CENTRAL_SCHEMA_INCOMPATIBLE"
 
 TABLA_AUDITORIA = "auditoria"
 TIPO_EVENTO = "tipoeventoauditoria"
+TIPO_SECTOR = "sector_empresa"  # lo comparten `empresas.sector` y `documentos.sector`; la migración 0008 añade OTROS
 COLUMNA_RESULTADO = "resultado"
 RESTRICCION_RESULTADO = "ck_auditoria_resultado_valido"
 TABLA_REPORTES = "reportes_prospeccion"
@@ -151,6 +152,8 @@ async def elementos_faltantes(conn: asyncpg.Connection) -> list[str]:
         faltan.append(f"columna:{TABLA_AUDITORIA}.{COLUMNA_RESULTADO}")
     etiquetas = {fila["enumlabel"] for fila in await conn.fetch(_SQL_ETIQUETAS, TIPO_EVENTO)}
     faltan += [f"valor_de_tipo:{TIPO_EVENTO}.{m.name}" for m in TipoEventoAuditoria if m.name not in etiquetas]
+    etiquetas_sector = {fila["enumlabel"] for fila in await conn.fetch(_SQL_ETIQUETAS, TIPO_SECTOR)}
+    faltan += [f"valor_de_tipo:{TIPO_SECTOR}.{m.name}" for m in SectorEmpresa if m.name not in etiquetas_sector]
     if not await conn.fetchval(_SQL_RESTRICCION, TABLA_AUDITORIA, RESTRICCION_RESULTADO):
         faltan.append(f"restriccion:{TABLA_AUDITORIA}.{RESTRICCION_RESULTADO}")
     faltan += await _faltantes_de_disparadores(conn)

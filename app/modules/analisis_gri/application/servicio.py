@@ -5,8 +5,8 @@ modifica ni se vuelve a calcular) y las tablas del Módulo 5. No usa el gestor d
 ni ningún proveedor de IA: sigue funcionando aunque esos servicios no estén disponibles.
 
 ELEGIBILIDAD. Un documento aporta datos solo si es del ambiente pedido, de la empresa y año, está COMPLETADO, tiene análisis
-persistido y su publicación vectorial está CONFIRMADA (`vector_publicado_en`), y la empresa está activa. Fallidos, en proceso y
-publicaciones pendientes no se exponen. OBSERVADO sí es elegible (está indexado para RAG) pero no aporta filas GRI ni habilita
+persistido y su publicación vectorial está CONFIRMADA (`vector_publicado_en`), no está DESHABILITADO (`deshabilitado_en`, ACT-02) y la
+empresa está activa. Fallidos, en proceso, publicaciones pendientes y documentos deshabilitados no se exponen. OBSERVADO sí es elegible (está indexado para RAG) pero no aporta filas GRI ni habilita
 por sí solo el reporte, y tampoco bloquea un análisis sustentado en otros documentos.
 
 CONCURRENCIA. Toda escritura, y la comprobación final de una emisión, adquieren la protección común del origen
@@ -91,6 +91,8 @@ def _condiciones_de_elegibilidad(ambiente: str, empresa_id: uuid.UUID) -> list:
         Documento.resultado_analisis.is_not(None),
         Documento.analisis.is_not(None),
         Documento.vector_publicado_en.is_not(None),
+        # Un documento deshabilitado (ACT-02) sigue COMPLETADO y publicado, pero ya no aporta al análisis ni a los reportes nuevos.
+        Documento.deshabilitado_en.is_(None),
         Empresa.activa.is_(True),
     ]
 

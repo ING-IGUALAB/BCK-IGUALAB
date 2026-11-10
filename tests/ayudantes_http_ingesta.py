@@ -77,6 +77,20 @@ async def crear_operacion(cliente) -> str:
 
 
 async def subir(cliente, operacion_id: str, entorno, contenido, nombre: str = "informe.md", **cambios):
+    """POST de carga. Si responde 202 (doble check), confirma automáticamente y devuelve la respuesta 201.
+    Para ver el 202 crudo use `subir_sin_confirmar`."""
+    respuesta = await cliente.post(
+        f"/documentos/operaciones/{operacion_id}/ingesta",
+        data=formulario(entorno, **cambios),
+        files=archivo(contenido, nombre),
+    )
+    if respuesta.status_code == 202:
+        respuesta = await cliente.post(f"/documentos/operaciones/{operacion_id}/confirmar")
+    return respuesta
+
+
+async def subir_sin_confirmar(cliente, operacion_id: str, entorno, contenido, nombre: str = "informe.md", **cambios):
+    """POST de carga SIN resolver el doble check: puede devolver 201 (si no pausa) o 202 (CONFIRMACION_PENDIENTE)."""
     return await cliente.post(
         f"/documentos/operaciones/{operacion_id}/ingesta",
         data=formulario(entorno, **cambios),
@@ -85,7 +99,7 @@ async def subir(cliente, operacion_id: str, entorno, contenido, nombre: str = "i
 
 
 async def ingerir_por_http(cliente, entorno, contenido, nombre: str = "informe.md", **cambios):
-    """Operación + carga. Devuelve (operacion_id, respuesta)."""
+    """Operación + carga (+ confirmación si hubo doble check). Devuelve (operacion_id, respuesta)."""
     operacion_id = await crear_operacion(cliente)
     return operacion_id, await subir(cliente, operacion_id, entorno, contenido, nombre, **cambios)
 

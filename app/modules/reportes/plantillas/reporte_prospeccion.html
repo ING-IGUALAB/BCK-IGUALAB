@@ -9,12 +9,12 @@
   body { font-family: sans-serif; color: #1a1a1a; font-size: 12px; margin: 0; }
   .top-label { color: #555; font-size: 11px; letter-spacing: 1px; }
   .empresa { font-size: 28px; font-weight: bold; margin: 8px 0 10px; }
-  .anio-sector { color: #0F5D4A; font-size: 18px; border-bottom: 2px solid #0F5D4A; padding-bottom: 5px; display: inline-block; }
+  .anio-sector { color: #3B82F6; font-size: 18px; border-bottom: 2px solid #3B82F6; padding-bottom: 5px; display: inline-block; }
   .version-reporte { color: #555; font-size: 12px; margin-top: 8px; }
-  h2 { color: #0F5D4A; font-size: 18px; border-bottom: 1px solid #0F5D4A; padding-bottom: 5px; margin: 26px 0 12px; }
+  h2 { color: #3B82F6; font-size: 18px; border-bottom: 1px solid #3B82F6; padding-bottom: 5px; margin: 26px 0 12px; }
   h2 svg { vertical-align: -3px; margin-right: 8px; }
   .cards { display: table; width: 100%; border-spacing: 10px 0; }
-  .card { display: table-cell; width: 33%; background: #F1F5F3; border-top: 3px solid #0F5D4A; padding: 12px; vertical-align: top; }
+  .card { display: table-cell; width: 33%; background: #F1F5F3; border-top: 3px solid #3B82F6; padding: 12px; vertical-align: top; }
   .clabel { color: #555; font-size: 11px; font-weight: bold; }
   .cvalue { font-size: 24px; font-weight: bold; margin-top: 6px; }
   .cvalue.texto { font-size: 15px; }
@@ -24,7 +24,7 @@
   th { text-align: left; color: #555; font-size: 10px; letter-spacing: 0.5px; border-bottom: 1px solid #ccc; padding: 8px 6px; }
   td { padding: 12px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
   .badge { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 10px; font-weight: bold; }
-  .badge.ok { background: #D4EDDA; color: #155724; }
+  .badge.ok { background: #D4EDDA; color: #0a3171; }
   .badge.baja { background: #FFF3CD; color: #856404; }
   .badge.sub { background: #F8D7DA; color: #721C24; }
   .badge.neutro { background: #E9ECEF; color: #495057; }
@@ -37,7 +37,7 @@
   .cita-sancion { color: #333; font-size: 11px; margin-top: 5px; white-space: pre-line; }
   .sancion .badge { margin: 0 4px 4px 0; }
   .aviso { color: #444; font-size: 11px; line-height: 1.5; margin: 6px 0; }
-  .subtitulo { color: #0F5D4A; font-size: 14px; margin: 18px 0 6px; }
+  .subtitulo { color: #3B82F6; font-size: 14px; margin: 18px 0 6px; }
   .resumen-caja { background: #F1F5F3; border: 1px solid #ddd; border-radius: 6px; padding: 14px 16px; display: table; width: 100%; margin-top: 14px; break-inside: avoid; }
   .resumen-caja .cell { display: table-cell; width: 50%; vertical-align: top; }
   .footer { margin-top: 26px; display: table; width: 100%; border-top: 1px solid #eee; padding-top: 10px; color: #555; font-size: 11px; }
@@ -53,7 +53,7 @@
 <div class="anio-sector">Año {{ anio }} · Sector: {{ sector }}</div>
 {% if version_reporte %}<div class="version-reporte">Versión {{ version_reporte }} del reporte · Emitido el {{ fecha_generacion }}</div>{% endif %}
 
-<h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F5D4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg> Resumen ejecutivo</h2>
+<h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg> Resumen ejecutivo</h2>
 <div class="cards">
   <div class="card"><div class="clabel">Puntaje ESG</div><div class="cvalue{% if not puntaje_disponible|default(true) %} texto{% endif %}">{{ puntaje_texto|default(puntaje ~ '/100') }}</div></div>
   <div class="card"><div class="clabel">Referencias a sanciones</div><div class="cvalue">{{ sanciones_total }}</div>{% if sanciones_total %}<div class="aviso">Una misma multa puede mencionarse varias veces. Este número cuenta las referencias encontradas, no necesariamente multas distintas.</div>{% endif %}</div>
@@ -73,7 +73,7 @@ Brechas GRI por estado: <strong>{{ conteo_ok }} OK</strong>, <strong>{{ conteo_b
 </div>
 {% endif %}
 
-<h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F5D4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l2.5 2.5L16 9"/></svg> Estado por código GRI</h2>
+<h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l2.5 2.5L16 9"/></svg> Estado por código GRI</h2>
 <table>
   <thead><tr><th>CÓDIGO</th><th>TEMA</th><th>ESTADO</th><th>CITA DE RESPALDO</th></tr></thead>
   <tbody>
@@ -88,7 +88,7 @@ Brechas GRI por estado: <strong>{{ conteo_ok }} OK</strong>, <strong>{{ conteo_b
   </tbody>
 </table>
 
-<h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F5D4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M8 21h8"/><path d="M12 6L6 8l2 7a3 3 0 006 0zM12 6l6 2-2 7a3 3 0 01-6 0z"/></svg> Sanciones identificadas</h2>
+<h2><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M8 21h8"/><path d="M12 6L6 8l2 7a3 3 0 006 0zM12 6l6 2-2 7a3 3 0 01-6 0z"/></svg> Sanciones identificadas</h2>
 {% if sanciones and ag.evaluacion|default('NO_EVALUADA') == 'PARCIAL' %}
 <div class="aviso"><strong>Solo se compararon entre sí algunas referencias.</strong> {% if ag.sin_evaluar|default(0) %}En {{ ag.sin_evaluar }} referencia(s) no se hizo la comparación porque el análisis guardado no incluye esa información. {% endif %}Todas las referencias se conservan con sus citas, pero algunas podrían corresponder a la misma multa.</div>
 {% elif sanciones and ag.evaluacion|default('NO_EVALUADA') != 'COMPLETA' %}

@@ -26,6 +26,7 @@ SIEMPRE_EXCLUIDAS = {
     ("POST", "/usuarios/transferir-superadmin"),
     ("POST", "/documentos/operaciones/{operacion_id}/ingesta"),
     ("POST", "/documentos/operaciones/{operacion_id}/reintentar-publicacion"),
+    ("POST", "/documentos/{documento_id}/deshabilitar"),  # ACT-02: retira un documento real, sin reversión por HTTP
     ("POST", "/asistente/consultas"),
 }
 

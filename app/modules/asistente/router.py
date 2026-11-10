@@ -3,7 +3,8 @@
 
 El router solo coordina: la lógica está en `app.modules.asistente.service`. Reutiliza la
 recuperación vectorial (`buscar_similares`) y la visibilidad transaccional (`documentos_recuperables`).
-Requiere embeddings (OCI) y chat (DeepSeek) configurados; si falta alguno responde 503.
+La búsqueda documental requiere embeddings (OCI), chat (DeepSeek) y el esquema vectorial; si falta alguno responde 503/502, EXCEPTO
+una pregunta inequívoca de solo estado GRI, que se responde desde Análisis GRI sin ellos (se preparan solo si hacen falta).
 
 CONTRATO (LTX:RN-037): la consulta exige `sector`, `empresa_id` y `anio`; el backend comprueba en la base que la empresa existe, está
 activa y es del sector, y limita la recuperación a ese ambiente, empresa, año y sector. No hay búsqueda global.
@@ -13,21 +14,18 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database_vectorial import get_vector_db
 from app.core.dependencies import AdministradorUser, DatabaseSession
 from app.core.exceptions import ServiceUnavailableError
+from app.modules.asistente.continuacion_service import RecursosRag
 from app.modules.asistente.infrastructure.llm import ProveedorLlm, construir_llm_desde_config, llm_configurado
 from app.modules.asistente.schemas import ConsultaRequest, ConsultaResponse
-from app.modules.asistente.service import responder_consulta
+from app.modules.asistente.service import consultar_directa
 from app.modules.ingesta.domain.embeddings import ProveedorEmbeddingsConsulta
 from app.modules.ingesta.domain.parametros import PARAMETROS_INGESTA, ambiente_desde_app_env
 
 router = APIRouter(prefix="/asistente", tags=["Asistente IA (RAG)"])
-
-VectorDatabaseSession = Annotated[AsyncSession, Depends(get_vector_db)]
 
 
 def esquema_vectorial_listo(request: Request) -> None:
@@ -76,19 +74,35 @@ def get_proveedor_embeddings() -> ProveedorEmbeddingsConsulta:
         ) from exc
 
 
+def get_recursos_consulta(request: Request) -> RecursosRag:
+    """Recursos DIFERIDOS del RAG para `POST /asistente/consultas`: son los MISMOS de la continuación (`continuacion_router.get_recursos_rag`).
+    Crearlos no valida, construye, conecta ni abre nada; el servicio los prepara solo si la pregunta necesita la búsqueda documental. Una
+    pregunta de solo estado GRI se responde sin ellos. (Importación perezosa: `continuacion_router` importa este módulo.)"""
+    from app.modules.asistente.continuacion_router import get_recursos_rag
+
+    return get_recursos_rag(request)
+
+
 @router.post(
     "/consultas",
     summary="Consultar al asistente IA sobre el corpus indexado (RAG con afirmaciones respaldadas)",
     description=(
         "Exige sector, empresa y año. Solo devuelve afirmaciones con referencia válida a un fragmento entregado al modelo y con una "
         "cita literal presente en ese fragmento; las que no se pueden respaldar se omiten y, si no queda ninguna, `sin_evidencia` "
-        "es verdadero con su `motivo`. Verificar la cita literal no prueba que el pasaje implique la afirmación."
+        "es verdadero con su `motivo`. Verificar la cita literal no prueba que el pasaje implique la afirmación. Si la pregunta nombra un código "
+        "GRI explícito y pide su estado, `estado_registrado` trae el estado registrado en Análisis GRI (nunca una cita). Una pregunta "
+        "INEQUÍVOCA de solo estado («¿Qué estado tiene GRI 1?») se responde únicamente desde Análisis GRI, sin búsqueda documental ni "
+        "modelo: `busqueda_documental` es NO_REALIZADA, `sin_evidencia` false y `citas` vacías."
     ),
     responses={
         400: {"description": "Pregunta vacía, empresa inactiva (`COMPANY_INACTIVE`) o de otro sector (`COMPANY_SECTOR_MISMATCH`)."},
         401: {"description": "No autenticado o sesión inválida."},
         403: {"description": "Requiere rol Administrador."},
         404: {"description": "La empresa no existe (`COMPANY_NOT_FOUND`)."},
+        409: {
+            "description": "`ANALYSIS_CHANGING`: solo en una pregunta de SOLO ESTADO GRI, el Análisis GRI está cambiando mientras se lee; vuelva a "
+            "preguntar. (En una pregunta mixta no se devuelve este error: la respuesta documental se conserva.)"
+        },
         422: {"description": "Falta o es inválido `sector`, `empresa_id` o `anio` (`REQUEST_VALIDATION_ERROR`)."},
         502: {"description": "Falló el proveedor de embeddings o de chat."},
         503: {"description": "Servicio no disponible por configuración."},
@@ -97,22 +111,18 @@ def get_proveedor_embeddings() -> ProveedorEmbeddingsConsulta:
 )
 async def consultar(
     payload: ConsultaRequest,
-    # 401/403 ANTES que 502/503 (esquema/OCI/LLM): la autenticación tiene prioridad.
+    # 401/403 ANTES que cualquier 502/503: la autenticación tiene prioridad. NADA vectorial ni de IA se declara aquí: se entregan como
+    # recursos DIFERIDOS que el servicio prepara solo si la pregunta necesita la búsqueda documental (como en la continuación).
     _usuario: AdministradorUser,
     db: DatabaseSession,
-    _esquema: Annotated[None, Depends(esquema_vectorial_listo)],
-    db_vectorial: VectorDatabaseSession,
     ambiente: Annotated[str, Depends(obtener_ambiente)],
-    proveedor_embeddings: Annotated[ProveedorEmbeddingsConsulta, Depends(get_proveedor_embeddings)],
-    proveedor_llm: Annotated[ProveedorLlm, Depends(get_proveedor_llm)],
+    recursos: Annotated[RecursosRag, Depends(get_recursos_consulta)],
 ) -> ConsultaResponse:
-    return await responder_consulta(
+    return await consultar_directa(
         db,
-        db_vectorial,
+        recursos=recursos,
         pregunta=payload.pregunta,
         ambiente=ambiente,
-        proveedor_embeddings=proveedor_embeddings,
-        proveedor_llm=proveedor_llm,
         sector=payload.sector,
         empresa_id=payload.empresa_id,
         anio=payload.anio,

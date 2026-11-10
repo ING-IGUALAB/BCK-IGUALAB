@@ -144,7 +144,7 @@ async def test_actualizacion_con_datos_rechaza_el_esquema_anterior_y_tras_migrar
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert resultado.aplicadas == (1, 2, 3, 4, 5, 6, 7)
+    assert resultado.aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
     assert await faltantes(url) == []
     despues = await consultar(url, "SELECT id, usuario_id, tipo_evento::text AS t, detalle, fecha_hora_utc FROM auditoria WHERE resultado IS NULL")
     assert [tuple(f) for f in despues] == [tuple(f) for f in antes]  # el evento histórico sigue intacto y sin resultado inventado
@@ -159,7 +159,7 @@ async def test_segundo_arranque_no_aplica_nada_y_la_comprobacion_sigue_pasando(u
     segundo = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
     assert segundo.sin_cambios
-    assert segundo.previas == (1, 2, 3, 4, 5, 6, 7)
+    assert segundo.previas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
     await verificar_esquema_central(url)
 
 
@@ -232,7 +232,7 @@ async def test_si_la_migracion_falla_a_mitad_se_deshace_por_completo_y_no_se_reg
         await iniciar_sesion(url)  # y por eso el arranque no debe anunciar disponibilidad
 
     # Corregida la causa, el siguiente arranque la aplica y todo queda en regla.
-    assert (await migrar(url, ESQUEMA_TRANSACCIONAL)).aplicadas == (5, 6, 7)
+    assert (await migrar(url, ESQUEMA_TRANSACCIONAL)).aplicadas == (5, 6, 7, 8, 9, 10, 11, 12)
     await verificar_esquema_central(url)
     await iniciar_sesion(url)
 
@@ -294,7 +294,9 @@ async def test_el_lifespan_real_arranca_con_el_esquema_en_regla_y_sirve_el_healt
             transporte = httpx.ASGITransport(app=main.app)
             async with httpx.AsyncClient(transport=transporte, base_url="http://prueba") as cliente:
                 assert (await cliente.get("/health")).json() == {"status": "ok"}
-    assert [v for v, _ in await versiones_registradas(url)] == [1, 2, 3, 4, 5, 6, 7]
+    assert [v for v, _ in await versiones_registradas(url)] == [
+        m.version for m in ESQUEMA_TRANSACCIONAL.migraciones
+    ]
     await iniciar_sesion(url)
 
 

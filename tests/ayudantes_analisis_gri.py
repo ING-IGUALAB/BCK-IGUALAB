@@ -130,8 +130,8 @@ async def crear_superadmin(db) -> Usuario:
     return usuario
 
 
-async def crear_empresa(db, nombre: str | None = None, activa: bool = True) -> Empresa:
-    empresa = Empresa(nombre=nombre or f"Empresa {uuid.uuid4().hex[:8]}", sector=SectorEmpresa.MINERIA, activa=activa)
+async def crear_empresa(db, nombre: str | None = None, activa: bool = True, sector: SectorEmpresa = SectorEmpresa.MINERIA) -> Empresa:
+    empresa = Empresa(nombre=nombre or f"Empresa {uuid.uuid4().hex[:8]}", sector=sector, activa=activa)
     db.add(empresa)
     await db.commit()
     return empresa

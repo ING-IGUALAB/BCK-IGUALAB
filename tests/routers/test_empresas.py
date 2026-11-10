@@ -62,7 +62,7 @@ def comprobar_error(response, status, code):
     assert error["request_id"] != "unavailable"
 
 
-@pytest.mark.parametrize("sector", ["MINERIA", "PETROLEO", "ENERGIA"])
+@pytest.mark.parametrize("sector", ["MINERIA", "PETROLEO", "ENERGIA", "OTROS"])
 def test_registrar_y_consultar(entorno, sector):
     client, _, _, _ = entorno
     response = crear(client, "  Empresa Sur  ", sector)
@@ -82,6 +82,8 @@ def test_registrar_y_consultar(entorno, sector):
     {"nombre": " \t\n ", "sector": "MINERIA"},
     {"nombre": "a" * 201, "sector": "MINERIA"},
     {"nombre": "Empresa", "sector": "OTRO"},
+    {"nombre": "Empresa", "sector": "Otros"},  # la etiqueta visible no es el valor de la API
+    {"nombre": "Empresa", "sector": "otros"},
     {"nombre": None, "sector": "MINERIA"},
     {"nombre": "Empresa", "sector": None},
     {"nombre": "Empresa", "sector": "MINERIA", "activa": False},
@@ -131,7 +133,7 @@ def test_edicion_no_usa_nombre_de_otra_empresa(entorno):
 
 @pytest.mark.parametrize("payload", [
     {}, {"nombre": "  "}, {"nombre": "a" * 201}, {"nombre": None},
-    {"sector": None}, {"sector": "AGRO"}, {"activa": False},
+    {"sector": None}, {"sector": "AGRO"}, {"sector": "Otros"}, {"sector": "OTRO"}, {"activa": False},
 ])
 def test_edicion_invalida(entorno, payload):
     client, _, _, _ = entorno
@@ -238,7 +240,7 @@ def estado_guardado(session, empresa_id):
     return empresa.nombre, empresa.sector, empresa.activa
 
 
-@pytest.mark.parametrize("destino", ["PETROLEO", "ENERGIA", "MINERIA"])
+@pytest.mark.parametrize("destino", ["PETROLEO", "ENERGIA", "MINERIA", "OTROS"])
 def test_sin_documentos_el_sector_cambia_entre_los_valores_admitidos(entorno, destino):
     client, _, _, session = entorno
     empresa = crear(client, sector="PETROLEO" if destino == "MINERIA" else "MINERIA").json()
@@ -270,6 +272,36 @@ def test_con_documentos_mantener_el_mismo_sector_no_genera_el_conflicto(entorno)
     response = client.patch(url, json={"nombre": "Nombre Nuevo", "sector": "MINERIA"})
     assert response.status_code == 200, response.text
     assert (response.json()["nombre"], response.json()["sector"]) == ("Nombre Nuevo", "MINERIA")
+
+
+def test_otros_se_asigna_editando_se_consulta_y_se_filtra_sin_afectar_a_los_demas_sectores(entorno):
+    client, _, _, session = entorno
+    minera = crear(client, "Minera Uno", "MINERIA").json()
+    energia = crear(client, "Energia Dos", "ENERGIA").json()
+    otra = crear(client, "Empresa Tres", "OTROS").json()
+    editada = client.patch(f"/empresas/{minera['id']}", json={"sector": "OTROS"})
+    assert editada.status_code == 200, editada.text
+    assert editada.json()["sector"] == "OTROS"
+    assert estado_guardado(session, minera["id"])[1] is SectorEmpresa.OTROS
+    assert client.get(f"/empresas/{minera['id']}").json()["sector"] == "OTROS"
+    filtradas = client.get("/empresas?sector=OTROS").json()
+    assert [e["id"] for e in filtradas] == [otra["id"], minera["id"]]  # orden por nombre: Empresa Tres, Minera Uno
+    assert {e["sector"] for e in filtradas} == {"OTROS"}
+    assert [e["id"] for e in client.get("/empresas?sector=ENERGIA").json()] == [energia["id"]]
+    assert client.get("/empresas?sector=MINERIA").json() == []
+    assert len(client.get("/empresas").json()) == 3
+
+
+def test_con_documentos_otros_sigue_la_misma_regla_del_sector_que_los_demas(entorno):
+    client, _, _, session = entorno
+    empresa = crear(client, sector="OTROS").json()
+    poner_documento(session, empresa["id"], sector="OTROS")
+    url = f"/empresas/{empresa['id']}"
+    assert client.patch(url, json={"sector": "OTROS"}).status_code == 200  # mantener el mismo sector no genera conflicto
+    antes = estado_guardado(session, empresa["id"])
+    comprobar_error(client.patch(url, json={"sector": "ENERGIA"}), 409, "COMPANY_SECTOR_CHANGE_BLOCKED")
+    assert estado_guardado(session, empresa["id"]) == antes
+    assert client.get(url).json()["sector"] == "OTROS"
 
 
 def test_con_documentos_el_cambio_de_nombre_sin_sector_conserva_su_comportamiento(entorno):

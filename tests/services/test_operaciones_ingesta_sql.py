@@ -199,4 +199,5 @@ def test_el_conjunto_de_tablas_sin_ddl_automatico_incluye_ambas():
     assert TABLAS_SIN_DDL_AUTOMATICO == {
         "documentos", "operaciones_ingesta",
         "analisis_gri_control", "analisis_gri_estados", "analisis_gri_historial", "analisis_gri_validaciones",
+        "conversaciones_asistente", "mensajes_asistente", "intercambios_asistente",
     }

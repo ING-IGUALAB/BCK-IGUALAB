@@ -26,6 +26,11 @@ TABLAS_SIN_DDL_AUTOMATICO = frozenset(
         "analisis_gri_estados",
         "analisis_gri_historial",
         "analisis_gri_validaciones",
+        # Historial del Asistente IA (Módulo 6, entrega 1): las crea la migración 0009 de la base transaccional.
+        "conversaciones_asistente",
+        "mensajes_asistente",
+        # entrega 2 (continuación): las reservas de consulta, migración 0010.
+        "intercambios_asistente",
     }
 )
 

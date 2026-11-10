@@ -5,10 +5,16 @@ CAMBIO DE CONTRATO respecto de la versión anterior (el frontend debe adaptarse)
 - Respuesta: además de `respuesta`, `citas`, `sin_evidencia` y `mensaje`, trae `afirmaciones` (cada una con sus `referencias` y su
   `cita_textual`), `motivo` y `afirmaciones_descartadas`. Cada `Cita` trae `referencia`, el número `[n]` con el que las afirmaciones
   y el texto de `respuesta` la nombran, y `empresa_nombre`.
+- Estado registrado en Análisis GRI (aditivo, opcional): `estado_registrado` (el estado manual de un código GRI, nunca una cita) y
+  `busqueda_documental` (REALIZADA por omisión; NO_REALIZADA en una pregunta de solo estado, que es válida sin citas). Las respuestas y
+  conversaciones guardadas antes de este cambio no traen ninguno de los dos y se leen con sus valores por omisión.
 """
 from __future__ import annotations
 
+import enum
 import uuid
+from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -47,6 +53,44 @@ class Afirmacion(BaseModel):
     cita_textual: str = Field(description="Pasaje que aparece literalmente en los fragmentos de `referencias` (mín. 20 caracteres y 3 palabras).")
 
 
+class BusquedaDocumental(str, enum.Enum):
+    """Si se buscó en los documentos para esta respuesta. NO_REALIZADA = no hubo búsqueda (la pregunta era solo por el estado registrado)."""
+
+    REALIZADA = "REALIZADA"
+    NO_REALIZADA = "NO_REALIZADA"
+
+
+class FilaEstadoRegistrado(BaseModel):
+    """Una identidad GRI (código + edición) del Análisis GRI con su estado MANUAL actual."""
+
+    identidad: str = Field(description="Clave de la fila en Análisis GRI, p. ej. «1:2021» o «102:ambigua».")
+    codigo: str
+    edicion: str | None = Field(description="Null si la edición no está resuelta (identidad ambigua).")
+    estandar: str = Field(description="Etiqueta legible, p. ej. «GRI 1 (2021)».")
+    estado: str | None = Field(description="OK, BAJA_SUSTANCIA o SUB_REPORTADO; null si nadie le asignó un estado.")
+    estado_etiqueta: str | None = Field(description="Etiqueta exacta para mostrar: «OK», «Baja sustancia» o «Sub-reportado».")
+
+
+class ValidacionRegistrada(BaseModel):
+    """La última validación del análisis (vigente o no). Misma regla de vigencia que Análisis GRI."""
+
+    numero: int
+    validado_en: datetime
+    motivos_no_vigente: list[str] = Field(description="Vacía si sigue vigente; si no, ESTADOS_CAMBIARON y/o DOCUMENTOS_CAMBIARON.")
+
+
+class EstadoRegistrado(BaseModel):
+    """Estado REGISTRADO en Análisis GRI de los códigos que pidió la pregunta, compuesto por el servidor (no por el modelo). NO es una cita del
+    documento ni una conclusión automática de que existe o no una brecha: es el estado que una persona asignó en Análisis GRI."""
+
+    fuente: Literal["ANALISIS_GRI"] = "ANALISIS_GRI"
+    texto: str = Field(description="Texto legible listo para mostrar (incluye la vigencia). Nunca lleva marcadores [n].")
+    codigos_solicitados: list[str] = Field(description="Los códigos tal como los escribió el usuario, p. ej. «GRI 1».")
+    filas: list[FilaEstadoRegistrado] = Field(description="Filas encontradas en el análisis. Un código solicitado que no figura no aparece aquí.")
+    validacion_vigente: bool = Field(description="True solo si el análisis tiene una validación vigente (flujo VALIDADO).")
+    validacion: ValidacionRegistrada | None = Field(description="Última validación; null si el análisis nunca se validó.")
+
+
 class ConsultaResponse(BaseModel):
     respuesta: str = Field(description="Afirmaciones verificadas con sus marcadores [n]; vacía si `sin_evidencia`.")
     afirmaciones: list[Afirmacion] = Field(default_factory=list)
@@ -62,4 +106,14 @@ class ConsultaResponse(BaseModel):
     mensaje: str | None = Field(default=None, description="Aclaración legible cuando `sin_evidencia`.")
     afirmaciones_descartadas: int = Field(
         default=0, description="Afirmaciones del modelo omitidas por no poder respaldarse (referencia inexistente o cita no literal)."
+    )
+    estado_registrado: EstadoRegistrado | None = Field(
+        default=None,
+        description="Solo si la pregunta pidió el estado de un código GRI: el estado registrado en Análisis GRI (fuente distinta del documento; "
+        "nunca una cita). Puede acompañar a `citas` o ir solo. Las respuestas anteriores no lo traen (null).",
+    )
+    busqueda_documental: BusquedaDocumental = Field(
+        default=BusquedaDocumental.REALIZADA,
+        description="NO_REALIZADA: pregunta de solo estado, sin búsqueda en los documentos; `sin_evidencia` es false, `motivo` null, `citas` "
+        "vacías y `respuesta` repite `estado_registrado.texto`. REALIZADA: la búsqueda se hizo (con o sin resultados, ver `sin_evidencia`).",
     )

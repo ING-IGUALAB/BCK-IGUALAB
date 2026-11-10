@@ -227,6 +227,7 @@ def test_los_plazos_son_explicitos_y_el_del_servidor_cabe_en_el_del_cliente():
     assert modulo.TABLAS_SIN_DDL_AUTOMATICO == {
         "documentos", "operaciones_ingesta",
         "analisis_gri_control", "analisis_gri_estados", "analisis_gri_historial", "analisis_gri_validaciones",
+        "conversaciones_asistente", "mensajes_asistente", "intercambios_asistente",
     }
 
 

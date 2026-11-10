@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -18,7 +19,6 @@ import pytest_asyncio
 from fastapi import FastAPI
 
 from app.core.database import get_db
-from app.core.database_vectorial import get_vector_db
 from app.core.dependencies import get_current_user
 from app.core.exception_handlers import register_exception_handlers
 from app.core.exceptions import ExternalServiceError
@@ -26,6 +26,7 @@ from app.core.request_id import RequestIDMiddleware
 from app.models import SectorEmpresa, TipoDocumento
 from app.models.documento_ingesta import EstadoProcesamiento
 from app.modules.asistente import router as asistente
+from app.modules.asistente.continuacion_service import RecursosRag
 from app.modules.asistente import service as servicio
 from app.modules.ingesta.domain.embeddings import IdentidadEmbeddings
 from tests.ayudantes_analisis_gri import (
@@ -95,6 +96,25 @@ async def m6(fabrica_pg, monkeypatch):
     return entorno
 
 
+def recursos_controlados(embeddings, llm, contadores=None) -> RecursosRag:
+    """`RecursosRag` con dobles: `preparar` entrega los proveedores y la sesión vectorial es `None` (la búsqueda está sustituida y no se toca
+    ninguna base vectorial). Si se pasa `contadores` (un SimpleNamespace), cuenta ahí cuántas veces se preparó y se abrió la sesión."""
+    contadores = contadores if contadores is not None else SimpleNamespace()
+    contadores.preparados = getattr(contadores, "preparados", 0)
+    contadores.sesiones = getattr(contadores, "sesiones", 0)
+
+    def preparar():
+        contadores.preparados += 1
+        return embeddings, llm
+
+    @asynccontextmanager
+    async def sesion_vectorial():
+        contadores.sesiones += 1
+        yield None
+
+    return RecursosRag(preparar=preparar, sesion_vectorial=sesion_vectorial)
+
+
 def construir_app(m6, usuario) -> FastAPI:
     app = FastAPI()
     register_exception_handlers(app)
@@ -105,15 +125,11 @@ def construir_app(m6, usuario) -> FastAPI:
         async with m6.fabrica() as sesion:
             yield sesion
 
-    async def vectorial_de_prueba():
-        yield None  # la búsqueda está sustituida; no se toca ninguna base vectorial
-
     app.dependency_overrides[get_db] = db_de_prueba
-    app.dependency_overrides[get_vector_db] = vectorial_de_prueba
-    app.dependency_overrides[asistente.esquema_vectorial_listo] = lambda: None
     app.dependency_overrides[asistente.obtener_ambiente] = lambda: "development"
-    app.dependency_overrides[asistente.get_proveedor_embeddings] = lambda: m6.embeddings
-    app.dependency_overrides[asistente.get_proveedor_llm] = lambda: m6.llm
+    # Recursos DIFERIDOS del RAG (esquema vectorial, sesión vectorial y proveedores) sustituidos por dobles: se evalúan por solicitud, así que
+    # una prueba puede cambiar `m6.llm` o `m6.embeddings` antes de consultar.
+    app.dependency_overrides[asistente.get_recursos_consulta] = lambda: recursos_controlados(m6.embeddings, m6.llm)
     if usuario is not None:
         app.dependency_overrides[get_current_user] = lambda: usuario
     return app

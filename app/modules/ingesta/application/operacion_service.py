@@ -29,12 +29,15 @@ from app.models.documento_ingesta import (
     EstadoCompensacion,
     EstadoOperacion,
     EstadoProcesamiento,
+    EtapaIngesta,
     OperacionIngesta,
+    ResultadoAnalisis,
 )
 from app.modules.ingesta.schemas import (
     ESTADOS_TERMINALES,
     DisponibilidadIngestaResponse,
     DisponibilidadTipo,
+    DocumentoDeshabilitadoResponse,
     DocumentoDetalle,
     DocumentoResumen,
     ErrorOperacion,
@@ -43,6 +46,7 @@ from app.modules.ingesta.schemas import (
     OperacionCreadaResponse,
     OperacionResponse,
     PaginaDocumentos,
+    ResumenConfirmacion,
 )
 from app.modules.ingesta.application import documento_service as servicio
 from app.modules.ingesta.domain.almacenamiento import validar_ambiente
@@ -78,7 +82,7 @@ async def crear_operacion(db: AsyncSession, *, usuario_id: uuid.UUID, ambiente: 
     operacion = OperacionIngesta(id=uuid.uuid4(), ambiente=ambiente, usuario_id=usuario_id)
     db.add(operacion)
     registrar_evento(
-        db, TipoEventoAuditoria.INGESTA_DATOS, f"Operación de ingesta creada; operacion_id={operacion.id}", usuario_id,
+        db, TipoEventoAuditoria.INGESTA_DATOS, "Operación de ingesta creada", usuario_id,
         resultado=ResultadoAuditoria.EXITOSO,
     )
     await db.commit()
@@ -193,6 +197,42 @@ def _error_del_documento(estado: EstadoOperacionPublico, codigo: str | None) -> 
     return None
 
 
+def _resumen_desde_analisis(analisis: object) -> ResumenConfirmacion | None:
+    """Resumen del doble check desde `documentos.analisis` (JSONB). Null si no hay análisis utilizable."""
+    if not isinstance(analisis, dict):
+        return None
+    resultado = analisis.get("resultado")
+    if resultado not in {r.value for r in ResultadoAnalisis}:
+        return None
+    gri = analisis.get("gri")
+    sanciones = analisis.get("sanciones")
+    motivos = analisis.get("motivos")
+    advertencias = analisis.get("advertencias")
+    n_gri = len(gri) if isinstance(gri, list) else 0
+    n_sanciones = len(sanciones) if isinstance(sanciones, list) else 0
+    motivos_l = [str(m) for m in motivos] if isinstance(motivos, list) else []
+    advertencias_l = [a for a in advertencias if isinstance(a, dict)] if isinstance(advertencias, list) else []
+    if resultado == ResultadoAnalisis.OBSERVADO.value:
+        mensaje = (
+            "El análisis terminó y el documento NO contiene referencias GRI catalogadas ni sanciones "
+            "económicas detectadas. ¿Desea continuar con la ingesta o cancelarla (se eliminarán el "
+            "original y los fragmentos)?"
+        )
+    else:
+        mensaje = (
+            f"El análisis detectó {n_gri} grupo(s) GRI y {n_sanciones} mención(es) de sanciones. "
+            "¿Desea continuar con la ingesta o cancelarla (se eliminarán el original y los fragmentos)?"
+        )
+    return ResumenConfirmacion(
+        resultado=ResultadoAnalisis(resultado),
+        referencias_gri=n_gri,
+        sanciones=n_sanciones,
+        motivos=motivos_l,
+        advertencias=advertencias_l,
+        mensaje=mensaje,
+    )
+
+
 def construir_vista(operacion: OperacionIngesta, documento: Documento | None, *, ahora: datetime | None = None) -> OperacionResponse:
     ahora = ahora or _ahora()
     base = {"operacion_id": operacion.id, "creada_en": operacion.creada_en}
@@ -214,6 +254,7 @@ def construir_vista(operacion: OperacionIngesta, documento: Documento | None, *,
     progreso = servicio.progreso_de_documento(documento)
     estado = _DESDE_PROGRESO[progreso.estado]
     error = _error_del_documento(estado, progreso.codigo_error)
+    confirmacion = estado is EstadoOperacionPublico.CONFIRMACION_PENDIENTE
     return OperacionResponse(
         **base,
         estado=estado,
@@ -224,8 +265,10 @@ def construir_vista(operacion: OperacionIngesta, documento: Documento | None, *,
         fragmentos_procesados=progreso.fragmentos_procesados,
         fragmentos_total=progreso.fragmentos_total,
         advertencias=list(progreso.advertencias),
-        resultado_analisis=progreso.resultado_analisis,
+        resultado_analisis=progreso.resultado_analisis if not confirmacion else None,
         publicacion_reintentable=estado is EstadoOperacionPublico.PUBLICACION_PENDIENTE,
+        confirmacion_pendiente=confirmacion,
+        resumen_confirmacion=_resumen_desde_analisis(documento.analisis) if confirmacion else None,
         error=error,
         actualizada_en=max(progreso.actualizado_en, operacion.actualizada_en),
     )
@@ -245,7 +288,14 @@ async def obtener_vista(db: AsyncSession, operacion_id: uuid.UUID, ambiente: str
 
 def _condicion_de_estado(estado: EstadoProgreso):
     if estado is EstadoProgreso.EN_PROCESO:
-        return Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO
+        # EN_PROCESO de la operación SIN la pausa de doble check (que tiene su propio estado).
+        return (Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO) & (
+            Documento.etapa_actual != EtapaIngesta.CONFIRMANDO.value
+        )
+    if estado is EstadoProgreso.CONFIRMACION_PENDIENTE:
+        return (Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO) & (
+            Documento.etapa_actual == EtapaIngesta.CONFIRMANDO.value
+        )
     if estado is EstadoProgreso.PUBLICACION_PENDIENTE:
         return (Documento.estado_procesamiento == EstadoProcesamiento.COMPLETADO) & Documento.vector_publicado_en.is_(None)
     if estado is EstadoProgreso.COMPLETADO:
@@ -270,12 +320,18 @@ def _resumen(documento: Documento, empresa_nombre: str, operacion_id: uuid.UUID 
         "tamano_bytes": documento.tamano_bytes,
         "estado": estado,
         "resultado_analisis": resultado,
-        "disponible_para_rag": estado is EstadoProgreso.COMPLETADO and documento.resultado_analisis is not None,
+        "disponible_para_rag": (
+            estado is EstadoProgreso.COMPLETADO and documento.resultado_analisis is not None and documento.deshabilitado_en is None
+        ),
         "fragmentos_total": documento.fragmentos_total,
         "cantidad_advertencias": len(documento.advertencias or ()),
         "cargado_por": documento.usuario_id,
         "creado_en": documento.creado_en,
         "completado_en": documento.completado_en,
+        "deshabilitado": documento.deshabilitado_en is not None,
+        "deshabilitado_en": documento.deshabilitado_en,
+        "deshabilitado_por": documento.deshabilitado_por,
+        "motivo_deshabilitacion": documento.motivo_deshabilitacion,
     }
 
 
@@ -351,10 +407,34 @@ async def obtener_detalle(db: AsyncSession, documento_id: uuid.UUID, ambiente: s
     )
 
 
+# --- Deshabilitación ------------------------------------------------------------------------------------------------
+
+async def deshabilitar_documento(
+    db: AsyncSession, documento_id: uuid.UUID, *, ambiente: str, usuario_id: uuid.UUID, motivo: str
+) -> DocumentoDeshabilitadoResponse:
+    """Deshabilita un documento COMPLETADO y PUBLICADO del ambiente y libera su cupo (ver `documento_service.deshabilitacion`).
+    Idempotente. El actor es el de la sesión validada."""
+    resultado = await servicio.deshabilitar_documento(db, documento_id, ambiente=ambiente, usuario_id=usuario_id, motivo=motivo)
+    documento = resultado.documento
+    return DocumentoDeshabilitadoResponse(
+        documento_id=documento.id,
+        empresa_id=documento.empresa_id,
+        anio=documento.anio,
+        tipo=documento.tipo,
+        estado=servicio.estado_de_documento(documento)[0],
+        deshabilitado_en=documento.deshabilitado_en,
+        deshabilitado_por=documento.deshabilitado_por,
+        motivo_deshabilitacion=documento.motivo_deshabilitacion,
+        ya_estaba_deshabilitado=resultado.ya_estaba_deshabilitado,
+    )
+
+
 # --- Disponibilidad de tipos (consulta informativa) ----------------------------------------------------------------
 
 _ESPACIO_POR_ESTADO = {
+    # La pausa CONFIRMANDO mantiene la reserva: el cupo sigue ocupado mientras el SuperAdmin decide.
     EstadoProgreso.EN_PROCESO: EstadoEspacio.EN_PROCESO,
+    EstadoProgreso.CONFIRMACION_PENDIENTE: EstadoEspacio.EN_PROCESO,
     EstadoProgreso.PUBLICACION_PENDIENTE: EstadoEspacio.PUBLICACION_PENDIENTE,
     EstadoProgreso.COMPLETADO: EstadoEspacio.OCUPADO,
     EstadoProgreso.FALLIDO_LIMPIEZA_PENDIENTE: EstadoEspacio.LIMPIEZA_PENDIENTE,

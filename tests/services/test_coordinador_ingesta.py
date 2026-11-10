@@ -13,7 +13,13 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import AuthorizationError, BusinessValidationError, ConflictError, ExternalServiceError
+from app.core.exceptions import (
+    AuthorizationError,
+    BusinessValidationError,
+    ConfirmacionPendiente,
+    ConflictError,
+    ExternalServiceError,
+)
 from app.models import SectorEmpresa, TipoDocumento
 from app.models.documento_ingesta import (
     EstadoCompensacion,
@@ -38,12 +44,17 @@ from tests.ayudantes_ingesta import BOM, crear_empresa, metadatos, sha256_de
 
 
 async def ingerir(entorno, texto: str | bytes = TEXTO_CON_HALLAZGOS, nombre: str = "informe.md", **cambios):
+    """Carga completa: si el doble check pausa (202), confirma automáticamente para que el flujo
+    termine COMPLETADO como en producción cuando el SuperAdmin elige Continuar."""
     datos = texto if isinstance(texto, bytes) else texto.encode("utf-8")
     argumentos = dict(
         usuario_id=entorno.usuario.id, nombre_archivo=nombre, leer=lector(datos), metadatos=entorno.metadatos
     )
     argumentos.update(cambios)
-    return await ingerir_documento(entorno.deps, entorno.config, **argumentos)
+    try:
+        return await ingerir_documento(entorno.deps, entorno.config, **argumentos)
+    except ConfirmacionPendiente as pausa:
+        return await coordinador.confirmar_ingesta(entorno.deps, uuid.UUID(pausa.documento_id))
 
 
 # ============================================ Flujo completo ============================================
@@ -566,7 +577,8 @@ async def test_auditoria_de_exito_con_actor_y_fecha_utc_sin_contenido(entorno):
     (exito,) = [e for e in eventos if "Ingesta completada" in e.detalle]
     assert exito.usuario_id == entorno.usuario.id
     assert exito.fecha_hora_utc.utcoffset() == timedelta(0)
-    assert str(resultado.documento_id) in exito.detalle
+    assert "archivo=informe.md" in exito.detalle  # legible, sin documento_id
+    assert str(resultado.documento_id) not in exito.detalle  # sin UUID crudo
     assert "resultado=CON_HALLAZGOS" in exito.detalle
     for evento in eventos:
         assert "alcance 1" not in evento.detalle
@@ -607,10 +619,13 @@ async def test_el_mismo_documento_en_dos_ambientes_no_se_mezcla(entorno):
 
     qa = AlmacenEnMemoria("qa")
     deps_qa = coordinador.DependenciasIngesta(entorno.deps.sesiones, entorno.deps.sesiones_vectoriales, qa, entorno.proveedor)
-    segundo = await ingerir_documento(
-        deps_qa, entorno.config, usuario_id=entorno.usuario.id, nombre_archivo="informe.md",
-        leer=lector(TEXTO_CON_HALLAZGOS.encode()), metadatos=entorno.metadatos,
-    )
+    try:
+        segundo = await ingerir_documento(
+            deps_qa, entorno.config, usuario_id=entorno.usuario.id, nombre_archivo="informe.md",
+            leer=lector(TEXTO_CON_HALLAZGOS.encode()), metadatos=entorno.metadatos,
+        )
+    except ConfirmacionPendiente as pausa:
+        segundo = await coordinador.confirmar_ingesta(deps_qa, uuid.UUID(pausa.documento_id))
     assert segundo.documento_id != primero.documento_id
     docs = {d.id: d for d in await entorno.documentos()}
     assert {docs[primero.documento_id].ambiente, docs[segundo.documento_id].ambiente} == {"development", "qa"}

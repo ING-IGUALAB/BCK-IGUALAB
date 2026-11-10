@@ -3,8 +3,9 @@
 Flujo (RF-023/024 · RN-033..037 · RNF-010):
   sector + empresa + año + pregunta
   → la empresa existe, está activa y es del sector (en la base; no se confía en el frontend)
-  → embedding de CONSULTA (SEARCH_QUERY) → `buscar_similares` (pgvector) limitado a ambiente, empresa, año y sector
-  → filtrar por `documentos_recuperables` (solo COMPLETADO con análisis y empresa activa)
+  → embedding de CONSULTA (SEARCH_QUERY) → `documentos_elegibles_para_consulta` (completados, con análisis, NO deshabilitados)
+  → `buscar_similares` (pgvector) limitado a ambiente, empresa, año, sector y a esos documentos, ANTES de ordenar y limitar
+  → filtrar por `documentos_recuperables` (solo COMPLETADO con análisis, no deshabilitado y empresa activa)
   → prompt con procedencia (empresa, documento, año, sección) y contenido como DATO → LLM
   → verificación afirmación por afirmación (`domain/citas.py`): referencia válida y cita literal del fragmento citado.
 
@@ -14,11 +15,12 @@ nunca se borra un marcador para conservar una afirmación sin fuente (RN-033/034
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import BusinessValidationError
+from app.core.exceptions import BusinessValidationError, ConflictError
 from app.models import Empresa, SectorEmpresa
 from app.models.documento_ingesta import Documento
 from app.modules.asistente.domain.citas import (
@@ -29,17 +31,31 @@ from app.modules.asistente.domain.citas import (
     MOTIVO_SIN_FRAGMENTOS,
     verificar_respuesta,
 )
+from app.modules.analisis_gri.application.servicio import consultar_analisis
+from app.modules.asistente.domain.estado_gri import (
+    SEPARADOR_EVIDENCIA,
+    TITULO,
+    CodigoSolicitado,
+    codigos_para_estado,
+    construir_estado_registrado,
+    menciona_brecha,
+    solo_estado,
+)
+from app.modules.asistente.domain.historial import MAX_MENSAJE_AUSENCIA
 from app.modules.asistente.domain.prompt import SISTEMA, construir_prompt_usuario, nuevo_codigo_de_marcador, validar_pregunta
 from app.modules.asistente.infrastructure.llm import ProveedorLlm
-from app.modules.asistente.schemas import Afirmacion, Cita, ConsultaResponse
+from app.modules.asistente.schemas import Afirmacion, BusquedaDocumental, Cita, ConsultaResponse
 from app.modules.empresas import service as empresa_service
-from app.modules.ingesta.application.documento_service import documentos_recuperables
+from app.modules.ingesta.application.documento_service import documentos_elegibles_para_consulta, documentos_recuperables
 from app.modules.ingesta.domain.embeddings import ProveedorEmbeddingsConsulta, embeber_consulta
 from app.modules.ingesta.domain.parametros import PARAMETROS_INGESTA
 from app.modules.ingesta.infrastructure.fragmentos_vectoriales import (
     FragmentoRecuperado,
     buscar_similares,
 )
+
+if TYPE_CHECKING:  # solo para anotar: `continuacion_service` importa este módulo (evita el ciclo de importación)
+    from app.modules.asistente.continuacion_service import RecursosRag
 
 LIMITES_POR_DEFECTO = 4  # k de recuperación (RAG simple)
 
@@ -84,7 +100,7 @@ async def _empresa_consultable(db: AsyncSession, empresa_id: uuid.UUID, sector: 
     return empresa
 
 
-async def responder_consulta(
+async def _responder_documental(
     db: AsyncSession,
     db_vectorial: AsyncSession,
     *,
@@ -97,7 +113,8 @@ async def responder_consulta(
     anio: int,
     limite: int = LIMITES_POR_DEFECTO,
 ) -> ConsultaResponse:
-    """Responde una consulta limitada a un ambiente, sector, empresa y año, con afirmaciones respaldadas por fuentes verificables."""
+    """Parte DOCUMENTAL de la respuesta (RAG): una consulta limitada a un ambiente, sector, empresa y año, con afirmaciones respaldadas
+    por fuentes verificables. Sin cambios respecto de la versión anterior; `responder_consulta` le agrega, si corresponde, el estado."""
     try:
         validar_pregunta(pregunta)
     except ValueError as exc:
@@ -115,7 +132,15 @@ async def responder_consulta(
         timeout_segundos=PARAMETROS_INGESTA.timeout_embeddings_segundos,
     )
 
-    # 2) recuperación vectorial (exacta por coseno), SIEMPRE limitada a ambiente, empresa, año y sector
+    # 2) documentos ELEGIBLES (completados, con análisis, no deshabilitados, de empresa activa) de esa empresa y año, ANTES de buscar: la base
+    #    vectorial no sabe qué documentos se deshabilitaron, y si se filtraran después de ordenar y limitar, los fragmentos de un documento
+    #    retirado (que conserva sus vectores) podrían ocupar los primeros lugares y dejar sin evidencia al documento que lo reemplazó.
+    elegibles = await documentos_elegibles_para_consulta(db, ambiente=ambiente, empresa_id=empresa_id, anio=anio)
+    if not elegibles:
+        return _sin_evidencia(MOTIVO_SIN_FRAGMENTOS)
+
+    # 3) recuperación vectorial (exacta por coseno), SIEMPRE limitada a ambiente, empresa, año, sector y a los documentos elegibles
+    #    (el filtro se aplica en SQL, antes de ordenar y limitar)
     candidatos = await buscar_similares(
         db_vectorial,
         ambiente=ambiente,
@@ -125,10 +150,12 @@ async def responder_consulta(
         limite=limite,
         anio=anio,
         sector=empresa_sector,
+        documento_ids=elegibles,
     )
 
-    # 3) visibilidad transaccional: solo documentos COMPLETADOS con análisis y empresa activa. Defensa en profundidad: aunque la
-    #    búsqueda se equivocara, un fragmento de otra empresa o año no entra al contexto.
+    # 4) visibilidad transaccional: solo documentos COMPLETADOS con análisis, no deshabilitados y empresa activa. Defensa en profundidad:
+    #    aunque la búsqueda se equivocara, un fragmento de otra empresa o año no entra al contexto, y un documento deshabilitado entre
+    #    la lectura de elegibles y la búsqueda tampoco.
     ids = {f.documento_id for f in candidatos}
     recuperables = await documentos_recuperables(db, ambiente=ambiente, documento_ids=ids) if ids else set()
     fragmentos = [
@@ -140,13 +167,13 @@ async def responder_consulta(
     nombres = await _nombres_documentos(db, {f.documento_id for f in fragmentos})
     await db.rollback()
 
-    # 4) prompt (con procedencia) + LLM
+    # 5) prompt (con procedencia) + LLM
     prompt_usuario = construir_prompt_usuario(
         pregunta, fragmentos, empresa_nombre=empresa_nombre, nombres_documentos=nombres, codigo=nuevo_codigo_de_marcador()
     )
     desde_llm = await proveedor_llm.completar(SISTEMA, prompt_usuario)
 
-    # 5) verificación de las afirmaciones (RN-033/034/035)
+    # 6) verificación de las afirmaciones (RN-033/034/035)
     resultado = verificar_respuesta(desde_llm, fragmentos)
     if resultado.motivo is not None:
         return _sin_evidencia(resultado.motivo, resultado.descartadas)
@@ -164,6 +191,111 @@ async def responder_consulta(
         sin_evidencia=False,
         afirmaciones_descartadas=resultado.descartadas,
     )
+
+
+async def responder_consulta(
+    db: AsyncSession,
+    db_vectorial: AsyncSession,
+    *,
+    pregunta: str,
+    ambiente: str,
+    proveedor_embeddings: ProveedorEmbeddingsConsulta,
+    proveedor_llm: ProveedorLlm,
+    sector: SectorEmpresa,
+    empresa_id: uuid.UUID,
+    anio: int,
+    limite: int = LIMITES_POR_DEFECTO,
+) -> ConsultaResponse:
+    """Responde una consulta del Asistente IA. Punto COMÚN de `POST /asistente/consultas` y de la continuación de conversaciones.
+
+    La parte documental es el RAG de siempre. Si además la pregunta (en la continuación, la pregunta AUTÓNOMA ya interpretada) nombra un
+    código GRI explícito y pide su estado o una brecha, el servidor agrega el estado REGISTRADO en Análisis GRI de la misma empresa, año y
+    ambiente, compuesto sin el modelo (ver `domain/estado_gri.py`). Sin esa petición el comportamiento es idéntico al anterior."""
+    respuesta = await _responder_documental(
+        db, db_vectorial, pregunta=pregunta, ambiente=ambiente, proveedor_embeddings=proveedor_embeddings, proveedor_llm=proveedor_llm,
+        sector=sector, empresa_id=empresa_id, anio=anio, limite=limite,
+    )
+    pedidos = codigos_para_estado(pregunta)
+    if not pedidos:
+        return respuesta
+    return await _con_estado_registrado(db, respuesta, pedidos, pregunta=pregunta, ambiente=ambiente, empresa_id=empresa_id, anio=anio)
+
+
+async def _con_estado_registrado(
+    db: AsyncSession, respuesta: ConsultaResponse, pedidos: list[CodigoSolicitado], *, pregunta: str, ambiente: str,
+    empresa_id: uuid.UUID, anio: int,
+) -> ConsultaResponse:
+    """Agrega el estado a una respuesta DOCUMENTAL (mixta): `estado_registrado` (estructura + texto) y, por compatibilidad con los clientes que aún
+    no lo leen, el mismo bloque en `mensaje`. NO toca `respuesta`, `afirmaciones`, `citas`, `sin_evidencia`, `motivo` ni `busqueda_documental`
+    (REALIZADA): el estado manual no es una cita del documento. Sin evidencia documental, `mensaje` = estado + «Evidencia documental: » + el
+    aviso de siempre."""
+    maximo, cola = MAX_MENSAJE_AUSENCIA, ""
+    if respuesta.sin_evidencia:
+        cola = SEPARADOR_EVIDENCIA + (respuesta.mensaje or "")
+        maximo -= len(cola)
+    try:
+        analisis = await consultar_analisis(db, ambiente=ambiente, empresa_id=empresa_id, anio=anio)  # misma lectura y vigencia de Análisis GRI
+    except ConflictError:  # ANALYSIS_CHANGING: no se pierde la parte documental
+        return respuesta.model_copy(
+            update={"mensaje": f"{TITULO}: no se pudo leer en este momento porque el análisis está cambiando; vuelva a preguntar." + cola}
+        )
+    estado = construir_estado_registrado(
+        pedidos, analisis, empresa_nombre=analisis.empresa.nombre, brecha=menciona_brecha(pregunta), maximo=maximo
+    )
+    return respuesta.model_copy(update={"estado_registrado": estado, "mensaje": estado.texto + cola})
+
+
+async def responder_solo_estado(
+    db: AsyncSession, *, pregunta: str, ambiente: str, sector: SectorEmpresa, empresa_id: uuid.UUID, anio: int
+) -> ConsultaResponse:
+    """Responde una pregunta INEQUÍVOCA de solo estado (`solo_estado`) únicamente desde Análisis GRI: sin recursos vectoriales, sin
+    embeddings y sin modelo. Conserva el control de empresa (existe, activa, del sector) y la misma lectura y regla de vigencia de Análisis GRI,
+    limitadas al ambiente, la empresa y el año de la consulta. La respuesta es válida SIN citas porque no hubo búsqueda documental
+    (`NO_REALIZADA`): no declara ausencia de evidencia y el estado no es una cita ni una conclusión sobre una brecha. Si el análisis está
+    cambiando se propaga el 409 `ANALYSIS_CHANGING` (no hay otra fuente que mostrar)."""
+    try:
+        validar_pregunta(pregunta)
+    except ValueError as exc:
+        raise BusinessValidationError("EMPTY_QUESTION", str(exc)) from None
+    pedido = solo_estado(pregunta, anio)
+    if pedido is None:  # defensa: el llamador ya clasificó; nunca se responde "solo estado" a otra cosa
+        raise ValueError("La pregunta no es de solo estado.")
+    await _empresa_consultable(db, empresa_id, sector)
+    await db.rollback()
+    analisis = await consultar_analisis(db, ambiente=ambiente, empresa_id=empresa_id, anio=anio)
+    estado = construir_estado_registrado(
+        [pedido], analisis, empresa_nombre=analisis.empresa.nombre, brecha=False, maximo=MAX_MENSAJE_AUSENCIA
+    )
+    return ConsultaResponse(
+        respuesta=estado.texto, sin_evidencia=False, estado_registrado=estado, busqueda_documental=BusquedaDocumental.NO_REALIZADA
+    )
+
+
+async def consultar_directa(
+    db: AsyncSession,
+    *,
+    recursos: RecursosRag,
+    pregunta: str,
+    ambiente: str,
+    sector: SectorEmpresa,
+    empresa_id: uuid.UUID,
+    anio: int,
+) -> ConsultaResponse:
+    """`POST /asistente/consultas`: decide ANTES de tocar los recursos documentales. Una pregunta de solo estado se responde desde Análisis
+    GRI sin prepararlos. Todo lo demás (documental, mixta, ambigua, sin código) sigue el flujo de siempre: se preparan los recursos
+    (mismos errores 503/502 que antes) y se ejecuta el RAG con su verificación de citas, más el estado si se pidió."""
+    try:
+        validar_pregunta(pregunta)
+    except ValueError as exc:
+        raise BusinessValidationError("EMPTY_QUESTION", str(exc)) from None
+    if solo_estado(pregunta, anio) is not None:
+        return await responder_solo_estado(db, pregunta=pregunta, ambiente=ambiente, sector=sector, empresa_id=empresa_id, anio=anio)
+    embeddings, llm = recursos.preparar()  # 503 si falta el esquema vectorial o un proveedor
+    async with recursos.sesion_vectorial() as db_vectorial:
+        return await responder_consulta(
+            db, db_vectorial, pregunta=pregunta, ambiente=ambiente, proveedor_embeddings=embeddings, proveedor_llm=llm,
+            sector=sector, empresa_id=empresa_id, anio=anio,
+        )
 
 
 async def _nombres_documentos(db: AsyncSession, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
