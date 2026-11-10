@@ -175,7 +175,9 @@ async def test_claves_foraneas_hacia_empresas_y_usuarios(esquema):
         "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey) "
         "WHERE c.conrelid = 'documentos'::regclass AND c.contype = 'f'",
     )
-    assert {(f["columna"], f["destino"]) for f in filas} == {("empresa_id", "empresas"), ("usuario_id", "usuarios")}
+    assert {(f["columna"], f["destino"]) for f in filas} == {
+        ("empresa_id", "empresas"), ("usuario_id", "usuarios"), ("deshabilitado_por", "usuarios"),  # ACT-02
+    }
     await rechazo(esquema, asyncpg.ForeignKeyViolationError, empresa_id=uuid.uuid4())
     await rechazo(esquema, asyncpg.ForeignKeyViolationError, usuario_id=uuid.uuid4())
 

@@ -84,7 +84,7 @@ async def test_la_migracion_conserva_identificadores_pdf_snapshot_fecha_y_autor_
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert resultado.aplicadas == (6, 7, 8, 9, 10)
+    assert resultado.aplicadas == (6, 7, 8, 9, 10, 11)
     despues = [tuple(f) for f in await consultar(url, f"SELECT {COLUMNAS} FROM reportes_prospeccion ORDER BY creado_en")]
     assert despues == antes  # ids, PDF, SHA-256, snapshot, fecha y autor idénticos, sin una sola fila reescrita
     nuevas = await consultar(url, "SELECT version, validacion_id FROM reportes_prospeccion")
@@ -142,7 +142,7 @@ async def test_la_0007_sobre_una_base_con_la_0006_conserva_los_historicos_y_rech
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert resultado.aplicadas == (7, 8, 9, 10)  # la 0008 (sector OTROS) y la 0009 (historial) también son nuevas para esa base
+    assert resultado.aplicadas == (7, 8, 9, 10, 11)  # la 0008 (sector OTROS), la 0009 (historial) y las posteriores también son nuevas para esa base
     despues = [tuple(f) for f in await consultar(url, f"SELECT {COLUMNAS} FROM reportes_prospeccion ORDER BY creado_en")]
     assert despues == antes  # ids, PDF, SHA-256, snapshot, fecha y autor idénticos
     assert [f["validacion_id"] for f in await consultar(url, "SELECT validacion_id FROM reportes_prospeccion")] == [None] * 3

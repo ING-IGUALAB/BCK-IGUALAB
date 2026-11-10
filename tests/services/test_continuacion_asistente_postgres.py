@@ -194,11 +194,15 @@ def p(h, monkeypatch):
     async def recuperables(db, *, ambiente, documento_ids):
         return set(documento_ids)
 
+    async def elegibles(db, *, ambiente, empresa_id, anio):
+        return [DOCUMENTO]  # el documento doble es elegible: el filtro previo a la búsqueda (ACT-02) no es lo que se prueba aquí
+
     async def nombres(db, ids):
         return {i: "memoria-2025.md" for i in ids}
 
     monkeypatch.setattr(servicio_consultas, "buscar_similares", buscar)
     monkeypatch.setattr(servicio_consultas, "documentos_recuperables", recuperables)
+    monkeypatch.setattr(servicio_consultas, "documentos_elegibles_para_consulta", elegibles)
     monkeypatch.setattr(servicio_consultas, "_nombres_documentos", nombres)
     return prov
 
@@ -1224,7 +1228,7 @@ async def test_la_0010_sobre_datos_de_la_entrega_1_los_conserva_con_su_procedenc
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((10,), (), tuple(range(1, 10)))
+    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((10, 11), (), tuple(range(1, 10)))
     assert "intercambios_asistente" in await tablas(url)
     assert [tuple(f) for f in await consultar(url, "SELECT * FROM mensajes_asistente ORDER BY orden")] == antes  # intactos, y APORTADO_POR_CLIENTE
     assert [tuple(f) for f in await consultar(url, "SELECT * FROM conversaciones_asistente")] == conversacion_antes
@@ -1233,13 +1237,13 @@ async def test_la_0010_sobre_datos_de_la_entrega_1_los_conserva_con_su_procedenc
     assert despues[9][:2] == (10, "continuacion_asistente")
     await verificar_esquema_central(url)
     siguiente = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert (siguiente.sin_cambios, siguiente.previas) == (True, tuple(range(1, 11)))
+    assert (siguiente.sin_cambios, siguiente.previas) == (True, tuple(range(1, 12)))  # 11 = deshabilitación de documentos (ACT-02)
 
 
 async def test_una_instalacion_nueva_aplica_la_0009_y_la_0010_con_las_demas(url_pg_aislado):
     url = await base_transaccional_nueva(url_pg_aislado)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.aplicadas == tuple(range(1, 11))
+    assert resultado.aplicadas == tuple(range(1, 12))
     assert {"conversaciones_asistente", "mensajes_asistente", "intercambios_asistente"} <= await tablas(url)
 
 

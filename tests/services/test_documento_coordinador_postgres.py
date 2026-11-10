@@ -30,6 +30,7 @@ from tests.services.test_documento_ddl_postgres import _crear_base_con_prerequis
 RAIZ = Path(__file__).resolve().parents[2]
 MIGRACIONES = RAIZ / "app" / "migraciones" / "transaccional"
 SQL_ACTUALIZACION = MIGRACIONES / "0002_documentos_coordinador.sql"
+SQL_DESHABILITACION = MIGRACIONES / "0011_documentos_deshabilitacion.sql"
 SQL_ETAPA_4A = Path(__file__).parent / "datos" / "documentos_etapa_4a.sql"
 
 COLUMNAS_NUEVAS = {
@@ -111,6 +112,10 @@ async def test_la_actualizacion_deja_el_mismo_esquema_que_la_instalacion_nueva(e
     assert COLUMNAS_NUEVAS.isdisjoint({c[0] for c in antes["columnas"]})
 
     await ejecutar(esquema_4a, leer(SQL_ACTUALIZACION))
+    tras_la_0002 = await descripcion_del_esquema(esquema_4a)
+    assert COLUMNAS_NUEVAS <= {c[0] for c in tras_la_0002["columnas"]}
+    # La 0011 (deshabilitación, ACT-02) completa la cadena: 0001 + 0002 + 0011 = el esquema del modelo.
+    await ejecutar(esquema_4a, leer(SQL_DESHABILITACION))
 
     nuevo, actualizado = await descripcion_del_esquema(esquema_nuevo), await descripcion_del_esquema(esquema_4a)
     assert COLUMNAS_NUEVAS <= {c[0] for c in actualizado["columnas"]}

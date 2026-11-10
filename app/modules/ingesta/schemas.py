@@ -12,7 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import SectorEmpresa, TipoDocumento
-from app.models.documento_ingesta import ResultadoAnalisis
+from app.models.documento_ingesta import MAXIMO_MOTIVO_DESHABILITACION, ResultadoAnalisis
 from app.modules.ingesta.application.documento_service import EstadoProgreso
 
 
@@ -92,12 +92,21 @@ class DocumentoResumen(BaseModel):
     resultado_analisis: ResultadoAnalisis | None = Field(
         default=None, description="null salvo COMPLETADO (publicado)."
     )
-    disponible_para_rag: bool
+    disponible_para_rag: bool = Field(
+        description="True solo si el documento está COMPLETADO, tiene análisis y NO está deshabilitado."
+    )
     fragmentos_total: int | None = None
     cantidad_advertencias: int = 0
     cargado_por: uuid.UUID
     creado_en: datetime
     completado_en: datetime | None = None
+    # Deshabilitación (ACT-02), aditiva. El documento sigue COMPLETADO: `estado` no cambia. Si `deshabilitado` es true, su cupo
+    # empresa/año/tipo ya no está ocupado (ver `GET /documentos/disponibilidad`), no alimenta el Análisis GRI, los reportes nuevos ni el
+    # chat, y su original, fragmentos y referencias históricas se conservan.
+    deshabilitado: bool = Field(default=False, description="True si el documento fue retirado por un SuperAdmin.")
+    deshabilitado_en: datetime | None = None
+    deshabilitado_por: uuid.UUID | None = Field(default=None, description="Cuenta (SuperAdmin) que lo deshabilitó.")
+    motivo_deshabilitacion: str | None = None
 
 
 class DocumentoDetalle(DocumentoResumen):
@@ -113,6 +122,41 @@ class DocumentoDetalle(DocumentoResumen):
         "con evidencia explícita; un análisis sin esa clave no se agrupó. null si no hay análisis persistido.",
     )
     actualizado_en: datetime
+
+
+class DeshabilitarDocumentoRequest(BaseModel):
+    """Cuerpo de `POST /documentos/{documento_id}/deshabilitar`. El actor sale de la sesión, nunca de aquí."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    motivo: str = Field(
+        min_length=1,
+        max_length=MAXIMO_MOTIVO_DESHABILITACION,
+        description="Motivo obligatorio del retiro (se conserva junto con el actor y la fecha). No puede quedar vacío.",
+        examples=["Se cargó con el año equivocado."],
+    )
+
+
+class DocumentoDeshabilitadoResponse(BaseModel):
+    """Resultado de deshabilitar un documento. Es idempotente: repetir la solicitud devuelve el registro ORIGINAL (motivo, actor y
+    fecha de la primera vez) con `ya_estaba_deshabilitado = true`."""
+
+    documento_id: uuid.UUID
+    empresa_id: uuid.UUID
+    anio: int
+    tipo: TipoDocumento
+    estado: EstadoProgreso = Field(description="Sigue siendo COMPLETADO: la deshabilitación no es un estado de procesamiento.")
+    deshabilitado: bool = True
+    deshabilitado_en: datetime
+    deshabilitado_por: uuid.UUID
+    motivo_deshabilitacion: str
+    ya_estaba_deshabilitado: bool = Field(
+        description="False si ESTA solicitud lo deshabilitó; true si ya lo estaba (no se cambió nada ni se auditó otra vez)."
+    )
+    aviso: str = Field(
+        default="El cupo empresa/año/tipo quedó libre: consulte GET /documentos/disponibilidad para actualizar el selector. "
+        "Si el documento formaba parte de una validación GRI, esa validación deja de estar vigente; los reportes ya emitidos no cambian.",
+    )
 
 
 class PaginaDocumentos(BaseModel):

@@ -62,11 +62,11 @@ async def vectorial_nueva(url_pgvector: str, extension: bool = False) -> str:
 async def test_instalacion_nueva_crea_el_esquema_y_registra_las_migraciones(url_pg_aislado):
     url = await base_transaccional_nueva(url_pg_aislado)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert (resultado.base, resultado.aplicadas, resultado.adoptadas, resultado.previas) == ("transaccional", (1, 2, 3, 4, 5, 6, 7, 8, 9, 10), (), ())
+    assert (resultado.base, resultado.aplicadas, resultado.adoptadas, resultado.previas) == ("transaccional", (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), (), ())
     assert TABLAS_TRANSACCIONALES <= await tablas(url)
-    assert await versiones_registradas(url) == [(1, "aplicada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada")]
+    assert await versiones_registradas(url) == [(1, "aplicada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada"), (11, "aplicada")]
     filas = await consultar(url, "SELECT nombre, checksum FROM igualab_migraciones ORDER BY version")
-    assert [f["nombre"] for f in filas] == ["documentos_etapa_4a", "documentos_coordinador", "operaciones_ingesta", "analisis_gri", "auditoria_resultado_y_solo_insercion", "reportes_versionados", "integridad_de_reportes", "sector_otros", "historial_asistente", "continuacion_asistente"]
+    assert [f["nombre"] for f in filas] == ["documentos_etapa_4a", "documentos_coordinador", "operaciones_ingesta", "analisis_gri", "auditoria_resultado_y_solo_insercion", "reportes_versionados", "integridad_de_reportes", "sector_otros", "historial_asistente", "continuacion_asistente", "documentos_deshabilitacion"]
     assert [f["checksum"].strip() for f in filas] == [m.checksum() for m in ESQUEMA_TRANSACCIONAL.migraciones]
 
 
@@ -88,7 +88,7 @@ async def test_segundo_arranque_no_ejecuta_ninguna_migracion(url_pg_aislado, mon
     monkeypatch.setattr(motor, "_registrar", no_debe_ejecutarse)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
     assert resultado.sin_cambios
-    assert resultado.previas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    assert resultado.previas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
     assert resultado.aplicadas == () == resultado.adoptadas
     assert await consultar(url, "SELECT version, aplicada_en, xmin::text AS xmin FROM igualab_migraciones ORDER BY version") == antes
 
@@ -109,8 +109,8 @@ async def test_actualiza_una_instalacion_de_la_etapa_4a_sin_perder_datos(url_pg_
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4, 5, 6, 7, 8, 9, 10))  # la 0001 se ADOPTA tras verificar su esquema
-    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada")]
+    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4, 5, 6, 7, 8, 9, 10, 11))  # la 0001 se ADOPTA tras verificar su esquema
+    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada"), (11, "aplicada")]
     (fila,) = await consultar(url, "SELECT nombre_archivo, etapa_actual, fragmentos_procesados, advertencias::text AS adv FROM documentos")
     assert (fila["nombre_archivo"], fila["etapa_actual"], fila["fragmentos_procesados"], fila["adv"]) == ("viejo.md", "RESERVADO", 0, "[]")
     nuevo = await base_transaccional_nueva(url_pg_aislado)
@@ -127,16 +127,16 @@ async def test_adopta_una_instalacion_manual_completa_solo_si_el_esquema_coincid
     aplicar_real = motor._aplicar
 
     async def solo_las_posteriores_a_la_0004(conn, m, base):
-        # Adoptar NO ejecuta SQL de migración. La 0005, la 0006, la 0007 y la 0008 no declaran objetos (no hay firma que adoptar) y son
-        # las ÚNICAS que se aplican.
+        # Adoptar NO ejecuta SQL de migración. La 0005 a la 0010 no declaran objetos (o sus tablas no existen) y son las ÚNICAS que se
+        # aplican; el DDL del modelo ya trae `documentos` en su última versión, así que la 0011 también se ADOPTA.
         assert m.version in (5, 6, 7, 8, 9, 10), f"la migración {m.version} debía adoptarse sin ejecutar SQL"
         await aplicar_real(conn, m, base)
 
     monkeypatch.setattr(motor, "_aplicar", solo_las_posteriores_a_la_0004)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.adoptadas == (1, 2, 3, 4)
+    assert resultado.adoptadas == (1, 2, 3, 4, 11)
     assert resultado.aplicadas == (5, 6, 7, 8, 9, 10)
-    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "adoptada"), (3, "adoptada"), (4, "adoptada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada")]
+    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "adoptada"), (3, "adoptada"), (4, "adoptada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada"), (11, "adoptada")]
     assert (await migrar(url, ESQUEMA_TRANSACCIONAL)).sin_cambios
 
 
@@ -184,7 +184,7 @@ async def test_una_migracion_a_medias_se_rechaza(url_pg_aislado):
     # La 0001 y la 0002 tocan solo `documentos`; para «a medias» se usa una migración que toca dos objetos.
     esquema = EsquemaBase(
         "transaccional", (motor.Migracion(1, "uno", "0001_documentos_etapa_4a.sql", ("documentos", "operaciones_ingesta"), carpeta="transaccional"),),
-        firmas={"documentos": {1: motor.firmas_versionadas()["transaccional"]["documentos"][2]},
+        firmas={"documentos": {1: motor.firmas_versionadas()["transaccional"]["documentos"][11]},
                 "operaciones_ingesta": {1: motor.firmas_versionadas()["transaccional"]["operaciones_ingesta"][3]}},
     )
     with pytest.raises(ErrorMigracion) as error:
@@ -239,9 +239,9 @@ async def test_las_migraciones_de_una_version_mas_nueva_se_respetan(url_pg_aisla
 async def test_varias_instancias_a_la_vez_aplican_cada_migracion_exactamente_una_vez(url_pg_aislado):
     url = await base_transaccional_nueva(url_pg_aislado)
     resultados = await asyncio.gather(*(migrar(url, ESQUEMA_TRANSACCIONAL) for _ in range(5)))
-    assert sorted(v for r in resultados for v in r.aplicadas) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]  # cada versión en UNA sola instancia
+    assert sorted(v for r in resultados for v in r.aplicadas) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]  # cada versión en UNA sola instancia
     assert sum(1 for r in resultados if r.sin_cambios) == 4
-    assert await versiones_registradas(url) == [(1, "aplicada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada")]
+    assert await versiones_registradas(url) == [(1, "aplicada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada"), (11, "aplicada")]
     assert (await migrar(url, ESQUEMA_TRANSACCIONAL)).sin_cambios
 
 
@@ -257,10 +257,10 @@ async def test_el_bloqueo_es_por_base_y_se_agota_con_error_claro(url_pg_aislado)
         assert "igualab_migraciones" not in await tablas(url)
         assert "documentos" not in await tablas(url)  # nada se aplicó
         # Otra BASE (otro candado, otra sesión) no se bloquea.
-        assert (await migrar(otra, ESQUEMA_TRANSACCIONAL, espera_candado=0.6)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+        assert (await migrar(otra, ESQUEMA_TRANSACCIONAL, espera_candado=0.6)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
     finally:
         await retenedor.close()
-    assert (await migrar(url, ESQUEMA_TRANSACCIONAL)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)  # liberado: procede
+    assert (await migrar(url, ESQUEMA_TRANSACCIONAL)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)  # liberado: procede
 
 
 async def test_el_bloqueo_se_libera_aunque_la_migracion_falle(url_pg_aislado, tmp_path):
@@ -268,7 +268,7 @@ async def test_el_bloqueo_se_libera_aunque_la_migracion_falle(url_pg_aislado, tm
     mala = EsquemaBase("transaccional", (migracion_de_texto(tmp_path, 1, "mala", "SELECT 1/0;", ("x",)),))
     with pytest.raises(ErrorMigracion):
         await migrar(url, mala)
-    assert (await migrar(url, ESQUEMA_TRANSACCIONAL, espera_candado=1)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    assert (await migrar(url, ESQUEMA_TRANSACCIONAL, espera_candado=1)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
 
 
 # ============================================ Rollback y tipos de migración ============================================

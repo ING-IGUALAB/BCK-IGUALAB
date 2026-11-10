@@ -17,7 +17,9 @@ from app.core.exceptions import ServiceUnavailableError
 from app.models import TipoDocumento
 from app.schemas import MetadatosIngestaRequest
 from app.modules.ingesta.schemas import (
+    DeshabilitarDocumentoRequest,
     DisponibilidadIngestaResponse,
+    DocumentoDeshabilitadoResponse,
     DocumentoDetalle,
     OperacionCreadaResponse,
     OperacionResponse,
@@ -163,6 +165,28 @@ async def disponibilidad_de_tipos(
     """Qué tipos de documento están DISPONIBLES, OCUPADOS o EN PROCESO para la empresa y el año, con el mismo criterio de
     reserva que la carga. Solo informativo y de solo lectura: la carga vuelve a comprobar sus reglas (y el SHA-256 del contenido)."""
     return await operacion_service.disponibilidad_de_tipos(db, ambiente=gestor.ambiente, empresa_id=empresa_id, anio=anio)
+
+
+@router.post(
+    "/{documento_id}/deshabilitar",
+    response_model=DocumentoDeshabilitadoResponse,
+    responses={
+        **_ERRORES,
+        404: {"description": "Documento inexistente (o de otro ambiente): `DOCUMENT_NOT_FOUND`."},
+        409: {"description": "No está completado y publicado (`DOCUMENT_NOT_DISABLEABLE`)."},
+        422: {"description": "Motivo ausente, vacío o demasiado largo (`REQUEST_VALIDATION_ERROR`)."},
+    },
+)
+async def deshabilitar_documento(
+    documento_id: uuid.UUID, cuerpo: DeshabilitarDocumentoRequest, actor: SuperAdminUser, gestor: GestorDep, db: DatabaseSession
+):
+    """Deshabilita un documento COMPLETADO y PUBLICADO: queda fuera del Análisis GRI, de los reportes nuevos y del chat, y su cupo
+    empresa/año/tipo (y su SHA-256) quedan libres para un reemplazo. NO borra nada (original, fragmentos y reportes emitidos se
+    conservan) ni se puede revertir. Registra actor, fecha y motivo; es idempotente (un reintento devuelve el registro original). El actor
+    sale de la sesión. Una carga no finalizada no se cancela desde aquí."""
+    return await operacion_service.deshabilitar_documento(
+        db, documento_id, ambiente=gestor.ambiente, usuario_id=actor.id, motivo=cuerpo.motivo
+    )
 
 
 @router.get("/{documento_id}", response_model=DocumentoDetalle, responses={**_ERRORES, 404: {}})

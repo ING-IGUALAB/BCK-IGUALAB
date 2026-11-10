@@ -137,9 +137,9 @@ _OBJETOS_ANALISIS = {
 async def test_instalacion_nueva_aplica_en_orden_registra_y_libera_el_bloqueo(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL))
     resultado = await migrar("postgresql+asyncpg://u@h/db", ESQUEMA_TRANSACCIONAL)
-    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((1, 2, 3, 4, 5, 6, 7, 8, 9, 10), (), ())
-    assert c.ejecutadas == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    assert [f["origen"] for f in c.registro] == ["aplicada"] * 10
+    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11), (), ())
+    assert c.ejecutadas == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    assert [f["origen"] for f in c.registro] == ["aplicada"] * 11
     assert [f["checksum"] for f in c.registro] == [m.checksum() for m in ESQUEMA_TRANSACCIONAL.migraciones]
     assert c.candado is False
     assert c.cerrada
@@ -151,7 +151,7 @@ async def test_segundo_arranque_no_ejecuta_nada(conectar):
     c.ejecutadas.clear()
     resultado = await migrar("x", ESQUEMA_TRANSACCIONAL)
     assert resultado.sin_cambios
-    assert resultado.previas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    assert resultado.previas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
     assert c.ejecutadas == []
 
 
@@ -160,25 +160,25 @@ async def test_adopta_un_esquema_existente_solo_si_coincide_con_la_firma(conecta
     resultado = await migrar("x", ESQUEMA_TRANSACCIONAL)
     # 1-4 se adoptan por firma; la 0005, la 0006, la 0007 y la 0008 no declaran objetos (disparadores y reportes los crea `create_all`) y SIEMPRE se aplican una vez.
     assert resultado.adoptadas == (1, 2, 3, 4)
-    assert resultado.aplicadas == (5, 6, 7, 8, 9, 10)
-    assert c.ejecutadas == [5, 6, 7, 8, 9, 10]
-    assert [f["origen"] for f in c.registro] == ["adoptada"] * 4 + ["aplicada"] * 6
+    assert resultado.aplicadas == (5, 6, 7, 8, 9, 10, 11)
+    assert c.ejecutadas == [5, 6, 7, 8, 9, 10, 11]
+    assert [f["origen"] for f in c.registro] == ["adoptada"] * 4 + ["aplicada"] * 7
 
 
 async def test_una_instalacion_de_la_ingesta_sin_el_modulo_5_adopta_1_a_3_y_aplica_la_4(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL, {"documentos": firma("documentos", 2), "operaciones_ingesta": firma("operaciones_ingesta", 3)}))
     resultado = await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert (resultado.adoptadas, resultado.aplicadas) == ((1, 2, 3), (4, 5, 6, 7, 8, 9, 10))
-    assert c.ejecutadas == [4, 5, 6, 7, 8, 9, 10]
+    assert (resultado.adoptadas, resultado.aplicadas) == ((1, 2, 3), (4, 5, 6, 7, 8, 9, 10, 11))
+    assert c.ejecutadas == [4, 5, 6, 7, 8, 9, 10, 11]
     assert set(_OBJETOS_ANALISIS) <= set(c.objetos)
 
 
 async def test_actualiza_desde_la_etapa_4a_adoptando_la_primera_y_aplicando_el_resto(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL, {"documentos": firma("documentos", 1)}))
     resultado = await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4, 5, 6, 7, 8, 9, 10))
-    assert c.ejecutadas == [2, 3, 4, 5, 6, 7, 8, 9, 10]
-    assert c.objetos["documentos"] == firma("documentos", 2)
+    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4, 5, 6, 7, 8, 9, 10, 11))
+    assert c.ejecutadas == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    assert c.objetos["documentos"] == firma("documentos", 11)
 
 
 @pytest.mark.parametrize("cambio", ["columna_extra", "columna_menos", "tipo", "indice_menos", "restriccion_menos", "indice_no_parcial"])
@@ -252,9 +252,9 @@ async def test_checksum_editado_y_objeto_registrado_ausente(conectar):
 async def test_versiones_de_una_aplicacion_mas_nueva_se_respetan(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL))
     await migrar("x", ESQUEMA_TRANSACCIONAL)
-    c.registro.append({"version": 11, "nombre": "futura", "checksum": "a" * 64, "origen": "aplicada"})  # la primera que este código no conoce
+    c.registro.append({"version": 12, "nombre": "futura", "checksum": "a" * 64, "origen": "aplicada"})  # la primera que este código no conoce
     resultado = await migrar("x", ESQUEMA_TRANSACCIONAL)
-    assert resultado.desconocidas == (11,)
+    assert resultado.desconocidas == (12,)
     assert resultado.sin_cambios
 
 
@@ -335,7 +335,7 @@ async def test_un_error_de_postgresql_fuera_de_una_migracion_se_convierte_en_err
 
 async def test_el_bloqueo_ocupado_se_espera_y_luego_procede(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL, candado_ocupado=2))
-    assert (await migrar("x", ESQUEMA_TRANSACCIONAL, espera_candado=5)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    assert (await migrar("x", ESQUEMA_TRANSACCIONAL, espera_candado=5)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
     assert c.candado is False
 
 
@@ -352,7 +352,7 @@ async def test_si_el_bloqueo_no_se_consigue_a_tiempo_no_se_toca_nada(conectar):
 async def test_un_fallo_al_liberar_el_bloqueo_no_oculta_el_resultado(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL))
     c.fallo_al_liberar = True
-    assert (await migrar("x", ESQUEMA_TRANSACCIONAL)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    assert (await migrar("x", ESQUEMA_TRANSACCIONAL)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
     assert c.cerrada  # cerrar libera el bloqueo igualmente
 
 
@@ -408,7 +408,7 @@ async def test_si_el_create_extension_no_falla_pero_la_extension_no_aparece_no_s
 
 async def test_la_base_transaccional_no_comprueba_pgvector(conectar):
     c = conectar(ConexionSimulada(ESQUEMA_TRANSACCIONAL, extension=False, puede_crear_extension=False))
-    assert (await migrar("x", ESQUEMA_TRANSACCIONAL)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    assert (await migrar("x", ESQUEMA_TRANSACCIONAL)).aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
     assert c.extension is False
 
 

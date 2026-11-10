@@ -140,11 +140,17 @@ from .consultas import (
     EstadoProgreso,
     ProgresoIngesta,
     cargar_documento,
+    documentos_elegibles_para_consulta,
     documentos_recuperables,
     estado_de_documento,
     exigir_documento_del_ambiente,
     obtener_progreso,
     progreso_de_documento,
+)
+from .deshabilitacion import (
+    ResultadoDeshabilitacion,
+    deshabilitar_documento,
+    validar_motivo,
 )
 from .recuperacion import (
     ResumenRecuperacion,
@@ -163,7 +169,7 @@ from .recuperacion import (
 import sys as _sys
 from types import ModuleType as _ModuleType
 
-_SUBMODULOS = ("_comun", "reserva", "procesamiento", "compensacion", "publicacion", "consultas", "recuperacion")
+_SUBMODULOS = ("_comun", "reserva", "procesamiento", "compensacion", "publicacion", "consultas", "deshabilitacion", "recuperacion")
 
 
 def _reenviar_a_submodulos(nombre: str, valor: object, *, eliminar: bool = False) -> None:
@@ -212,6 +218,7 @@ __all__ = [
     'ProgresoIngesta',
     'ReferenciaOriginal',
     'ResultadoAnalisis',
+    'ResultadoDeshabilitacion',
     'ResumenRecuperacion',
     'RolUsuario',
     'Sequence',
@@ -261,7 +268,9 @@ __all__ = [
     'codigo_seguro',
     'compensar_documento',
     'dataclass',
+    'deshabilitar_documento',
     'datetime',
+    'documentos_elegibles_para_consulta',
     'documentos_recuperables',
     'enum',
     'es_codigo_valido',
@@ -294,6 +303,7 @@ __all__ = [
     'validacion',
     'validar_ambiente',
     'validar_analisis',
+    'validar_motivo',
     'vectores',
     'verificar_original',
 ]

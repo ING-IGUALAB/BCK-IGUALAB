@@ -435,7 +435,8 @@ async def test_los_filtros_k_y_el_embedding_de_la_recuperacion_documental_no_cam
     assert (busqueda["ambiente"], busqueda["empresa_ids"], busqueda["anio"], busqueda["sector"], busqueda["limite"]) == (
         "development", [caso.empresa.id], 2025, SectorEmpresa.ENERGIA, 4,
     )
-    assert set(busqueda) == {"ambiente", "vector_consulta", "identidad", "empresa_ids", "limite", "anio", "sector"}
+    # `documento_ids` (ACT-02): la búsqueda se limita en SQL a los documentos elegibles (no deshabilitados) de esa empresa y año.
+    assert set(busqueda) == {"ambiente", "vector_consulta", "identidad", "empresa_ids", "limite", "anio", "sector", "documento_ids"}
     assert caso.embeddings.llamadas == 1
 
 

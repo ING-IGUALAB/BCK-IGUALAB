@@ -22,18 +22,18 @@ const BASE = 'http://igualab-backend-qa-backend-1:8000';
 const EMPRESA = '11111111-2222-4333-8444-555555555555';
 
 describe('alcance', () => {
-  test('el OpenAPI real queda totalmente clasificado: 25 incluidas, 16 excluidas, ninguna sin decidir', () => {
+  test('el OpenAPI real queda totalmente clasificado: 25 incluidas, 17 excluidas, ninguna sin decidir', () => {
     const c = clasificar(real, alcance);
     assert.equal(c.sinClasificar.length, 0);
     assert.equal(c.incluidas.length, 25);
-    assert.equal(c.excluidas.length, 16);
+    assert.equal(c.excluidas.length, 17);
     assert.equal(c.ausentes.length, 0);
   });
 
-  test('las operaciones de OCI, DeepSeek, correo, credenciales, sesión y cuentas están excluidas', () => {
+  test('las operaciones de OCI, DeepSeek, correo, credenciales, sesión, cuentas y retiro de documentos están excluidas', () => {
     const excluidas = new Set(clasificar(real, alcance).excluidas.map((o) => `${o.metodo} ${o.ruta}`));
     for (const esperada of [
-      'POST /asistente/consultas', 'POST /documentos/operaciones/{operacion_id}/ingesta', 'POST /documentos/operaciones/{operacion_id}/reintentar-publicacion',
+      'POST /asistente/consultas', 'POST /documentos/operaciones/{operacion_id}/ingesta', 'POST /documentos/operaciones/{operacion_id}/reintentar-publicacion', 'POST /documentos/{documento_id}/deshabilitar',
       'POST /auth/recuperar-contrasena', 'POST /auth/restablecer-contrasena', 'PATCH /auth/mi-contrasena', 'POST /auth/logout',
       'POST /usuarios', 'PATCH /usuarios/{usuario_id}/deshabilitar', 'PATCH /usuarios/{usuario_id}/habilitar', 'POST /usuarios/transferir-superadmin',
     ]) assert.ok(excluidas.has(esperada), `${esperada} debe estar excluida`);

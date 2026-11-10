@@ -3,8 +3,9 @@
 Flujo (RF-023/024 · RN-033..037 · RNF-010):
   sector + empresa + año + pregunta
   → la empresa existe, está activa y es del sector (en la base; no se confía en el frontend)
-  → embedding de CONSULTA (SEARCH_QUERY) → `buscar_similares` (pgvector) limitado a ambiente, empresa, año y sector
-  → filtrar por `documentos_recuperables` (solo COMPLETADO con análisis y empresa activa)
+  → embedding de CONSULTA (SEARCH_QUERY) → `documentos_elegibles_para_consulta` (completados, con análisis, NO deshabilitados)
+  → `buscar_similares` (pgvector) limitado a ambiente, empresa, año, sector y a esos documentos, ANTES de ordenar y limitar
+  → filtrar por `documentos_recuperables` (solo COMPLETADO con análisis, no deshabilitado y empresa activa)
   → prompt con procedencia (empresa, documento, año, sección) y contenido como DATO → LLM
   → verificación afirmación por afirmación (`domain/citas.py`): referencia válida y cita literal del fragmento citado.
 
@@ -45,7 +46,7 @@ from app.modules.asistente.domain.prompt import SISTEMA, construir_prompt_usuari
 from app.modules.asistente.infrastructure.llm import ProveedorLlm
 from app.modules.asistente.schemas import Afirmacion, BusquedaDocumental, Cita, ConsultaResponse
 from app.modules.empresas import service as empresa_service
-from app.modules.ingesta.application.documento_service import documentos_recuperables
+from app.modules.ingesta.application.documento_service import documentos_elegibles_para_consulta, documentos_recuperables
 from app.modules.ingesta.domain.embeddings import ProveedorEmbeddingsConsulta, embeber_consulta
 from app.modules.ingesta.domain.parametros import PARAMETROS_INGESTA
 from app.modules.ingesta.infrastructure.fragmentos_vectoriales import (
@@ -131,7 +132,15 @@ async def _responder_documental(
         timeout_segundos=PARAMETROS_INGESTA.timeout_embeddings_segundos,
     )
 
-    # 2) recuperación vectorial (exacta por coseno), SIEMPRE limitada a ambiente, empresa, año y sector
+    # 2) documentos ELEGIBLES (completados, con análisis, no deshabilitados, de empresa activa) de esa empresa y año, ANTES de buscar: la base
+    #    vectorial no sabe qué documentos se deshabilitaron, y si se filtraran después de ordenar y limitar, los fragmentos de un documento
+    #    retirado (que conserva sus vectores) podrían ocupar los primeros lugares y dejar sin evidencia al documento que lo reemplazó.
+    elegibles = await documentos_elegibles_para_consulta(db, ambiente=ambiente, empresa_id=empresa_id, anio=anio)
+    if not elegibles:
+        return _sin_evidencia(MOTIVO_SIN_FRAGMENTOS)
+
+    # 3) recuperación vectorial (exacta por coseno), SIEMPRE limitada a ambiente, empresa, año, sector y a los documentos elegibles
+    #    (el filtro se aplica en SQL, antes de ordenar y limitar)
     candidatos = await buscar_similares(
         db_vectorial,
         ambiente=ambiente,
@@ -141,10 +150,12 @@ async def _responder_documental(
         limite=limite,
         anio=anio,
         sector=empresa_sector,
+        documento_ids=elegibles,
     )
 
-    # 3) visibilidad transaccional: solo documentos COMPLETADOS con análisis y empresa activa. Defensa en profundidad: aunque la
-    #    búsqueda se equivocara, un fragmento de otra empresa o año no entra al contexto.
+    # 4) visibilidad transaccional: solo documentos COMPLETADOS con análisis, no deshabilitados y empresa activa. Defensa en profundidad:
+    #    aunque la búsqueda se equivocara, un fragmento de otra empresa o año no entra al contexto, y un documento deshabilitado entre
+    #    la lectura de elegibles y la búsqueda tampoco.
     ids = {f.documento_id for f in candidatos}
     recuperables = await documentos_recuperables(db, ambiente=ambiente, documento_ids=ids) if ids else set()
     fragmentos = [
@@ -156,13 +167,13 @@ async def _responder_documental(
     nombres = await _nombres_documentos(db, {f.documento_id for f in fragmentos})
     await db.rollback()
 
-    # 4) prompt (con procedencia) + LLM
+    # 5) prompt (con procedencia) + LLM
     prompt_usuario = construir_prompt_usuario(
         pregunta, fragmentos, empresa_nombre=empresa_nombre, nombres_documentos=nombres, codigo=nuevo_codigo_de_marcador()
     )
     desde_llm = await proveedor_llm.completar(SISTEMA, prompt_usuario)
 
-    # 5) verificación de las afirmaciones (RN-033/034/035)
+    # 6) verificación de las afirmaciones (RN-033/034/035)
     resultado = verificar_respuesta(desde_llm, fragmentos)
     if resultado.motivo is not None:
         return _sin_evidencia(resultado.motivo, resultado.descartadas)

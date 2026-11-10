@@ -35,6 +35,7 @@ from app.modules.ingesta.schemas import (
     ESTADOS_TERMINALES,
     DisponibilidadIngestaResponse,
     DisponibilidadTipo,
+    DocumentoDeshabilitadoResponse,
     DocumentoDetalle,
     DocumentoResumen,
     ErrorOperacion,
@@ -270,12 +271,18 @@ def _resumen(documento: Documento, empresa_nombre: str, operacion_id: uuid.UUID 
         "tamano_bytes": documento.tamano_bytes,
         "estado": estado,
         "resultado_analisis": resultado,
-        "disponible_para_rag": estado is EstadoProgreso.COMPLETADO and documento.resultado_analisis is not None,
+        "disponible_para_rag": (
+            estado is EstadoProgreso.COMPLETADO and documento.resultado_analisis is not None and documento.deshabilitado_en is None
+        ),
         "fragmentos_total": documento.fragmentos_total,
         "cantidad_advertencias": len(documento.advertencias or ()),
         "cargado_por": documento.usuario_id,
         "creado_en": documento.creado_en,
         "completado_en": documento.completado_en,
+        "deshabilitado": documento.deshabilitado_en is not None,
+        "deshabilitado_en": documento.deshabilitado_en,
+        "deshabilitado_por": documento.deshabilitado_por,
+        "motivo_deshabilitacion": documento.motivo_deshabilitacion,
     }
 
 
@@ -348,6 +355,28 @@ async def obtener_detalle(db: AsyncSession, documento_id: uuid.UUID, ambiente: s
         error=_error_del_documento(_DESDE_PROGRESO[progreso.estado], progreso.codigo_error),
         analisis=documento.analisis,
         actualizado_en=progreso.actualizado_en,
+    )
+
+
+# --- Deshabilitación ------------------------------------------------------------------------------------------------
+
+async def deshabilitar_documento(
+    db: AsyncSession, documento_id: uuid.UUID, *, ambiente: str, usuario_id: uuid.UUID, motivo: str
+) -> DocumentoDeshabilitadoResponse:
+    """Deshabilita un documento COMPLETADO y PUBLICADO del ambiente y libera su cupo (ver `documento_service.deshabilitacion`).
+    Idempotente. El actor es el de la sesión validada."""
+    resultado = await servicio.deshabilitar_documento(db, documento_id, ambiente=ambiente, usuario_id=usuario_id, motivo=motivo)
+    documento = resultado.documento
+    return DocumentoDeshabilitadoResponse(
+        documento_id=documento.id,
+        empresa_id=documento.empresa_id,
+        anio=documento.anio,
+        tipo=documento.tipo,
+        estado=servicio.estado_de_documento(documento)[0],
+        deshabilitado_en=documento.deshabilitado_en,
+        deshabilitado_por=documento.deshabilitado_por,
+        motivo_deshabilitacion=documento.motivo_deshabilitacion,
+        ya_estaba_deshabilitado=resultado.ya_estaba_deshabilitado,
     )
 
 

@@ -61,6 +61,11 @@ ESQUEMA_TRANSACCIONAL = EsquemaBase(
             10, "continuacion_asistente", "0010_continuacion_asistente.sql",
             ("intercambios_asistente",), carpeta="transaccional",
         ),
+        # Deshabilitación de documentos (ACT-02): tres columnas nulables en `documentos`, la restricción de reserva ampliada y cuatro CHECK.
+        # Los índices únicos de reserva no cambian. No ejecuta ningún UPDATE: ningún documento existente se deshabilita.
+        Migracion(
+            11, "documentos_deshabilitacion", "0011_documentos_deshabilitacion.sql", ("documentos",), carpeta="transaccional",
+        ),
     ),
     # Los crea el arranque de los módulos existentes (`crear_tablas`), que corre ANTES que esta preparación.
     prerrequisitos=(
