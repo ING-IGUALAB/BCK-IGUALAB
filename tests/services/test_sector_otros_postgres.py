@@ -122,7 +122,7 @@ async def test_la_0008_agrega_otros_conserva_los_datos_y_el_arranque_posterior_f
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)  # el arranque de la versión nueva
 
-    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((8, 9, 10, 11), (), (1, 2, 3, 4, 5, 6, 7))  # la 8 es la de «Otros»
+    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((8, 9, 10, 11, 12), (), (1, 2, 3, 4, 5, 6, 7))  # la 8 es la de «Otros»
     assert await faltantes(url) == []
     await verificar_esquema_central(url)
     assert await foto(url) == antes  # empresas y documentos idénticos: nadie se renombra ni se reclasifica
@@ -134,7 +134,7 @@ async def test_la_0008_agrega_otros_conserva_los_datos_y_el_arranque_posterior_f
     assert [(f["empresa"], f["documento"]) for f in filas] == [("OTROS", "OTROS")]
 
     siguiente = await migrar(url, ESQUEMA_TRANSACCIONAL)  # y el arranque siguiente no ejecuta nada
-    assert (siguiente.sin_cambios, siguiente.previas) == (True, tuple(range(1, 12)))
+    assert (siguiente.sin_cambios, siguiente.previas) == (True, tuple(range(1, 13)))
     await verificar_esquema_central(url)
 
 
@@ -145,7 +145,7 @@ async def test_una_instalacion_nueva_ya_trae_otros_y_la_0008_es_idempotente(url_
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)  # `ADD VALUE IF NOT EXISTS`: el valor ya existe y no falla
 
-    assert resultado.aplicadas == tuple(range(1, 12))
+    assert resultado.aplicadas == tuple(range(1, 13))
     assert await faltantes(url) == []
     assert await etiquetas(url) == [*ETIQUETAS_ANTERIORES, "OTROS"]
 

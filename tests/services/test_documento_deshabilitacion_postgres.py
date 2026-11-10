@@ -701,7 +701,7 @@ async def test_los_elegibles_del_chat_no_incluyen_otro_ano_otra_empresa_ni_carga
 
 # ============================================ Migración 0011 con datos existentes ============================================
 
-COLUMNAS_NUEVAS = {"deshabilitado_en", "deshabilitado_por", "motivo_deshabilitacion"}
+COLUMNAS_NUEVAS = {"deshabilitado_en", "deshabilitado_por", "motivo_deshabilitacion", "confirmacion_pendiente_en"}
 NUEVAS_RESTRICCIONES = {
     "documentos_deshabilitado_por_fkey", "ck_documentos_deshabilitacion_completa", "ck_documentos_motivo_deshabilitacion_no_vacio",
     "ck_documentos_deshabilitado_solo_completado_publicado", "ck_documentos_deshabilitado_sin_reserva",
@@ -745,7 +745,7 @@ async def test_la_0011_sobre_datos_existentes_no_deshabilita_nada_conserva_los_i
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((11,), (), tuple(range(1, 11)))
+    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((11, 12), (), tuple(range(1, 11)))
     despues = await instantanea(esquema)
     assert [{k: v for k, v in f.items() if k not in COLUMNAS_NUEVAS} for f in despues.filas] == antes.filas  # nada cambió
     assert all(f[c] is None for f in despues.filas for c in COLUMNAS_NUEVAS)  # NINGÚN documento existente quedó deshabilitado

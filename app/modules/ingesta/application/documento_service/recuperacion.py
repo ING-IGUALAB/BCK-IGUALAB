@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError, ExternalServiceError
-from app.models.documento_ingesta import Documento, EstadoCompensacion, EstadoProcesamiento
+from app.models.documento_ingesta import Documento, EstadoCompensacion, EstadoProcesamiento, EtapaIngesta
 from app.modules.ingesta.domain.almacenamiento import AlmacenOriginales
 from ._comun import _ahora, _exigir_instante, _terminar_lectura
 from .procesamiento import fallar_documento
@@ -24,10 +24,14 @@ class ResumenRecuperacion:
 
 
 async def _marcar_abandonados(db: AsyncSession, almacen: AlmacenOriginales, limite: int, ahora: datetime) -> int:
-    """Falla las operaciones EN_PROCESO cuya vigencia venció. Devuelve cuántas marcó."""
-    ids_abandonados = (
+    """Falla las operaciones EN_PROCESO cuya vigencia venció. Devuelve cuántas marcó.
+
+    Una pausa `CONFIRMANDO` (doble check) renueva la vigencia a `vigencia_confirmacion` al entrar: si el
+    SuperAdmin no decide a tiempo, la vigencia vence y aquí se cancela y compensa como un abandono, con
+    motivo `CONFIRMACION_VENCIDA` (mismo camino de limpieza que `cancelar_ingesta`)."""
+    abandonados_rows = (
         await db.execute(
-            select(Documento.id)
+            select(Documento.id, Documento.etapa_actual)
             .where(
                 Documento.ambiente == almacen.ambiente,
                 Documento.estado_procesamiento == EstadoProcesamiento.EN_PROCESO,
@@ -36,12 +40,17 @@ async def _marcar_abandonados(db: AsyncSession, almacen: AlmacenOriginales, limi
             .order_by(Documento.ejecucion_vigente_hasta)
             .limit(limite)
         )
-    ).scalars().all()
+    ).all()
     await _terminar_lectura(db)
     abandonados = 0
-    for documento_id in ids_abandonados:
+    for documento_id, etapa in abandonados_rows:
+        motivo = (
+            "CONFIRMACION_VENCIDA"
+            if etapa == EtapaIngesta.CONFIRMANDO.value
+            else "RESERVA_ABANDONADA"
+        )
         try:
-            await fallar_documento(db, documento_id, "RESERVA_ABANDONADA", vencido_antes_de=ahora)
+            await fallar_documento(db, documento_id, motivo, vencido_antes_de=ahora)
         except ConflictError:
             continue  # otro proceso lo resolvió, o su ejecutor renovó entre la lectura y la marca
         abandonados += 1

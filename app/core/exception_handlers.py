@@ -18,6 +18,7 @@ from app.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
     BusinessValidationError,
+    ConfirmacionPendiente,
     ConflictError,
     ExternalServiceError,
     ExternalServiceTimeoutError,
@@ -42,6 +43,9 @@ _STATUS_BY_EXCEPTION: dict[type[AppException], int] = {
     ExternalServiceTimeoutError: status.HTTP_504_GATEWAY_TIMEOUT,
     InternalProcessingError: status.HTTP_500_INTERNAL_SERVER_ERROR,
     ServiceUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    # Doble check de ingesta: no es un fallo; el router la captura y devuelve la vista (202).
+    # El mapeo acá es red de seguridad si la excepción escapa del router.
+    ConfirmacionPendiente: status.HTTP_202_ACCEPTED,
 }
 
 _HTTP_ERROR_CODES = {

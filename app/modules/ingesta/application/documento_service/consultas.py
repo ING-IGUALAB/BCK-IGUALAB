@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundError
 from app.models import Empresa
-from app.models.documento_ingesta import Documento, EstadoCompensacion, EstadoProcesamiento
+from app.models.documento_ingesta import Documento, EstadoCompensacion, EstadoProcesamiento, EtapaIngesta
 from app.modules.ingesta.domain.almacenamiento import validar_ambiente
 from ._comun import _cargar, _terminar_lectura
 
@@ -17,6 +17,7 @@ class EstadoProgreso(str, enum.Enum):
     """Estado de la OPERACIÓN (no solo del documento): `COMPLETADO` exige los fragmentos publicados."""
 
     EN_PROCESO = "EN_PROCESO"
+    CONFIRMACION_PENDIENTE = "CONFIRMACION_PENDIENTE"  # análisis listo; espera Continuar/Cancelar del SuperAdmin
     PUBLICACION_PENDIENTE = "PUBLICACION_PENDIENTE"  # COMPLETADO transaccional, vectores aún sin publicar
     COMPLETADO = "COMPLETADO"
     FALLIDO_LIMPIEZA_PENDIENTE = "FALLIDO_LIMPIEZA_PENDIENTE"
@@ -44,7 +45,9 @@ class ProgresoIngesta:
 
 def estado_de_documento(documento: Documento) -> tuple[EstadoProgreso, str | None, str | None]:
     """(estado de la OPERACIÓN, código de error seguro, resultado del análisis) de un documento. Un
-    COMPLETADO transaccional con publicación vectorial pendiente NO es un éxito: su resultado no se anuncia."""
+    COMPLETADO transaccional con publicación vectorial pendiente NO es un éxito: su resultado no se anuncia.
+    Un EN_PROCESO en etapa `CONFIRMANDO` es `CONFIRMACION_PENDIENTE` (doble check): el análisis ya corrió
+    y su resultado se anuncia desde `documentos.analisis` para alimentar el resumen del SuperAdmin."""
     if documento.estado_procesamiento is EstadoProcesamiento.FALLIDO:
         estado = (
             EstadoProgreso.FALLIDO_LIMPIEZA_PENDIENTE
@@ -58,6 +61,11 @@ def estado_de_documento(documento: Documento) -> tuple[EstadoProgreso, str | Non
         return EstadoProgreso.COMPLETADO, None, (
             documento.resultado_analisis.value if documento.resultado_analisis else None
         )
+    if documento.etapa_actual == EtapaIngesta.CONFIRMANDO.value:
+        # NO se lee `analisis` aquí: los listados lo traen diferido (`defer`) y forzar su carga
+        # en un contexto asíncrono sin greenlet revienta. El resultado del doble check lo expone
+        # `operacion_service.construir_vista` leyendo el JSONB completo del documento.
+        return EstadoProgreso.CONFIRMACION_PENDIENTE, None, None
     return EstadoProgreso.EN_PROCESO, None, None
 
 

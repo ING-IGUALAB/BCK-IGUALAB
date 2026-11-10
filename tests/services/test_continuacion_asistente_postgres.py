@@ -1228,7 +1228,7 @@ async def test_la_0010_sobre_datos_de_la_entrega_1_los_conserva_con_su_procedenc
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((10, 11), (), tuple(range(1, 10)))
+    assert (resultado.aplicadas, resultado.adoptadas, resultado.previas) == ((10, 11, 12), (), tuple(range(1, 10)))
     assert "intercambios_asistente" in await tablas(url)
     assert [tuple(f) for f in await consultar(url, "SELECT * FROM mensajes_asistente ORDER BY orden")] == antes  # intactos, y APORTADO_POR_CLIENTE
     assert [tuple(f) for f in await consultar(url, "SELECT * FROM conversaciones_asistente")] == conversacion_antes
@@ -1237,13 +1237,13 @@ async def test_la_0010_sobre_datos_de_la_entrega_1_los_conserva_con_su_procedenc
     assert despues[9][:2] == (10, "continuacion_asistente")
     await verificar_esquema_central(url)
     siguiente = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert (siguiente.sin_cambios, siguiente.previas) == (True, tuple(range(1, 12)))  # 11 = deshabilitación de documentos (ACT-02)
+    assert (siguiente.sin_cambios, siguiente.previas) == (True, tuple(range(1, 13)))  # 11 = deshabilitación; 12 = doble check
 
 
 async def test_una_instalacion_nueva_aplica_la_0009_y_la_0010_con_las_demas(url_pg_aislado):
     url = await base_transaccional_nueva(url_pg_aislado)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.aplicadas == tuple(range(1, 12))
+    assert resultado.aplicadas == tuple(range(1, 13))
     assert {"conversaciones_asistente", "mensajes_asistente", "intercambios_asistente"} <= await tablas(url)
 
 

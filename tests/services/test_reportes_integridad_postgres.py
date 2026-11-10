@@ -194,7 +194,7 @@ async def _definiciones_ok(url: str) -> list[str]:
 async def test_instalacion_limpia_aplica_las_siete_migraciones_con_las_protecciones_exigidas(url_pg_aislado):
     url = await base_transaccional_nueva(url_pg_aislado)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+    assert resultado.aplicadas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
     assert await _definiciones_ok(url) == []
     await verificar_esquema_central(url)
 

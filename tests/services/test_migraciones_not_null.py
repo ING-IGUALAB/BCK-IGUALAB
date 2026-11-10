@@ -171,12 +171,12 @@ async def test_actualiza_la_etapa_4a_conservando_las_filas_y_el_segundo_arranque
 
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
 
-    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4, 5, 6, 7, 8, 9, 10, 11))  # 0001 adoptada tras verificarla; 0002 a 0006 aplicadas
-    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada"), (11, "aplicada")]
+    assert (resultado.adoptadas, resultado.aplicadas) == ((1,), (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))  # 0001 adoptada tras verificarla; 0002 a 0012 aplicadas
+    assert await versiones_registradas(url) == [(1, "adoptada"), (2, "aplicada"), (3, "aplicada"), (4, "aplicada"), (5, "aplicada"), (6, "aplicada"), (7, "aplicada"), (8, "aplicada"), (9, "aplicada"), (10, "aplicada"), (11, "aplicada"), (12, "aplicada")]
     (fila,) = await consultar(url, "SELECT id, nombre_archivo, etapa_actual, fragmentos_procesados, advertencias::text AS adv FROM documentos")
     assert (fila["id"], fila["nombre_archivo"], fila["etapa_actual"], fila["fragmentos_procesados"], fila["adv"]) == (
         documento_id, "viejo.md", "RESERVADO", 0, "[]")
-    assert await firma_real(url) == FIRMAS_DOCUMENTOS[11]  # ahora es exactamente la última versión (la 0011)
+    assert await firma_real(url) == FIRMAS_DOCUMENTOS[12]  # ahora es exactamente la última versión (la 0012)
 
     nuevo = await base_transaccional_nueva(url_servidor)
     await migrar(nuevo, ESQUEMA_TRANSACCIONAL)
@@ -191,7 +191,7 @@ async def test_actualiza_la_etapa_4a_conservando_las_filas_y_el_segundo_arranque
     monkeypatch.setattr(motor, "_registrar", no_debe_ejecutarse)
     segundo = await migrar(url, ESQUEMA_TRANSACCIONAL)
     assert segundo.sin_cambios
-    assert segundo.previas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+    assert segundo.previas == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
     assert await consultar(url, "SELECT version, aplicada_en, xmin::text AS xmin FROM igualab_migraciones ORDER BY version") == antes
 
 
@@ -221,7 +221,7 @@ async def test_las_diferencias_reales_de_nulabilidad_y_restricciones_siguen_rech
     assert error.value.detalles["objeto"] == "documentos"
     # La única diferencia respecto a la última versión incluye la real; las NOT NULL propias de PostgreSQL 18 no aparecen como sobrantes.
     assert not any("_not_null" in n for n in error.value.detalles["diferencias"].get("restricciones_sobrantes", []))
-    ultima = diferencias(antes, FIRMAS_DOCUMENTOS[11])
+    ultima = diferencias(antes, FIRMAS_DOCUMENTOS[12])
     assert ultima == error.value.detalles["diferencias"]
     assert await firma_real(url) == antes  # no se tocó nada
     assert (await consultar(url, "SELECT count(*) AS n FROM documentos"))[0]["n"] == int(con_fila)  # los datos siguen ahí
@@ -251,5 +251,5 @@ async def test_una_instalacion_manual_completa_se_adopta_en_cualquier_version(ur
 
     monkeypatch.setattr(motor, "_aplicar", solo_las_posteriores_a_la_0004)
     resultado = await migrar(url, ESQUEMA_TRANSACCIONAL)
-    assert resultado.adoptadas == (1, 2, 3, 4, 11)  # el DDL del modelo ya es la última versión de `documentos`: la 0011 también se adopta
+    assert resultado.adoptadas == (1, 2, 3, 4, 11, 12)  # el DDL del modelo ya es la última versión de `documentos` (0011 y 0012)
     assert resultado.aplicadas == (5, 6, 7, 8, 9, 10)

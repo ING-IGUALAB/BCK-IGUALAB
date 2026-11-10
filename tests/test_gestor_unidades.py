@@ -111,6 +111,8 @@ def test_el_openapi_publica_el_contrato_de_ingesta():
     assert set(rutas["/documentos/operaciones"]) == {"post"}
     assert set(rutas["/documentos/operaciones/{operacion_id}"]) == {"get"}
     assert set(rutas["/documentos/operaciones/{operacion_id}/ingesta"]) == {"post"}
+    assert set(rutas["/documentos/operaciones/{operacion_id}/confirmar"]) == {"post"}
+    assert set(rutas["/documentos/operaciones/{operacion_id}/cancelar"]) == {"post"}
     assert set(rutas["/documentos/operaciones/{operacion_id}/reintentar-publicacion"]) == {"post"}
     assert set(rutas["/documentos"]) == {"get"}
     assert set(rutas["/documentos/{documento_id}"]) == {"get"}
@@ -118,11 +120,20 @@ def test_el_openapi_publica_el_contrato_de_ingesta():
     cuerpo = rutas["/documentos/operaciones/{operacion_id}/ingesta"]["post"]["requestBody"]["content"]["multipart/form-data"]
     campos = esquema["components"]["schemas"][cuerpo["schema"]["$ref"].rsplit("/", 1)[1]]
     assert set(campos["required"]) == {"archivo", "empresa_id", "anio", "tipo_documento"}
-    # OpenAPI 3.1: un archivo se publica como cadena con `contentMediaType` (FastAPI actual); antes se publicaba como `format: binary`.
-    assert (campos["properties"]["archivo"]["type"], campos["properties"]["archivo"]["contentMediaType"]) == ("string", "application/octet-stream")
-    assert {"201", "401", "403", "409", "413", "422", "500", "502", "503", "504"} <= set(
+    # OpenAPI 3.1: un archivo puede publicarse con `contentMediaType` o con el estilo clásico `format: binary`.
+    archivo = campos["properties"]["archivo"]
+    assert archivo["type"] == "string"
+    assert archivo.get("contentMediaType") == "application/octet-stream" or archivo.get("format") == "binary"
+    assert {"201", "202", "401", "403", "409", "413", "422", "500", "502", "503", "504"} <= set(
         rutas["/documentos/operaciones/{operacion_id}/ingesta"]["post"]["responses"]
+    )
+    assert {"201", "401", "403", "404", "409", "502"} <= set(
+        rutas["/documentos/operaciones/{operacion_id}/confirmar"]["post"]["responses"]
+    )
+    assert {"200", "401", "403", "404", "409"} <= set(
+        rutas["/documentos/operaciones/{operacion_id}/cancelar"]["post"]["responses"]
     )
     estados = esquema["components"]["schemas"]["EstadoOperacionPublico"]["enum"]
     assert "PUBLICACION_PENDIENTE" in estados
+    assert "CONFIRMACION_PENDIENTE" in estados
     assert "COMPLETADO" in estados

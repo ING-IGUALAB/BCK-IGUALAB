@@ -2,18 +2,23 @@
 Administrador 403). El actor sale siempre de la sesión validada, nunca del payload. Contrato completo y ejemplos:
 `docs/ingesta/08-contrato-http-y-despliegue.md`.
 
+Flujo con doble check (202): `POST …/ingesta` puede responder **202** con la operación en
+`CONFIRMACION_PENDIENTE` (análisis listo). El FE consulta `GET …/operaciones/{id}`, muestra la alerta
+(`resumen_confirmacion`) y resuelve con `POST …/confirmar` (201, continúa 7–9) o `POST …/cancelar`
+(200, FALLIDO + limpieza de residuos). Ver `docs/ingesta/09-confirmacion-y-flujo-9-pasos.md`.
+
 Los routers solo coordinan HTTP: la lógica está en `GestorIngesta` (recursos, desconexión, recuperación),
-`operacion_service` (operaciones, consultas) y `coordinador` (ingesta síncrona).
+`operacion_service` (operaciones, consultas) y `coordinador` (ingesta síncrona, confirmar/cancelar).
 """
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from pydantic import BeforeValidator, ValidationError
 
 from app.core.dependencies import DatabaseSession, SuperAdminUser
-from app.core.exceptions import ServiceUnavailableError
+from app.core.exceptions import ConfirmacionPendiente, ServiceUnavailableError
 from app.models import TipoDocumento
 from app.schemas import MetadatosIngestaRequest
 from app.modules.ingesta.schemas import (
@@ -70,6 +75,14 @@ async def crear_operacion(actor: SuperAdminUser, gestor: GestorDep, db: Database
     status_code=201,
     responses={
         **_ERRORES,
+        202: {
+            "description": (
+                "Doble check: el análisis terminó y la ingesta espera Continuar/Cancelar. "
+                "Cuerpo = OperacionResponse en CONFIRMACION_PENDIENTE con resumen_confirmacion. "
+                "Resuelva con POST …/confirmar o POST …/cancelar."
+            ),
+            "model": OperacionResponse,
+        },
         400: {"description": "Archivo, empresa o contenido inválido (códigos específicos)."},
         404: {"description": "Operación inexistente (o de otro ambiente/actor)."},
         409: {"description": "Operación ya usada, duplicado, ejecución perdida."},
@@ -84,14 +97,16 @@ async def ingerir_documento(
     operacion_id: uuid.UUID,
     actor: SuperAdminUser,
     gestor: GestorDep,
+    response: Response,
     archivo: Annotated[UploadFile, File(description="Documento Markdown (.md) en UTF-8, hasta 50 000 000 bytes.")],
     empresa_id: Annotated[uuid.UUID, Form()],
     anio: Annotated[str, Form(description="Entero entre 2000 y el año actual (America/Lima).")],
     tipo_documento: Annotated[TipoDocumento, Form()],
 ):
-    """Espera SÍNCRONAMENTE al coordinador hasta terminar. El sector se deriva de la empresa. Éxito solo si el
-    documento queda COMPLETADO y PUBLICADO. Si el cliente se desconecta, la ingesta continúa y se consulta con
-    `GET /documentos/operaciones/{operacion_id}`."""
+    """Espera SÍNCRONAMENTE al coordinador hasta terminar o hasta el doble check. Éxito solo si el
+    documento queda COMPLETADO y PUBLICADO (201). Si el análisis dispa el doble check: **202** con la
+    vista en `CONFIRMACION_PENDIENTE` (resuelva con confirmar/cancelar). Si el cliente se desconecta
+    antes, la ingesta continúa y se consulta con `GET /documentos/operaciones/{operacion_id}`."""
     try:
         metadatos = MetadatosIngestaRequest(empresa_id=empresa_id, anio=anio, tipo=tipo_documento)
     except ValidationError as exc:
@@ -99,19 +114,62 @@ async def ingerir_documento(
         raise RequestValidationError(
             [{"type": e["type"], "loc": ("body", *e["loc"]), "msg": e["msg"]} for e in exc.errors()]
         ) from None
-    return await gestor.ingerir(
-        operacion_id=operacion_id,
-        usuario_id=actor.id,
-        nombre_archivo=archivo.filename,
-        leer=archivo.read,
-        metadatos=metadatos,
-    )
+    try:
+        return await gestor.ingerir(
+            operacion_id=operacion_id,
+            usuario_id=actor.id,
+            nombre_archivo=archivo.filename,
+            leer=archivo.read,
+            metadatos=metadatos,
+        )
+    except ConfirmacionPendiente:
+        # Doble check: 202 con la vista actual (no es un error del contrato de errores).
+        response.status_code = 202
+        async with gestor.dependencias.sesiones() as db:
+            return await operacion_service.obtener_vista(db, operacion_id, gestor.ambiente)
 
 
 @router.get("/operaciones/{operacion_id}", response_model=OperacionResponse, responses={**_ERRORES, 404: {}})
 async def consultar_operacion(operacion_id: uuid.UUID, actor: SuperAdminUser, gestor: GestorDep, db: DatabaseSession):
-    """Progreso real (etapa y contadores, sin porcentajes), advertencias y desenlace."""
+    """Progreso real (etapa y contadores, sin porcentajes), advertencias y desenlace. En
+    `CONFIRMACION_PENDIENTE` incluye `confirmacion_pendiente=true` y `resumen_confirmacion` para el modal."""
     return await operacion_service.obtener_vista(db, operacion_id, gestor.ambiente)
+
+
+@router.post(
+    "/operaciones/{operacion_id}/confirmar",
+    response_model=ResultadoIngestaResponse,
+    status_code=201,
+    responses={
+        **_ERRORES,
+        404: {"description": "Operación inexistente o sin documento."},
+        409: {
+            "description": "La operación no está en CONFIRMACION_PENDIENTE (CONFIRMATION_NOT_PENDING) o el token rotó.",
+        },
+        502: {"description": "Publicación vectorial pendiente tras confirmar (reintentable)."},
+    },
+)
+async def confirmar_ingesta(operacion_id: uuid.UUID, actor: SuperAdminUser, gestor: GestorDep):
+    """Doble check — CONTINUAR: retoma los pasos 7–9 (completar + publicar fragmentos) sin reanalizar.
+    Devuelve 201 con el resultado de la ingesta. 409 si ya no estaba en pausa."""
+    return await gestor.confirmar(operacion_id)
+
+
+@router.post(
+    "/operaciones/{operacion_id}/cancelar",
+    response_model=OperacionResponse,
+    status_code=200,
+    responses={
+        **_ERRORES,
+        404: {"description": "Operación inexistente o sin documento."},
+        409: {"description": "La operación no está en CONFIRMACION_PENDIENTE (CONFIRMATION_NOT_PENDING)."},
+    },
+)
+async def cancelar_ingesta(operacion_id: uuid.UUID, actor: SuperAdminUser, gestor: GestorDep):
+    """Doble check — CANCELAR: elimina los residuos del intento (fragmentos en la base vectorial y
+    original en MinIO), libera la reserva (el mismo archivo/empresa/año puede reintentarse) y deja la
+    operación FALLIDO con motivo `CONFIRMACION_RECHAZADA`. Devuelve 200 con la vista terminal."""
+    return await gestor.cancelar(operacion_id)
 
 
 @router.post(

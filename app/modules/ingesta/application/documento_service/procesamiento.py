@@ -1,12 +1,12 @@
-"""Fallo, progreso, análisis y validación del análisis de un documento."""
+"""Fallo, progreso, análisis, doble check y validación del análisis de un documento."""
 
 import json
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.exceptions import BusinessValidationError, es_codigo_valido
+from app.core.exceptions import BusinessValidationError, ConflictError, es_codigo_valido
 from app.models import ResultadoAuditoria, TipoEventoAuditoria
 from app.models.documento_ingesta import Documento, EstadoCompensacion, EstadoProcesamiento, EtapaIngesta, ResultadoAnalisis
 from ._comun import _ahora, _cargar, _condiciones_ejecutor, _conflicto_de_estado, _entero_no_negativo, _exigir_instante, _exigir_token, _json_seguro, _terminar_lectura, _transicion, auditar_aparte
@@ -192,3 +192,55 @@ async def persistir_analisis(
         await db.rollback()
         raise _conflicto_de_estado()
     await db.commit()
+
+
+async def pausar_para_confirmacion(
+    db: AsyncSession, documento_id: uuid.UUID, *, token: uuid.UUID, duracion: timedelta
+) -> None:
+    """Entra en la etapa `CONFIRMANDO` (doble check) y extiende la vigencia de la propiedad durante la
+    espera de la decisión del SuperAdmin. El análisis ya está persistido; el original y los fragmentos
+    NO publicados se conservan hasta confirmar o cancelar. Solo el ejecutor (`token`) puede pausar."""
+    if not isinstance(duracion, timedelta) or duracion <= timedelta(0):
+        raise ValueError("duracion debe ser un timedelta positivo.")
+    ahora = _ahora()
+    if not await _transicion(
+        db,
+        documento_id,
+        [
+            *_condiciones_ejecutor(token),
+            Documento.etapa_actual == EtapaIngesta.ANALIZANDO.value,
+            Documento.analisis.is_not(None),
+            Documento.original_almacenado_en.is_not(None),
+            Documento.vector_escritura_intentada_en.is_not(None),
+        ],
+        {
+            "etapa_actual": EtapaIngesta.CONFIRMANDO.value,
+            "confirmacion_pendiente_en": ahora,
+            "ejecucion_vigente_hasta": ahora + duracion,
+            "progreso_actualizado_en": ahora,
+        },
+    ):
+        await db.rollback()
+        raise _conflicto_de_estado()
+    await db.commit()
+
+
+async def exigir_confirmacion_pendiente(db: AsyncSession, documento_id: uuid.UUID) -> Documento:
+    """Documento `EN_PROCESO` en etapa `CONFIRMANDO`. Si no está en pausa, conflicto 409
+    `CONFIRMATION_NOT_PENDING`. Cierra la lectura con commit y devuelve el documento (con token)."""
+    documento = await _cargar(db, documento_id)
+    # Capturar ANTES de rollback: tras el rollback los atributos expiran y su lectura
+    # intentaría una recarga fuera del greenlet (MissingGreenlet).
+    estado, etapa = documento.estado_procesamiento, documento.etapa_actual
+    if estado is not EstadoProcesamiento.EN_PROCESO or etapa != EtapaIngesta.CONFIRMANDO.value:
+        await db.rollback()
+        raise ConflictError(
+            "CONFIRMATION_NOT_PENDING",
+            "La operación no está esperando confirmación (doble check).",
+            details={
+                "estado": estado.value,
+                "etapa": etapa,
+            },
+        )
+    await _terminar_lectura(db)
+    return documento

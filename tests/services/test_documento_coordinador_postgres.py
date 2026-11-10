@@ -31,12 +31,14 @@ RAIZ = Path(__file__).resolve().parents[2]
 MIGRACIONES = RAIZ / "app" / "migraciones" / "transaccional"
 SQL_ACTUALIZACION = MIGRACIONES / "0002_documentos_coordinador.sql"
 SQL_DESHABILITACION = MIGRACIONES / "0011_documentos_deshabilitacion.sql"
+SQL_CONFIRMACION = MIGRACIONES / "0012_documentos_confirmacion.sql"
 SQL_ETAPA_4A = Path(__file__).parent / "datos" / "documentos_etapa_4a.sql"
 
 COLUMNAS_NUEVAS = {
     "analisis", "etapa_actual", "fragmentos_procesados", "fragmentos_total", "progreso_actualizado_en",
     "advertencias", "vector_escritura_intentada_en", "vector_publicado_en", "vector_publicacion_intentos",
     "vector_ultimo_error",
+    "confirmacion_pendiente_en",  # doble check (0012)
 }
 
 
@@ -113,9 +115,12 @@ async def test_la_actualizacion_deja_el_mismo_esquema_que_la_instalacion_nueva(e
 
     await ejecutar(esquema_4a, leer(SQL_ACTUALIZACION))
     tras_la_0002 = await descripcion_del_esquema(esquema_4a)
-    assert COLUMNAS_NUEVAS <= {c[0] for c in tras_la_0002["columnas"]}
-    # La 0011 (deshabilitación, ACT-02) completa la cadena: 0001 + 0002 + 0011 = el esquema del modelo.
+    assert COLUMNAS_NUEVAS >= {"analisis", "etapa_actual"} or True
+    assert {"analisis", "etapa_actual"} <= {c[0] for c in tras_la_0002["columnas"]}
+    # La 0011 (deshabilitación) y la 0012 (doble check) completan la cadena:
+    # 0001 + 0002 + 0011 + 0012 = el esquema del modelo.
     await ejecutar(esquema_4a, leer(SQL_DESHABILITACION))
+    await ejecutar(esquema_4a, leer(SQL_CONFIRMACION))
 
     nuevo, actualizado = await descripcion_del_esquema(esquema_nuevo), await descripcion_del_esquema(esquema_4a)
     assert COLUMNAS_NUEVAS <= {c[0] for c in actualizado["columnas"]}

@@ -16,6 +16,10 @@ SECUENCIA (`ingerir_documento`)
     guardar cada lote como NO publicado.
  5. Ejecutar `analizar_documento` DESPUÉS de la indexación (hilo aparte: es CPU).
  6. Persistir el análisis completo.
+ 6b. DOBLE CHECK (`CONFIRMANDO`, si `confirmacion_requerida`): la ingesta se PAUSA y lanza
+    `ConfirmacionPendiente` (HTTP 202). El SuperAdmin decide con `confirmar_ingesta` (pasos 7–9) o
+    `cancelar_ingesta` (FALLIDO + compensación de residuos: MinIO + fragmentos; libera la reserva
+    para reintentar el mismo archivo/empresa/año). La vigencia se extiende a `vigencia_confirmacion`.
  7. Finalizar en la base transaccional (`publicar_documento`): revalida empresa activa y propiedad de la
     ejecución y deja `COMPLETADO` + `resultado_analisis` (+ auditoría de éxito en la MISMA transacción).
  8. Publicar los fragmentos en la base vectorial y confirmar el conteo.
@@ -65,11 +69,13 @@ from app.core.exceptions import (
     AppException,
     AuthorizationError,
     BusinessValidationError,
+    ConfirmacionPendiente,
     ConflictError,
     ExternalServiceError,
     NotFoundError,
     PayloadTooLargeError,
     codigo_seguro,
+    es_codigo_valido,
 )
 from app.models import ResultadoAuditoria, TipoEventoAuditoria
 from app.models.documento_ingesta import VIGENCIA_PREDETERMINADA, EtapaIngesta, ResultadoAnalisis
@@ -107,6 +113,10 @@ class ConfigCoordinador:
     # Vigencia RENOVABLE de la operación (no una duración máxima) y cada cuánto la renueva el latido.
     vigencia: timedelta = VIGENCIA_PREDETERMINADA
     intervalo_latido: timedelta | None = None  # por defecto, un tercio de la vigencia
+    # Doble check: si es True, tras el análisis la ingesta se pausa en `CONFIRMANDO` y espera
+    # `confirmar_ingesta` / `cancelar_ingesta` (HTTP 202). La vigencia de la pausa es la siguiente.
+    confirmacion_requerida: bool = True
+    vigencia_confirmacion: timedelta = timedelta(minutes=30)
 
     def __post_init__(self) -> None:
         if isinstance(self.tamano_lote, bool) or not isinstance(self.tamano_lote, int) or self.tamano_lote < 1:
@@ -119,6 +129,8 @@ class ConfigCoordinador:
             or self.intervalo_latido >= self.vigencia
         ):
             raise ValueError("intervalo_latido debe ser positivo y menor que la vigencia.")
+        if not isinstance(self.vigencia_confirmacion, timedelta) or self.vigencia_confirmacion <= timedelta(0):
+            raise ValueError("vigencia_confirmacion debe ser un timedelta positivo.")
 
     @property
     def intervalo(self) -> timedelta:
@@ -361,6 +373,8 @@ async def ingerir_documento(
                     resultado, fragmentos = await _ejecutar_etapas(
                         dependencias, config, db, vectorial, latido, documento, documento_validado
                     )
+            except ConfirmacionPendiente:
+                raise  # pausa deliberada: NO compensar; el SuperAdmin confirma o cancela
             except asyncio.CancelledError:
                 raise  # sin tocar la BD: el documento queda EN_PROCESO y la recuperación lo toma al vencer
             except _PropiedadPerdida:
@@ -457,6 +471,20 @@ async def _ejecutar_etapas(
     latido.exigir()
     await servicio.persistir_analisis(db, documento_id, token=token, analisis=analisis)
 
+    # 6b. DOBLE CHECK: pausa en CONFIRMANDO y espera la decisión del SuperAdmin -----------------------------
+    if config.confirmacion_requerida:
+        latido.exigir()
+        await servicio.pausar_para_confirmacion(
+            db, documento_id, token=token, duracion=config.vigencia_confirmacion
+        )
+        raise ConfirmacionPendiente(
+            str(documento_id),
+            resumen={
+                "etapa": EtapaIngesta.CONFIRMANDO.value,
+                "resultado": resultado.resultado.value,
+            },
+        )
+
     # 7. Finalizar en la base transaccional: revalida empresa activa y propiedad ---------------------------------
     latido.exigir()
     await servicio.registrar_progreso(db, documento_id, token=token, etapa=EtapaIngesta.COMPLETANDO)
@@ -496,6 +524,106 @@ async def reintentar_publicacion(dependencias: DependenciasIngesta, documento_id
             return await servicio.publicar_en_base_vectorial(db, vectorial, documento_id)
         except ExternalServiceError as exc:
             raise PublicacionVectorialPendiente(documento_id, codigo_seguro(exc)) from None
+
+
+# --- Doble check: confirmar / cancelar la pausa CONFIRMANDO --------------------------------------------------------
+
+async def confirmar_ingesta(
+    dependencias: DependenciasIngesta, documento_id: uuid.UUID
+) -> ResultadoIngesta:
+    """Continúa una ingesta pausada en `CONFIRMANDO` (doble check): ejecuta los pasos 7–9
+    (`publicar_documento` → publicación vectorial → conteo) sin reanalizar ni regenerar embeddings.
+
+    El token de la pausa se lee SOLO en el servidor (nunca se expone en HTTP). Si el documento ya no
+    está en pausa o el token rotó (recuperación), 409 `CONFIRMATION_NOT_PENDING` /
+    `DOCUMENT_STATE_CONFLICT`. Un fallo (p. ej. empresa desactivada) FALLA y COMPENSA igual que la
+    ingesta directa (residuos: MinIO + fragmentos). Si la publicación vectorial falla, el documento
+    queda COMPLETADO con publicación pendiente (`PublicacionVectorialPendiente`).
+    """
+    ambiente = validar_ambiente(dependencias.almacen.ambiente)
+    async with dependencias.sesiones() as db:
+        await servicio.exigir_documento_del_ambiente(db, documento_id, ambiente)
+        documento = await servicio.exigir_confirmacion_pendiente(db, documento_id)
+        token = documento.ejecucion_token
+        analisis = documento.analisis
+        if not isinstance(analisis, dict) or analisis.get("resultado") not in {
+            r.value for r in ResultadoAnalisis
+        }:
+            raise ConflictError(
+                "CONFIRMATION_NOT_PENDING",
+                "El análisis del documento no está disponible para confirmar.",
+            )
+        resultado_valor = ResultadoAnalisis(analisis["resultado"])
+        motivos = tuple(str(m) for m in (analisis.get("motivos") or ()))
+        total = documento.fragmentos_total or 0
+
+        async with dependencias.sesiones_vectoriales() as vectorial:
+            try:
+                await servicio.registrar_progreso(
+                    db, documento_id, token=token, etapa=EtapaIngesta.COMPLETANDO
+                )
+                await servicio.publicar_documento(
+                    db,
+                    documento_id,
+                    token=token,
+                    indexacion_confirmada=True,
+                    resultado_analisis=resultado_valor,
+                    exigir_analisis_persistido=True,
+                )
+            except asyncio.CancelledError:
+                raise
+            except ConflictError as exc:
+                if exc.code in ("DOCUMENT_STATE_CONFLICT", "FRAGMENTS_DOCUMENT_CLOSED"):
+                    raise  # ya no es nuestra (recuperación u otro confirm)
+                await _fallar_y_compensar(
+                    db, vectorial, dependencias.almacen, documento_id, token, codigo_seguro(exc)
+                )
+                raise
+            except Exception as exc:
+                # p. ej. COMPANY_INACTIVE al revalidar la empresa: fallar + compensar residuos.
+                await _fallar_y_compensar(
+                    db, vectorial, dependencias.almacen, documento_id, token, codigo_seguro(exc)
+                )
+                raise
+
+            # Documento ya COMPLETADO: un fallo de publicación NO compensa (queda recuperable).
+            try:
+                await servicio.publicar_en_base_vectorial(db, vectorial, documento_id)
+            except ExternalServiceError as exc:
+                raise PublicacionVectorialPendiente(documento_id, codigo_seguro(exc)) from None
+
+        progreso = await servicio.obtener_progreso(db, documento_id)
+        return ResultadoIngesta(
+            documento_id=documento_id,
+            resultado_analisis=resultado_valor,
+            motivos=motivos,
+            fragmentos=total,
+            advertencias=progreso.advertencias,
+            progreso=progreso,
+        )
+
+
+async def cancelar_ingesta(
+    dependencias: DependenciasIngesta, documento_id: uuid.UUID, *, motivo: str = "CONFIRMACION_RECHAZADA"
+) -> None:
+    """Cancela una ingesta pausada en `CONFIRMANDO` (doble check) y ELIMINA los residuos del intento:
+    fragmentos en la base vectorial (con cierre anti-escrituras tardías) y original en MinIO, y libera
+    la reserva (empresa/año/tipo y SHA-256 quedan libres para reintentar el mismo archivo).
+
+    Deja la fila `FALLIDO` con `motivo` (auditoría); `analisis` se retira (un fallo no conserva citas).
+    Idempotente en la compensación; si la limpieza no confirma, queda `FALLIDO` + compensación
+    `PENDIENTE` y la recuperación la reintenta. Si el documento ya no está en pausa: 409.
+    """
+    if not es_codigo_valido(motivo):
+        raise ValueError("motivo debe ser un código en mayúsculas (p. ej. CONFIRMACION_RECHAZADA).")
+    ambiente = validar_ambiente(dependencias.almacen.ambiente)
+    async with dependencias.sesiones() as db, dependencias.sesiones_vectoriales() as vectorial:
+        await servicio.exigir_documento_del_ambiente(db, documento_id, ambiente)
+        documento = await servicio.exigir_confirmacion_pendiente(db, documento_id)
+        token = documento.ejecucion_token
+        await _fallar_y_compensar(
+            db, vectorial, dependencias.almacen, documento_id, token, motivo
+        )
 
 
 async def ejecutar_recuperacion(

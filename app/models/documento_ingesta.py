@@ -78,12 +78,15 @@ class EstadoCompensacion(str, enum.Enum):
 
 class EtapaIngesta(str, enum.Enum):
     """Etapas REALES de la ingesta, en orden. Se persisten en `documentos.etapa_actual`.
-    `FINALIZADO` solo se alcanza con los fragmentos PUBLICADOS en la base vectorial."""
+    `FINALIZADO` solo se alcanza con los fragmentos PUBLICADOS en la base vectorial.
+    `CONFIRMANDO` (doble check): el análisis terminó y la ingesta espera la decisión del
+    SuperAdmin (continuar → pasos 7–9; cancelar → compensación de residuos)."""
 
     RESERVADO = "RESERVADO"
     ALMACENANDO_ORIGINAL = "ALMACENANDO_ORIGINAL"
     INDEXANDO = "INDEXANDO"
     ANALIZANDO = "ANALIZANDO"
+    CONFIRMANDO = "CONFIRMANDO"
     COMPLETANDO = "COMPLETANDO"
     PUBLICANDO = "PUBLICANDO"
     FINALIZADO = "FINALIZADO"
@@ -215,6 +218,11 @@ class Documento(Base):
     deshabilitado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deshabilitado_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     motivo_deshabilitacion: Mapped[str | None] = mapped_column(String(MAXIMO_MOTIVO_DESHABILITACION), nullable=True)
+
+    # --- Doble check tras el análisis (migración 0012, al final para igualar el orden de ADD COLUMN) ------
+    # Instante en que la ingesta entró en etapa `CONFIRMANDO` y esperó la decisión del SuperAdmin.
+    # Solo informativa (la pausa se reconoce por `etapa_actual`); se conserva tras confirmar o cancelar.
+    confirmacion_pendiente_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint("anio >= 2000", name="ck_documentos_anio_minimo"),

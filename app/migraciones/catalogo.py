@@ -66,6 +66,11 @@ ESQUEMA_TRANSACCIONAL = EsquemaBase(
         Migracion(
             11, "documentos_deshabilitacion", "0011_documentos_deshabilitacion.sql", ("documentos",), carpeta="transaccional",
         ),
+        # Doble check de ingesta: columna `confirmacion_pendiente_en` y etapa `CONFIRMANDO` en el CHECK de etapas.
+        # Sin UPDATE: ningún documento existente queda en pausa. La 0011 no se toca.
+        Migracion(
+            12, "documentos_confirmacion", "0012_documentos_confirmacion.sql", ("documentos",), carpeta="transaccional",
+        ),
     ),
     # Los crea el arranque de los módulos existentes (`crear_tablas`), que corre ANTES que esta preparación.
     prerrequisitos=(
