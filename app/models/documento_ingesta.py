@@ -95,6 +95,8 @@ class EtapaIngesta(str, enum.Enum):
 _ETAPAS_SQL = ", ".join(f"'{e.value}'" for e in EtapaIngesta)
 # Análisis serializado: JSONB en PostgreSQL, JSON genérico en SQLite (pruebas). Python `None` es SQL NULL.
 _JSON_ANALISIS = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
+# Destino de las claves foráneas hacia la cuenta (actor de la carga, de la deshabilitación y de la operación).
+_FK_USUARIO = "usuarios.id"
 
 
 # Longitud máxima del motivo con que se deshabilita un documento (la validación HTTP y la columna usan el mismo límite).
@@ -137,7 +139,7 @@ class Documento(Base):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     tamano_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
-    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuarios.id"), nullable=False, index=True)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(_FK_USUARIO), nullable=False, index=True)
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_ahora_utc, server_default=func.now(), nullable=False
     )
@@ -216,7 +218,7 @@ class Documento(Base):
     # borrado: el original, los fragmentos y las referencias históricas se conservan. Las tres columnas van juntas (CHECK) y se
     # escriben UNA sola vez, en la misma sentencia que libera `reserva_activa`: un reintento no las sobrescribe. No hay reactivación.
     deshabilitado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    deshabilitado_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    deshabilitado_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(_FK_USUARIO), nullable=True)
     motivo_deshabilitacion: Mapped[str | None] = mapped_column(String(MAXIMO_MOTIVO_DESHABILITACION), nullable=True)
 
     # --- Doble check tras el análisis (migración 0012, al final para igualar el orden de ADD COLUMN) ------
@@ -386,7 +388,7 @@ class OperacionIngesta(Base):
     # Ambiente (development/qa/uat) de la aplicación que la creó: toda consulta lo filtra.
     ambiente: Mapped[str] = mapped_column(String(32), nullable=False)
     # Actor: sesión validada que la creó, nunca el payload.
-    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuarios.id"), nullable=False, index=True)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(_FK_USUARIO), nullable=False, index=True)
     estado: Mapped[str] = mapped_column(
         String(16), default=EstadoOperacion.CREADA.value, server_default=EstadoOperacion.CREADA.value, nullable=False
     )

@@ -51,7 +51,6 @@ _ERRORES = {
 
 @router.post(
     "/conversaciones",
-    response_model=ConversacionGuardada,
     status_code=201,
     summary="Guardar una conversación del asistente (historial aportado por el cliente)",
     description=(
@@ -87,7 +86,6 @@ async def guardar(
 
 @router.get(
     "/conversaciones",
-    response_model=PaginaConversaciones,
     summary="Listar las conversaciones guardadas del usuario autenticado",
     description=(
         "Solo las del usuario de la sesión y del ambiente del servidor, de la más reciente a la más antigua. Devuelve metadatos "
@@ -108,7 +106,6 @@ async def listar(
 
 @router.get(
     "/conversaciones/{conversacion_id}",
-    response_model=ConversacionDetalle,
     summary="Recuperar una conversación guardada con sus mensajes y citas",
     description=(
         "Mensajes en orden estable, con la respuesta estructurada del asistente (citas, afirmaciones, ausencia de evidencia) y su "

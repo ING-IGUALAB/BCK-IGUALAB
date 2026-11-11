@@ -792,9 +792,10 @@ async def test_una_ejecucion_tardia_tras_recuperar_la_misma_clave_no_puede_publi
     await vencer(h)
     assert (await continuar(h, p, c["id"], clave=clave)).status_code == 201
 
+    respuesta_tardia = con_evidencia(h.mineria.id, citas=1)
     async with h.fabrica() as db:
         with pytest.raises(ConflictError) as tarde:
-            await continuacion_service._publicar(db, vieja, PREGUNTA, con_evidencia(h.mineria.id, citas=1))
+            await continuacion_service._publicar(db, vieja, PREGUNTA, respuesta_tardia)
     assert tarde.value.code == "CONVERSATION_QUERY_SUPERSEDED"
     assert await contar(h, "mensajes_asistente") == 6  # no se añadió nada
     assert [f["estado"] for f in await intercambios(h)] == ["COMPLETADO"]
@@ -809,9 +810,10 @@ async def test_una_ejecucion_tardia_tras_ser_sustituida_por_otra_consulta_no_pue
     assert nueva.status_code == 201, nueva.text
     assert sorted(f["estado"] for f in await intercambios(h)) == ["COMPLETADO", "VENCIDO"]
 
+    respuesta_tardia = con_evidencia(h.mineria.id, citas=1)
     async with h.fabrica() as db:
         with pytest.raises(ConflictError) as tarde:
-            await continuacion_service._publicar(db, vieja, "Pregunta A", con_evidencia(h.mineria.id, citas=1))
+            await continuacion_service._publicar(db, vieja, "Pregunta A", respuesta_tardia)
     assert tarde.value.code == "CONVERSATION_QUERY_SUPERSEDED"
     assert await contar(h, "mensajes_asistente") == 6
     # La clave sustituida sigue siendo reintentable cuando la conversación está libre.

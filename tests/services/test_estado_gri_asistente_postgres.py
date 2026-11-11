@@ -200,11 +200,14 @@ async def test_la_pregunta_de_estado_informa_el_estado_y_la_vigencia_aunque_la_b
     assert r.status_code == 200, r.text
     d = r.json()
     assert (d["sin_evidencia"], d["motivo"]) == (True, "MODELO_SIN_EVIDENCIA")  # la parte documental queda como estaba
-    assert d["respuesta"] == "" and d["afirmaciones"] == [] and d["citas"] == []  # el estado NO es una cita ni una afirmación
+    assert d["respuesta"] == ""
+    assert d["afirmaciones"] == []
+    assert d["citas"] == []  # el estado NO es una cita ni una afirmación
     assert d["mensaje"].startswith(f"Estado registrado en Análisis GRI ({NOMBRE}, 2025):")
     assert "- GRI 1 (2021): Baja sustancia. Validación vigente (n.º 1, validada el " in d["mensaje"]
     assert d["busqueda_documental"] == "REALIZADA"  # sí hubo búsqueda: la ausencia de evidencia es de la búsqueda, no de la pregunta
-    assert d["estado_registrado"]["texto"] in d["mensaje"] and d["estado_registrado"]["validacion_vigente"] is True
+    assert d["estado_registrado"]["texto"] in d["mensaje"]
+    assert d["estado_registrado"]["validacion_vigente"] is True
     assert "\n\nEvidencia documental: No se encontró evidencia en los documentos de la empresa y el año seleccionados" in d["mensaje"]
     assert "No hay una regla registrada que convierta el estado en «hay» o «no hay» brecha" in d["mensaje"]
     assert guardable(caso, d) == []  # cumple las invariantes del historial: se puede guardar tal cual
@@ -244,15 +247,20 @@ async def test_pregunta_mixta_con_evidencia_documental_mantiene_las_citas_y_agre
     r = await preguntar(caso, PREGUNTA_MIXTA)
 
     d = r.json()
-    assert d["sin_evidencia"] is False and d["motivo"] is None
-    assert d["citas"] and all(CODIGO_GRI_1.search(c["extracto"]) for c in d["citas"])  # evidencia documental: citas del documento
-    assert re.search(r"\[\d+\]", d["respuesta"]) and "Baja sustancia" not in d["respuesta"]  # el texto de la evidencia no lleva el estado
+    assert d["sin_evidencia"] is False
+    assert d["motivo"] is None
+    assert d["citas"]
+    assert all(CODIGO_GRI_1.search(c["extracto"]) for c in d["citas"])  # evidencia documental: citas del documento
+    assert re.search(r"\[\d+\]", d["respuesta"])
+    assert "Baja sustancia" not in d["respuesta"]  # el texto de la evidencia no lleva el estado
     for a in d["afirmaciones"]:
         assert "Baja sustancia" not in a["texto"] + a["cita_textual"]
     assert "GRI 1 (2021): Baja sustancia. Validación vigente" in d["mensaje"]  # el estado va aparte, sin cita
     assert "Evidencia documental" not in d["mensaje"]  # la evidencia ya está en `respuesta` y `citas`
-    assert d["busqueda_documental"] == "REALIZADA" and d["estado_registrado"]["filas"][0]["estado"] == "BAJA_SUSTANCIA"
-    assert d["estado_registrado"]["fuente"] == "ANALISIS_GRI" and "[" not in d["estado_registrado"]["texto"]  # nunca un marcador de cita
+    assert d["busqueda_documental"] == "REALIZADA"
+    assert d["estado_registrado"]["filas"][0]["estado"] == "BAJA_SUSTANCIA"
+    assert d["estado_registrado"]["fuente"] == "ANALISIS_GRI"
+    assert "[" not in d["estado_registrado"]["texto"]  # nunca un marcador de cita
     assert guardable(caso, d) == []
 
 
@@ -265,7 +273,8 @@ async def test_pregunta_mixta_sin_evidencia_documental_deja_visible_el_estado_re
     assert (d["sin_evidencia"], d["motivo"], d["citas"], d["afirmaciones"]) == (True, "SIN_FRAGMENTOS", [], [])
     assert "GRI 1 (2021): Baja sustancia. Validación vigente" in d["mensaje"]
     assert "Evidencia documental: No hay documentos publicados de esa empresa, sector y año" in d["mensaje"]
-    assert caso.llm.llamadas == 0 and guardable(caso, d) == []
+    assert caso.llm.llamadas == 0
+    assert guardable(caso, d) == []
 
 
 async def test_si_las_afirmaciones_del_modelo_se_descartan_el_estado_sigue_visible_y_los_descartes_se_conservan(caso):
@@ -276,7 +285,8 @@ async def test_si_las_afirmaciones_del_modelo_se_descartan_el_estado_sigue_visib
     d = (await preguntar(caso, PREGUNTA_BRECHA)).json()
 
     assert (d["motivo"], d["afirmaciones_descartadas"]) == ("AFIRMACIONES_NO_VERIFICABLES", 1)  # la verificación de citas no se debilitó
-    assert "GRI 1 (2021): Baja sustancia" in d["mensaje"] and "El asistente no pudo respaldar ninguna afirmación" in d["mensaje"]
+    assert "GRI 1 (2021): Baja sustancia" in d["mensaje"]
+    assert "El asistente no pudo respaldar ninguna afirmación" in d["mensaje"]
 
 
 # ============================== 3. Vigencia y estados incompletos ==============================
@@ -289,7 +299,8 @@ async def test_si_la_validacion_perdio_vigencia_informa_el_estado_actual_y_aclar
 
     bloque = bloque_de(d)
     assert "GRI 1 (2021): OK. No cuenta con validación vigente: la última validación (n.º 1) perdió vigencia" in bloque
-    assert "cambiaron los estados" in bloque and "Validación vigente" not in bloque
+    assert "cambiaron los estados" in bloque
+    assert "Validación vigente" not in bloque
 
 
 async def asignar_nuevo_estado(caso, identidad: str, estado: str, version_fila: int = 1):
@@ -315,7 +326,8 @@ async def test_un_codigo_detectado_sin_estado_asignado_lo_dice(caso):
     d = (await preguntar(caso, PREGUNTA_ESTADO)).json()
 
     assert "GRI 1 (2021): figura en el análisis, pero no tiene estado asignado." in bloque_de(d)
-    assert "Baja sustancia" not in bloque_de(d) and "Sub-reportado" not in bloque_de(d)
+    assert "Baja sustancia" not in bloque_de(d)
+    assert "Sub-reportado" not in bloque_de(d)
     assert [(f["estandar"], f["estado"], f["estado_etiqueta"]) for f in d["estado_registrado"]["filas"]] == [("GRI 1 (2021)", None, None)]
 
 
@@ -337,12 +349,18 @@ async def test_gri_1_gri_13_y_gri_102_se_resuelven_cada_uno_con_su_propia_fila_r
     trece = bloque_de((await preguntar(caso, "¿Qué estado tiene GRI 13?")).json())
     ciento_dos = bloque_de((await preguntar(caso, "¿Qué estado tiene GRI 102?")).json())
 
-    assert "GRI 1 (2021): Baja sustancia" in uno and "GRI 13" not in uno and "GRI 102" not in uno
-    assert "GRI 13 (2022): OK" in trece and "GRI 1 (2021)" not in trece and "Baja sustancia" not in trece
-    assert "GRI 102 (edición sin resolver): Sub-reportado" in ciento_dos and "GRI 1 (2021)" not in ciento_dos
+    assert "GRI 1 (2021): Baja sustancia" in uno
+    assert "GRI 13" not in uno
+    assert "GRI 102" not in uno
+    assert "GRI 13 (2022): OK" in trece
+    assert "GRI 1 (2021)" not in trece
+    assert "Baja sustancia" not in trece
+    assert "GRI 102 (edición sin resolver): Sub-reportado" in ciento_dos
+    assert "GRI 1 (2021)" not in ciento_dos
     # La identidad ambigua no se resuelve arbitrariamente: si se pide una edición, no se le atribuye ese estado.
     con_edicion = bloque_de((await preguntar(caso, "¿Qué estado tiene GRI 102 (2016)?")).json())
-    assert "no hay una fila de esa edición" in con_edicion and "Sub-reportado" not in con_edicion
+    assert "no hay una fila de esa edición" in con_edicion
+    assert "Sub-reportado" not in con_edicion
 
 
 async def test_una_revelacion_con_sufijo_se_informa_como_el_estado_de_su_estandar_y_no_como_gri_1(caso):
@@ -351,7 +369,8 @@ async def test_una_revelacion_con_sufijo_se_informa_como_el_estado_de_su_estanda
     d = (await preguntar(caso, "¿Cuál es el estado de GRI 305-1?")).json()
 
     assert "GRI 305-1: el estado se registra por estándar (GRI 305), no por revelación." in d["mensaje"]
-    assert "GRI 305 (2016): OK" in d["mensaje"] and "GRI 1 (2021)" not in d["mensaje"]
+    assert "GRI 305 (2016): OK" in d["mensaje"]
+    assert "GRI 1 (2021)" not in d["mensaje"]
 
 
 # ============================== 5. Aislamiento por empresa, año y ambiente ==============================
@@ -366,10 +385,15 @@ async def test_el_estado_es_el_de_la_misma_empresa_anio_y_ambiente_de_la_consult
     otra = bloque_de((await preguntar(caso, PREGUNTA_ESTADO, empresa_id=str(caso.otra.id))).json())
     anterior = bloque_de((await preguntar(caso, PREGUNTA_ESTADO, anio=2024)).json())
 
-    assert "Camposol" in propia and "GRI 1 (2021): Baja sustancia. Validación vigente" in propia
+    assert "Camposol" in propia
+    assert "GRI 1 (2021): Baja sustancia. Validación vigente" in propia
     assert "OK" not in propia.replace("Sub-reportado", "")  # ni el del otro año ni el de qa
-    assert "Otra Energia" in otra and "GRI 1 (2021): Sub-reportado. No cuenta con validación vigente" in otra and "Baja sustancia" not in otra
-    assert ", 2024):" in anterior and "GRI 1 (2021): OK. No cuenta con validación vigente" in anterior and "Baja sustancia" not in anterior
+    assert "Otra Energia" in otra
+    assert "GRI 1 (2021): Sub-reportado. No cuenta con validación vigente" in otra
+    assert "Baja sustancia" not in otra
+    assert ", 2024):" in anterior
+    assert "GRI 1 (2021): OK. No cuenta con validación vigente" in anterior
+    assert "Baja sustancia" not in anterior
 
 
 async def test_el_permiso_el_sector_y_la_empresa_se_comprueban_antes_de_leer_el_estado(caso, monkeypatch):
@@ -383,12 +407,15 @@ async def test_el_permiso_el_sector_y_la_empresa_se_comprueban_antes_de_leer_el_
     monkeypatch.setattr(servicio, "consultar_analisis", espiar)
 
     mismatch = await preguntar(caso, PREGUNTA_ESTADO, sector="MINERIA")  # la empresa es ENERGIA
-    assert mismatch.status_code == 400 and mismatch.json()["error"]["code"] == "COMPANY_SECTOR_MISMATCH"
+    assert mismatch.status_code == 400
+    assert mismatch.json()["error"]["code"] == "COMPANY_SECTOR_MISMATCH"
     async with cliente_http(construir_app(caso, caso.superadmin)) as c:
         assert (await c.post(RUTA, json=cuerpo(caso, pregunta=PREGUNTA_ESTADO, sector="ENERGIA"))).status_code == 403
     async with cliente_http(construir_app(caso, None)) as c:
         assert (await c.post(RUTA, json=cuerpo(caso, pregunta=PREGUNTA_ESTADO, sector="ENERGIA"))).status_code == 401
-    assert lecturas == [] and caso.llm.llamadas == 0 and caso.embeddings.llamadas == 0
+    assert lecturas == []
+    assert caso.llm.llamadas == 0
+    assert caso.embeddings.llamadas == 0
 
     caso.devolver = []
     await preguntar(caso, PREGUNTA_ESTADO)
@@ -411,7 +438,9 @@ async def test_una_consulta_documental_sin_pedir_estado_no_lee_el_analisis_y_res
     finally:
         event.remove(Engine, "before_cursor_execute", registrar)
 
-    assert d["sin_evidencia"] is False and d["citas"] and d["mensaje"] is None  # idéntico a la respuesta anterior: sin bloque de estado
+    assert d["sin_evidencia"] is False
+    assert d["citas"]
+    assert d["mensaje"] is None  # idéntico a la respuesta anterior: sin bloque de estado
     assert {t for s in sentencias for t in re.findall(r"\b(analisis_gri_\w+|reportes_\w+)\b", s)} == set()
     assert any("documentos" in s for s in sentencias)
 
@@ -422,7 +451,8 @@ async def test_pedir_estado_sin_nombrar_un_codigo_no_consulta_el_analisis(caso):
 
     d = (await preguntar(caso, "¿Hay alguna brecha en la empresa?")).json()
 
-    assert d["motivo"] == "SIN_FRAGMENTOS" and "Estado registrado" not in d["mensaje"]
+    assert d["motivo"] == "SIN_FRAGMENTOS"
+    assert "Estado registrado" not in d["mensaje"]
 
 
 async def test_los_filtros_k_y_el_embedding_de_la_recuperacion_documental_no_cambian(caso):
@@ -465,8 +495,11 @@ async def test_si_el_analisis_esta_cambiando_no_se_pierde_la_parte_documental(ca
     r = await preguntar(caso, PREGUNTA_MIXTA)
 
     d = r.json()
-    assert r.status_code == 200 and d["sin_evidencia"] is False and d["citas"]
-    assert "no se pudo leer en este momento porque el análisis está cambiando" in d["mensaje"] and guardable(caso, d) == []
+    assert r.status_code == 200
+    assert d["sin_evidencia"] is False
+    assert d["citas"]
+    assert "no se pudo leer en este momento porque el análisis está cambiando" in d["mensaje"]
+    assert guardable(caso, d) == []
 
 
 async def test_con_muchos_codigos_el_mensaje_cabe_en_el_limite_del_historial_y_sigue_siendo_guardable(caso):
@@ -475,9 +508,11 @@ async def test_con_muchos_codigos_el_mensaje_cabe_en_el_limite_del_historial_y_s
 
     d = (await preguntar(caso, "¿Estado de GRI 1? ¿Estado de GRI 13? ¿Estado de GRI 102? ¿Estado de GRI 305? ¿Hay brecha?")).json()
 
-    assert len(d["mensaje"]) <= 1_000 and "se omiten 1 códigos más" in d["mensaje"]
+    assert len(d["mensaje"]) <= 1_000
+    assert "se omiten 1 códigos más" in d["mensaje"]
     assert d["mensaje"].count("\n- GRI ") == 3  # tres códigos con su estado; el cuarto se avisa, no se recorta
-    assert "Evidencia documental: No hay documentos publicados" in d["mensaje"] and guardable(caso, d) == []
+    assert "Evidencia documental: No hay documentos publicados" in d["mensaje"]
+    assert guardable(caso, d) == []
 
 
 # ============================== 8. Solo estado: se responde desde Análisis GRI SIN recursos documentales ==============================
@@ -570,7 +605,8 @@ async def test_una_pregunta_de_solo_estado_se_responde_con_los_recursos_document
     assert (d["sin_evidencia"], d["motivo"], d["busqueda_documental"]) == (False, None, "NO_REALIZADA")  # NO anuncia «no se encontró evidencia»
     assert (d["afirmaciones"], d["citas"], d["afirmaciones_descartadas"], d["mensaje"]) == ([], [], 0, None)  # el estado no es una cita
     assert d["respuesta"] == d["estado_registrado"]["texto"]  # un cliente antiguo lo muestra como respuesta
-    assert "GRI 1 (2021): Baja sustancia. Validación vigente (n.º 1" in d["respuesta"] and "[" not in d["respuesta"]
+    assert "GRI 1 (2021): Baja sustancia. Validación vigente (n.º 1" in d["respuesta"]
+    assert "[" not in d["respuesta"]
     assert guardable(caso, d) == []  # y es una respuesta válida para el historial
 
 
@@ -590,9 +626,12 @@ async def test_el_estado_de_solo_estado_conserva_empresa_anio_ambiente_sector_y_
     del superadmin.dependency_overrides[router_asistente.get_recursos_consulta]
     sesion_ausente = construir_app(caso, None)
 
-    assert "GRI 1 (2021): Baja sustancia. Validación vigente" in propia["respuesta"] and "OK" not in propia["respuesta"]
-    assert "Otra Energia" in otra["respuesta"] and "Sub-reportado" in otra["respuesta"]
-    assert ", 2024):" in anterior["respuesta"] and "GRI 1 (2021): OK" in anterior["respuesta"]
+    assert "GRI 1 (2021): Baja sustancia. Validación vigente" in propia["respuesta"]
+    assert "OK" not in propia["respuesta"]
+    assert "Otra Energia" in otra["respuesta"]
+    assert "Sub-reportado" in otra["respuesta"]
+    assert ", 2024):" in anterior["respuesta"]
+    assert "GRI 1 (2021): OK" in anterior["respuesta"]
     assert (inexistente.status_code, inexistente.json()["error"]["code"]) == (404, "COMPANY_NOT_FOUND")
     assert (otro_sector.status_code, otro_sector.json()["error"]["code"]) == (400, "COMPANY_SECTOR_MISMATCH")
     async with cliente_http(superadmin) as c:
@@ -627,8 +666,10 @@ async def test_la_misma_caida_sigue_bloqueando_las_preguntas_documentales_y_mixt
 
     r = await preguntar_en(app, caso, pregunta)
 
-    assert (r.status_code, r.json()["error"]["code"]) == esperado  # sin respuesta parcial y sin convertir el error en un 200
-    assert "Estado registrado" not in r.text and "estado_registrado" not in r.text
+    observado = (r.status_code, r.json()["error"]["code"])
+    assert observado == esperado  # sin respuesta parcial y sin convertir el error en un 200
+    assert "Estado registrado" not in r.text
+    assert "estado_registrado" not in r.text
     assert (caso.embeddings.llamadas, caso.llm.llamadas, caso.busquedas) == (0, 0, [])
 
 
@@ -649,10 +690,14 @@ async def test_no_se_amplia_la_clasificacion_estas_preguntas_conservan_el_flujo_
 
     d = (await preguntar(caso, pregunta)).json()
 
-    assert caso.embeddings.llamadas == 1 and len(caso.busquedas) == 1 and caso.llm.llamadas == 1  # la búsqueda y el modelo SÍ corren
-    assert d["busqueda_documental"] == "REALIZADA" and d["sin_evidencia"] is True  # su resultado sigue siendo el documental
+    assert caso.embeddings.llamadas == 1
+    assert len(caso.busquedas) == 1
+    assert caso.llm.llamadas == 1  # la búsqueda y el modelo SÍ corren
+    assert d["busqueda_documental"] == "REALIZADA"
+    assert d["sin_evidencia"] is True  # su resultado sigue siendo el documental
     if "GRI" in pregunta:
-        assert d["estado_registrado"] is not None and d["respuesta"] == ""  # el estado acompaña, no sustituye
+        assert d["estado_registrado"] is not None
+        assert d["respuesta"] == ""  # el estado acompaña, no sustituye
     else:
         assert d["estado_registrado"] is None  # «¿Y qué estado tiene ese?»: sin código no se lee ningún estado
 
@@ -689,7 +734,9 @@ async def test_solo_estado_no_depende_de_que_los_proveedores_funcionen(caso):
 
     r = await preguntar(caso, SOLO_ESTADO)
 
-    assert r.status_code == 200 and r.json()["busqueda_documental"] == "NO_REALIZADA" and caso.llm.llamadas == 0
+    assert r.status_code == 200
+    assert r.json()["busqueda_documental"] == "NO_REALIZADA"
+    assert caso.llm.llamadas == 0
 
 
 async def test_si_el_analisis_esta_cambiando_una_pregunta_de_solo_estado_propaga_el_409_sin_otra_fuente(caso, monkeypatch):
@@ -709,7 +756,9 @@ async def test_el_estado_de_solo_estado_nunca_es_una_cita_ni_una_conclusion_sobr
     d = (await preguntar(caso, SOLO_ESTADO)).json()
 
     e = d["estado_registrado"]
-    assert e["fuente"] == "ANALISIS_GRI" and e["codigos_solicitados"] == ["GRI 1"] and d["citas"] == []
+    assert e["fuente"] == "ANALISIS_GRI"
+    assert e["codigos_solicitados"] == ["GRI 1"]
+    assert d["citas"] == []
     assert [(f["identidad"], f["estado"], f["estado_etiqueta"]) for f in e["filas"]] == [("1:2021", "BAJA_SUSTANCIA", "Baja sustancia")]
     assert (e["validacion_vigente"], e["validacion"]["numero"], e["validacion"]["motivos_no_vigente"]) == (True, 1, [])
     for conclusion in ("hay una brecha", "no hay brecha", "existe una brecha", "sin brecha", "cumple"):
@@ -725,6 +774,10 @@ async def test_una_pregunta_que_necesita_contexto_no_es_solo_estado_y_la_consult
 
     d = (await preguntar(caso, seguimiento)).json()
 
-    assert solo_estado(seguimiento, 2025) is None and codigos_para_estado(seguimiento) == []
+    assert solo_estado(seguimiento, 2025) is None
+    assert codigos_para_estado(seguimiento) == []
     assert caso.embeddings.llamadas == 1  # la pregunta literal se envió al RAG tal cual
-    assert d["motivo"] == "SIN_FRAGMENTOS" and d["estado_registrado"] is None and d["mensaje"] is not None and "Estado registrado" not in d["mensaje"]
+    assert d["motivo"] == "SIN_FRAGMENTOS"
+    assert d["estado_registrado"] is None
+    assert d["mensaje"] is not None
+    assert "Estado registrado" not in d["mensaje"]
