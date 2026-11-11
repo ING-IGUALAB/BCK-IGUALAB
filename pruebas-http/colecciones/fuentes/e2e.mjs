@@ -206,24 +206,86 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
       ],
     }),
     peticion({
-      nombre: 'B4 Ingerir el Markdown sintético → 201 COMPLETADO y publicado', metodo: 'POST', ruta: '/documentos/operaciones/{{b_operacion_id}}/ingesta', token: 'b_token_super',
-      descripcion: 'Espera síncronamente hasta que el documento queda COMPLETADO y PUBLICADO (usa OCI real para los embeddings de una muestra mínima). No se reintenta.',
+      nombre: 'B4 Ingerir el Markdown sintético → 202 CONFIRMACION_PENDIENTE (doble check tras el análisis)', metodo: 'POST', ruta: '/documentos/operaciones/{{b_operacion_id}}/ingesta', token: 'b_token_super',
+      descripcion: 'Doble check de ingesta: la carga espera síncronamente hasta que el análisis GRI/sanciones termina (usa OCI real para los embeddings de una muestra mínima) y entonces se PAUSA: responde 202 con la operación en CONFIRMACION_PENDIENTE y el resumen del análisis. Nada queda publicado hasta que el SuperAdmin confirma (B4d). No se reintenta.',
       formulario: [
         { key: 'archivo', src: 'muestras/b-reporte.md' }, { key: 'empresa_id', value: '{{b_empresa_id}}' },
         { key: 'anio', value: '{{anio_b}}' }, { key: 'tipo_documento', value: 'REPORTE_SOSTENIBILIDAD_GRI' },
       ],
       pruebas: [
+        T.estado(202),
+        T.prueba('OperacionResponse: CONFIRMACION_PENDIENTE, ni terminal ni exitosa, con el documento reservado y los fragmentos procesados', (j, v) => {
+          pm.expect(j.estado).to.equal('CONFIRMACION_PENDIENTE');
+          pm.expect(j.exitosa).to.equal(false);
+          pm.expect(j.terminal).to.equal(false);
+          pm.expect(j.confirmacion_pendiente).to.equal(true);
+          pm.expect(j.operacion_id).to.equal(v('b_operacion_id'));
+          pm.expect(esUuid(j.documento_id)).to.equal(true);
+          pm.expect(j.etapa).to.equal('CONFIRMANDO');
+          pm.expect(j.error).to.equal(null);
+          pm.expect(j.publicacion_reintentable).to.equal(false);
+          pm.expect(j.fragmentos_total).to.be.above(0);
+          pm.expect(j.fragmentos_procesados).to.equal(j.fragmentos_total);
+        }),
+        T.prueba('el resultado del análisis NO se anuncia como desenlace mientras falta la confirmación', (j) => {
+          pm.expect(j.resultado_analisis).to.equal(null);
+        }),
+        T.prueba('resumen_confirmacion: CON_HALLAZGOS, tres grupos GRI catalogados, ninguna sanción y el mensaje para decidir', (j) => {
+          const r = j.resumen_confirmacion;
+          pm.expect(Object.keys(r)).to.have.members(['resultado', 'referencias_gri', 'sanciones', 'motivos', 'advertencias', 'mensaje']);
+          pm.expect(r.resultado).to.equal('CON_HALLAZGOS');
+          pm.expect(r.referencias_gri).to.equal(3);
+          pm.expect(r.sanciones).to.equal(0);
+          pm.expect(r.motivos).to.include('referencias_gri_catalogadas');
+          pm.expect(r.motivos).to.not.include('sanciones_economicas');
+          pm.expect(r.advertencias).to.be.an('array');
+          pm.expect(r.mensaje).to.be.a('string').and.not.empty;
+        }),
+        // El documento pendiente NO se guarda como `b_documento_id`: esa variable solo existe cuando la confirmación (B4d) lo completa.
+        T.guardar((j, set) => {
+          if (pm.response.code === 202 && j.estado === 'CONFIRMACION_PENDIENTE') { set('b_pendiente_id', j.documento_id); set('b_fragmentos_total', j.fragmentos_total); }
+        }),
+      ],
+    }),
+    peticion({
+      nombre: 'B4b Mientras falta la confirmación la operación sigue pendiente y el documento NO está disponible para RAG', ruta: '/documentos/{{b_pendiente_id}}', token: 'b_token_super',
+      descripcion: 'Estado previo a confirmar: el documento existe (reserva activa) pero no está completado ni publicado.',
+      pruebas: [
+        T.estado(200),
+        T.prueba('documento de la operación, en CONFIRMACION_PENDIENTE y fuera del corpus consultable', (j, v) => {
+          pm.expect(j.id).to.equal(v('b_pendiente_id'));
+          pm.expect(j.operacion_id).to.equal(v('b_operacion_id'));
+          pm.expect(j.estado).to.equal('CONFIRMACION_PENDIENTE');
+          pm.expect(j.disponible_para_rag).to.equal(false);
+          pm.expect(j.resultado_analisis).to.equal(null);
+          pm.expect(j.sha256).to.equal(v('sha256_b'));
+        }),
+      ],
+    }),
+    peticion({
+      nombre: 'B4c Confirmar sin sesión → 401 (la decisión exige una sesión de SuperAdmin)', metodo: 'POST', ruta: '/documentos/operaciones/{{b_operacion_id}}/confirmar',
+      requiere: ['b_pendiente_id'],
+      pruebas: [T.sinSesion()],
+    }),
+    peticion({
+      nombre: 'B4d El SuperAdmin confirma (Continuar) → 201 COMPLETADO y publicado', metodo: 'POST', ruta: '/documentos/operaciones/{{b_operacion_id}}/confirmar', token: 'b_token_super',
+      descripcion: 'Endpoint real del doble check: retoma la ingesta pausada (completar + publicar los fragmentos ya generados) sin reanalizar ni volver a pedir embeddings. Solo se envía si B4 dejó la operación en CONFIRMACION_PENDIENTE. No se reintenta.',
+      requiere: ['b_pendiente_id'],
+      pruebas: [
         T.estado(201),
-        T.prueba('ResultadoIngestaResponse: COMPLETADO, exitosa, terminal, con documento_id y fragmentos publicados', (j, v) => {
+        T.prueba('ResultadoIngestaResponse: COMPLETADO, exitosa, terminal, el MISMO documento y sus fragmentos publicados', (j, v) => {
           pm.expect(j.estado).to.equal('COMPLETADO');
           pm.expect(j.exitosa).to.equal(true);
           pm.expect(j.terminal).to.equal(true);
           pm.expect(j.operacion_id).to.equal(v('b_operacion_id'));
-          pm.expect(esUuid(j.documento_id)).to.equal(true);
+          pm.expect(j.documento_id).to.equal(v('b_pendiente_id'));
           pm.expect(j.etapa).to.equal('FINALIZADO');
           pm.expect(j.error).to.equal(null);
           pm.expect(j.publicacion_reintentable).to.equal(false);
+          pm.expect(j.confirmacion_pendiente).to.equal(false);
+          pm.expect(j.resumen_confirmacion).to.equal(null);
           pm.expect(j.fragmentos).to.be.above(0);
+          pm.expect(j.fragmentos).to.equal(Number(v('b_fragmentos_total')));
           pm.expect(j.fragmentos_procesados).to.equal(j.fragmentos_total);
         }),
         T.prueba('el análisis encontró referencias GRI catalogadas (CON_HALLAZGOS) y ninguna sanción', (j) => {
@@ -231,11 +293,20 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
           pm.expect(j.motivos).to.include('referencias_gri_catalogadas');
           pm.expect(j.motivos).to.not.include('sanciones_economicas');
         }),
-        T.guardar((j, set) => { set('b_documento_id', j.documento_id); set('b_fragmentos', j.fragmentos); }),
+        // `b_documento_id` solo existe si la confirmación COMPLETÓ el documento: lo que depende de él queda bloqueado en caso contrario.
+        T.guardar((j, set) => {
+          if (pm.response.code === 201 && j.estado === 'COMPLETADO' && j.exitosa === true) { set('b_documento_id', j.documento_id); set('b_fragmentos', j.fragmentos); }
+        }),
       ],
     }),
     peticion({
+      nombre: 'B4e Confirmar de nuevo → 409 CONFIRMATION_NOT_PENDING (la confirmación no se repite)', metodo: 'POST', ruta: '/documentos/operaciones/{{b_operacion_id}}/confirmar', token: 'b_token_super',
+      requiere: ['b_documento_id'],
+      pruebas: [T.error(409, 'CONFIRMATION_NOT_PENDING')],
+    }),
+    peticion({
       nombre: 'B5 Consultar la operación → COMPLETADO (publicación confirmada)', ruta: '/documentos/operaciones/{{b_operacion_id}}', token: 'b_token_super',
+      requiere: ['b_documento_id'],
       pruebas: [
         T.estado(200),
         T.prueba('la operación confirma el éxito y el mismo documento', (j, v) => {
@@ -245,6 +316,7 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
           pm.expect(j.documento_id).to.equal(v('b_documento_id'));
           pm.expect(j.fragmentos_total).to.equal(Number(v('b_fragmentos')));
           pm.expect(j.resultado_analisis).to.equal('CON_HALLAZGOS');
+          pm.expect(j.confirmacion_pendiente).to.equal(false);
         }),
       ],
     }),
@@ -284,10 +356,13 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
             });
           });
         }),
+        // Marcador para C, F y el análisis: el documento quedó COMPLETADO y consultable. Sin él, esos pasos se bloquean en vez de enviarse.
+        T.guardar((j, set) => { if (pm.response.code === 200 && j.estado === 'COMPLETADO' && j.disponible_para_rag === true) set('b_documento_listo', 'si'); }),
       ],
     }),
     peticion({
       nombre: 'B7 El listado de la empresa contiene ese único documento', ruta: '/documentos', consulta: { empresa_id: '{{b_empresa_id}}' }, token: 'b_token_super',
+      requiere: ['b_documento_id'],
       pruebas: [
         T.estado(200),
         T.prueba('un solo documento COMPLETADO, el de B4', (j, v) => {
@@ -303,6 +378,7 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
     crearAdministrador('B8 Crear un Administrador de prueba habilitado (B)', 'b', 'B'),
     loginAdministrador('B9 Autenticar al Administrador de prueba', 'b'),
     peticion({
+      requiere: ['b_documento_listo'],
       nombre: 'B10 Consultar el análisis de la empresa/año: identidades, evidencias y procedencia', ruta: '/analisis-gri/empresas/{{b_empresa_id}}/anios/{{anio_b}}', token: 'b_token_admin',
       pruebas: [
         T.estado(200),
@@ -350,6 +426,7 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
     }),
     ...ESTADOS_B.map((estado, i) => asignarEstado(i + 1, estado)),
     peticion({
+      requiere: ['b_estado_3'],
       nombre: 'B14 Consultar de nuevo: versión y huella_documentos actuales y puntaje calculado', ayudantes: [AYUDANTE_PUNTAJE], ruta: '/analisis-gri/empresas/{{b_empresa_id}}/anios/{{anio_b}}', token: 'b_token_admin',
       pruebas: [
         T.estado(200),
@@ -373,7 +450,8 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
           pm.expect(j.puntaje.filas_contadas).to.equal(esperado.filas);
           pm.expect(j.puntaje.valor).to.be.closeTo(esperado.valor, 1e-9);
         }),
-        T.guardar((j, set) => { set('b_version', j.version); set('b_huella', j.huella_documentos); }),
+        // Solo un análisis LISTO_PARA_VALIDAR deja versión y huella para B15: en otro estado la validación se bloquea.
+        T.guardar((j, set) => { if (j.estado_flujo === 'LISTO_PARA_VALIDAR') { set('b_version', j.version); set('b_huella', j.huella_documentos); } }),
       ],
     }),
     peticion({
@@ -403,9 +481,12 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
           pm.expect(j.validacion.puntaje_suma).to.equal(esperado.suma);
           pm.expect(j.validacion.puntaje_filas).to.equal(esperado.filas);
         }),
+        // Marcador para E (reportes): el análisis quedó VALIDADO y habilita el reporte.
+        T.guardar((j, set) => { if (pm.response.code === 201 && j.estado_flujo === 'VALIDADO' && j.habilita_reporte === true) set('b_analisis_validado', 'si'); }),
       ],
     }),
     peticion({
+      requiere: ['b_estado_3'],
       nombre: 'B16 Consultar el historial: tres cambios con su autor y su versión', ruta: '/analisis-gri/empresas/{{b_empresa_id}}/anios/{{anio_b}}/historial', token: 'b_token_admin',
       pruebas: [
         T.estado(200),
@@ -425,6 +506,7 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
       ],
     }),
     peticion({
+      requiere: ['b_analisis_validado'],
       nombre: 'B17 Consultar tras validar: la validación sigue vigente', ruta: '/analisis-gri/empresas/{{b_empresa_id}}/anios/{{anio_b}}', token: 'b_token_admin',
       pruebas: [
         T.estado(200),
@@ -443,6 +525,7 @@ const flujoB = carpeta('B. Ingesta y validación GRI',
       json: { estado: 'SUB_REPORTADO', version_fila_esperada: 0 }, pruebas: [T.error(409, 'ANALYSIS_ROW_VERSION_CONFLICT')],
     }),
     peticion({
+      requiere: ['b_analisis_validado'],
       nombre: 'B19 Conflicto: validar de nuevo la misma versión → 409 ANALYSIS_ALREADY_VALIDATED', metodo: 'POST', ruta: '/analisis-gri/empresas/{{b_empresa_id}}/anios/{{anio_b}}/validacion', token: 'b_token_admin',
       jsonCrudo: '{"version": {{b_version}}, "huella_documentos": "{{b_huella}}"}', pruebas: [T.error(409, 'ANALYSIS_ALREADY_VALIDATED')],
     }),
@@ -454,6 +537,7 @@ const flujoC = carpeta('C. Rechazo de duplicado por contenido',
   'Reenvía EXACTAMENTE los mismos bytes del documento de B con otro nombre de archivo y otro año (así solo coincide el SHA-256, no empresa/año/tipo). Requiere a B: ejecutar `--carpeta B --carpeta C`. No cierra los datos de B: lo hace Z, al final.',
   [
     peticion({
+      requiere: ['b_documento_listo'],
       nombre: 'C1 Crear otra operación de ingesta', metodo: 'POST', ruta: '/documentos/operaciones', token: 'b_token_super',
       descripcion: 'Reutiliza la sesión SuperAdmin de B (misma corrida B→C).',
       pruebas: [
@@ -463,6 +547,7 @@ const flujoC = carpeta('C. Rechazo de duplicado por contenido',
       ],
     }),
     peticion({
+      requiere: ['b_documento_listo'],
       nombre: 'C2 Subir los mismos bytes con otro nombre y otro año → 409 DOCUMENT_ALREADY_INGESTED por sha256', metodo: 'POST', ruta: '/documentos/operaciones/{{c_operacion_id}}/ingesta', token: 'b_token_super',
       descripcion: 'Archivo muestras/c-copia.md: bytes idénticos a muestras/b-reporte.md (el ejecutor verifica el SHA-256 de ambos antes de empezar). Año distinto → combinación empresa/año/tipo libre.',
       formulario: [
@@ -484,6 +569,7 @@ const flujoC = carpeta('C. Rechazo de duplicado por contenido',
       ],
     }),
     peticion({
+      requiere: ['b_documento_listo'],
       nombre: 'C3 La operación del intento refleja el rechazo (RECHAZADA, sin documento)', ruta: '/documentos/operaciones/{{c_operacion_id}}', token: 'b_token_super',
       pruebas: [
         T.estado(200),
@@ -499,6 +585,7 @@ const flujoC = carpeta('C. Rechazo de duplicado por contenido',
       ],
     }),
     peticion({
+      requiere: ['b_documento_listo'],
       nombre: 'C4 El documento original sigue COMPLETADO y disponible', ruta: '/documentos/{{b_documento_id}}', token: 'b_token_super',
       pruebas: [
         T.estado(200),
@@ -513,6 +600,7 @@ const flujoC = carpeta('C. Rechazo de duplicado por contenido',
       ],
     }),
     peticion({
+      requiere: ['b_documento_listo'],
       nombre: 'C5 El listado de la empresa sigue teniendo UN documento (el intento no creó otro)', ruta: '/documentos', consulta: { empresa_id: '{{b_empresa_id}}' }, token: 'b_token_super',
       pruebas: [
         T.estado(200),
@@ -524,6 +612,7 @@ const flujoC = carpeta('C. Rechazo de duplicado por contenido',
       ],
     }),
     peticion({
+      requiere: ['b_documento_listo'],
       nombre: 'C6 Tampoco hay documentos en el año del intento (ni COMPLETADO ni de otro estado)', ruta: '/documentos', consulta: { empresa_id: '{{b_empresa_id}}', anio: '{{anio_c}}' }, token: 'b_token_super',
       pruebas: [T.estado(200), T.prueba('cero documentos', (j) => { pm.expect(j.total).to.equal(0); pm.expect(j.items).to.deep.equal([]); })],
     }),
@@ -622,6 +711,7 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
   'Sobre el análisis VALIDADO de B: un Administrador genera el reporte, lo lista, descarga el PDF y pide la vista previa; un SuperAdmin no puede (403); sin sesión 401; y una empresa sin análisis validado se rechaza (409). Requiere a B.',
   [
     peticion({
+      requiere: ['b_analisis_validado'],
       nombre: 'E1 Generar el reporte del análisis validado → 201', metodo: 'POST', ruta: '/reportes', token: 'b_token_admin',
       json: { empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
       pruebas: [
@@ -642,6 +732,7 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
       ],
     }),
     peticion({
+      requiere: ['e_reporte_id'],
       nombre: 'E2 El historial contiene el reporte recién generado', ruta: '/reportes', token: 'b_token_admin',
       pruebas: [
         T.estado(200),
@@ -665,6 +756,7 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
       ],
     }),
     peticion({
+      requiere: ['b_analisis_validado', 'e_reporte_id'],
       nombre: 'E3b Repetir la generación con la misma validación reutiliza la versión → 200 reutilizado', metodo: 'POST', ruta: '/reportes', token: 'b_token_admin',
       json: { empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
       descripcion: 'Cada versión es inmutable (RN-041) y la emisión es idempotente por validación: sin una validación nueva no se crea otra versión; se devuelve la existente.',
@@ -679,6 +771,7 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
       ],
     }),
     peticion({
+      requiere: ['e_reporte_id'],
       nombre: 'E3c El historial conserva una única versión (la original) tras repetir la solicitud (mismo id y sha256)', ruta: '/reportes', token: 'b_token_admin',
       pruebas: [
         T.estado(200),
@@ -691,6 +784,7 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
       ],
     }),
     peticion({
+      requiere: ['b_analisis_validado', 'e_reporte_id'],
       nombre: 'E3d Última emisión de la empresa/año: demostrablemente actualizada', ruta: '/reportes/vigente?empresa_id={{b_empresa_id}}&anio={{anio_b}}', token: 'b_token_admin',
       descripcion: 'reporte_actualizado es true solo si se demuestra que la versión respalda la última validación Y esta sigue vigente.',
       pruebas: [
@@ -708,6 +802,7 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
       ],
     }),
     peticion({
+      requiere: ['b_analisis_validado', 'e_reporte_id'],
       nombre: 'E3e Descargar el reporte actualizado → application/pdf (misma emisión)', ruta: '/reportes/vigente/archivo?empresa_id={{b_empresa_id}}&anio={{anio_b}}', token: 'b_token_admin',
       pruebas: [
         T.estado(200),
@@ -718,6 +813,7 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
       ],
     }),
     peticion({
+      requiere: ['b_analisis_validado'],
       nombre: 'E4 Vista previa del reporte (misma plantilla, sin guardar) → application/pdf', metodo: 'POST', ruta: '/reportes/vista-previa', token: 'b_token_admin',
       json: { empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
       pruebas: [
@@ -760,17 +856,25 @@ const flujoF = carpeta('F. Asistente de IA (RAG)',
   'Sobre el documento publicado de B: un Administrador consulta al asistente y recibe respuesta con fuentes verificables (el caso positivo exige evidencia); un año sin documentos declara la ausencia de evidencia; sin sector 422; un SuperAdmin no puede (403); sin sesión 401. Requiere a B y OCI+LLM configurados.',
   [
     peticion({
+      requiere: ['b_documento_listo'],
       nombre: 'F1 Consulta positiva con sector, empresa y año de B → respuesta CON evidencia verificable', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_admin',
       descripcion: 'Caso positivo: la muestra de B dice que el consumo energético se reporta según GRI 302-1, así que el asistente DEBE responder con fuentes. Una respuesta «sin evidencia» NO es éxito aquí (la ausencia de evidencia se prueba en F1d). Depende de que OCI y el proveedor de chat respondan; si el modelo no respalda su respuesta, el caso falla a propósito.',
       json: { pregunta: '¿Según qué estándar GRI se reporta el consumo energético de la organización?', sector: 'ENERGIA', empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
       pruebas: [
         T.estado(200),
-        T.prueba('ConsultaResponse: respuesta, afirmaciones, citas, bandera de evidencia, motivo, mensaje y descartadas', (j) => {
-          pm.expect(Object.keys(j)).to.have.members(['respuesta', 'afirmaciones', 'citas', 'sin_evidencia', 'motivo', 'mensaje', 'afirmaciones_descartadas']);
+        T.prueba('ConsultaResponse: respuesta, afirmaciones, citas, bandera de evidencia, motivo, mensaje, descartadas, estado registrado y búsqueda documental', (j) => {
+          pm.expect(Object.keys(j)).to.have.members([
+            'respuesta', 'afirmaciones', 'citas', 'sin_evidencia', 'motivo', 'mensaje', 'afirmaciones_descartadas', 'estado_registrado', 'busqueda_documental',
+          ]);
           pm.expect(j.respuesta).to.be.a('string');
           pm.expect(j.afirmaciones).to.be.an('array');
           pm.expect(j.citas).to.be.an('array');
           pm.expect(j.sin_evidencia).to.be.a('boolean');
+          pm.expect(j.afirmaciones_descartadas).to.be.a('number');
+        }),
+        T.prueba('pregunta documental (no pide el estado de un código GRI): la búsqueda se realizó y no se adjunta estado registrado', (j) => {
+          pm.expect(j.busqueda_documental).to.equal('REALIZADA');
+          pm.expect(j.estado_registrado).to.equal(null);
         }),
         T.prueba('hay evidencia: «sin evidencia» no cuenta como éxito del caso positivo', (j) => {
           pm.expect(j.sin_evidencia, 'se esperaba una respuesta con evidencia; motivo informado: ' + j.motivo).to.equal(false);

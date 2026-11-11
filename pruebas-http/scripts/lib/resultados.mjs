@@ -6,6 +6,10 @@
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+/** Prefijo de la prueba con que la guarda de dependencias de las colecciones registra una petición NO enviada (el mismo texto
+ *  que `PREFIJO_BLOQUEADA` de colecciones/fuentes/dsl.mjs, que no se copia a la imagen: la colección viaja ya generada). */
+export const PREFIJO_BLOQUEADA = 'BLOQUEADA';
+
 export function crearRegistro(directorio) {
   mkdirSync(directorio, { recursive: true });
   const archivo = join(directorio, 'consola.log');
@@ -33,7 +37,7 @@ export function escribirResumen({ directorio, contexto, peticiones, estadisticas
   const resumen = { ...contexto, veredicto, estadisticas, fallos, peticiones, datos_sinteticos_creados: datos };
   writeFileSync(join(directorio, 'resumen.json'), `${JSON.stringify(resumen, null, 2)}\n`);
   const filas = peticiones.map((p) => {
-    const marca = p.aserciones_fallidas === 0 && p.estado_http !== null ? 'OK' : 'FALLA';
+    const marca = p.bloqueada ? 'BLOQUEADA' : p.aserciones_fallidas === 0 && p.estado_http !== null ? 'OK' : 'FALLA';
     return `| ${marca} | ${p.carpeta} | ${p.nombre.replaceAll('|', '/')} | ${p.metodo} | ${p.ruta} | ${p.estado_http ?? '—'} | ${p.milisegundos} | ${p.aserciones_total - p.aserciones_fallidas}/${p.aserciones_total} |`;
   });
   const lineas = [
@@ -42,7 +46,7 @@ export function escribirResumen({ directorio, contexto, peticiones, estadisticas
     `- Veredicto: **${veredicto}**`,
     `- Identificador de ejecución: \`${contexto.run_id}\``,
     `- Backend: \`${contexto.host}\``,
-    `- Peticiones: ${estadisticas.peticiones_ejecutadas}/${estadisticas.peticiones_esperadas} · aserciones: ${estadisticas.aserciones_total} (fallidas: ${estadisticas.aserciones_fallidas})`,
+    `- Peticiones: ${estadisticas.peticiones_ejecutadas}/${estadisticas.peticiones_esperadas}${estadisticas.peticiones_bloqueadas ? ` (bloqueadas, no enviadas: ${estadisticas.peticiones_bloqueadas})` : ''} · aserciones: ${estadisticas.aserciones_total} (fallidas: ${estadisticas.aserciones_fallidas})`,
     `- Duración: ${(estadisticas.duracion_ms / 1000).toFixed(1)} s`,
     '',
     ...(fallos.length ? ['## Fallos', '', ...fallos.map((f) => `- **${f.peticion}** — ${f.prueba}: ${f.mensaje}`), ''] : []),
