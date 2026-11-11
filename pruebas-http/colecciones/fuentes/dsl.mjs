@@ -93,18 +93,56 @@ pm.test('401 anuncia el esquema Bearer', () => pm.expect(pm.response.headers.get
   },
 };
 
+/** Prefijo de la prueba que registra una petición NO enviada por depender de un paso previo fallido (lo reconoce el ejecutor). */
+export const PREFIJO_BLOQUEADA = 'BLOQUEADA';
+
+/** Nombres de las `{{variables}}` que aparecen en los textos dados (ruta, consulta, cuerpo, cabeceras…), sin repetir. */
+export function variablesReferenciadas(textos) {
+  const nombres = new Set();
+  for (const texto of textos) {
+    for (const coincidencia of String(texto ?? '').matchAll(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g)) nombres.add(coincidencia[1]);
+  }
+  return [...nombres];
+}
+
+/**
+ * Guarda de dependencias (script previo del sandbox). Si alguna variable que la petición necesita no tiene valor —porque el paso
+ * que debía producirla falló—, la petición NO se envía (no viaja ningún `{{marcador}}` sin resolver): se registra una prueba
+ * FALLIDA «BLOQUEADA…» con los NOMBRES de las variables (nunca sus valores) y se omite el envío. El resultado global sigue fallido.
+ */
+const guardaDeDependencias = (nombres) => `{
+  const faltantes = ${JSON.stringify(nombres)}.filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });
+  if (faltantes.length) {
+    pm.test('${PREFIJO_BLOQUEADA}: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {
+      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));
+    });
+    pm.execution.skipRequest();
+  }
+}`;
+
 /**
  * Una petición. Campos:
  *  nombre, descripcion, metodo, ruta (con {{variables}}), consulta {k: v}, token (variable con el JWT) o cabeceras,
  *  json (objeto) | jsonCrudo (texto con {{variables}} sin comillas) | formulario [{key, value} | {key, src}],
- *  previo (función `(v, set) => {...}` del sandbox), pruebas (array de código de T.*).
+ *  previo (función `(v, set) => {...}` del sandbox), pruebas (array de código de T.*),
+ *  requiere (variables que deben existir además de las que la petición referencia: p. ej. el marcador que deja un paso previo
+ *  al comprobar que su resultado sirve). Toda variable referenciada o requerida sin valor BLOQUEA la petición (ver la guarda).
  */
 export function peticion(def) {
   const {
     nombre, descripcion = '', metodo = 'GET', ruta, consulta, token, cabeceras = {}, json, jsonCrudo, formulario, previo, pruebas = [], ayudantes = [],
+    requiere = [],
   } = def;
   if (!nombre || !ruta) throw new Error(`Petición sin nombre o ruta: ${JSON.stringify(def)}`);
   if (pruebas.length === 0) throw new Error(`La petición «${nombre}» no tiene aserciones.`);
+  const dependencias = [...new Set([
+    ...requiere,
+    ...(token ? [token] : []),
+    ...variablesReferenciadas([
+      ruta, ...Object.values(consulta ?? {}), ...Object.values(cabeceras), jsonCrudo ?? (json !== undefined ? JSON.stringify(json) : ''),
+      ...(formulario ?? []).map((campo) => campo.value ?? ''),
+    ]),
+  ])];
   const header = [{ key: 'Accept', value: 'application/json' }];
   if (token) header.push({ key: 'Authorization', value: `Bearer {{${token}}}` });
   for (const [k, valor] of Object.entries(cabeceras)) header.push({ key: k, value: valor });
@@ -120,7 +158,11 @@ export function peticion(def) {
   }
   if (descripcion) request.description = descripcion;
   const event = [];
-  if (previo) event.push({ listen: 'prerequest', script: aScript([`const v = (n) => pm.variables.get(n); const set = (n, x) => { pm.collectionVariables.set(n, String(x)); if (!/token|pwd|password/i.test(n)) { pm.environment.set(n, String(x)); } };`, invocar(previo, 'v, set')]) });
+  const lineasPrevias = [];
+  if (previo) lineasPrevias.push(`const v = (n) => pm.variables.get(n); const set = (n, x) => { pm.collectionVariables.set(n, String(x)); if (!/token|pwd|password/i.test(n)) { pm.environment.set(n, String(x)); } };`, invocar(previo, 'v, set'));
+  // La guarda va DESPUÉS del script previo: una variable que éste fija cuenta como disponible.
+  if (dependencias.length) lineasPrevias.push(guardaDeDependencias(dependencias));
+  if (lineasPrevias.length) event.push({ listen: 'prerequest', script: aScript(lineasPrevias) });
   event.push({ listen: 'test', script: aScript([PRELUDIO, ...ayudantes, ...pruebas]) });
   return { name: nombre, event, request };
 }

@@ -37,7 +37,7 @@ antes de cualquier servicio externo. **Nunca transfiere el rol SuperAdmin** (sol
 | Flujo | Pasos | Qué demuestra |
 |---|---|---|
 | **A** Administración y revocación de acceso | SuperAdmin → crea Administrador → éste inicia sesión y accede → SuperAdmin lo deshabilita → **la misma petición con el token anterior da 401** | La revocación es inmediata. Solo usa la cuenta que crea; no transfiere el rol. |
-| **B** Ingesta y validación GRI | Empresa activa → operación → ingesta de un Markdown sintético (**OCI real**, muestra mínima) → COMPLETADO + publicado → Administrador consulta el análisis → asigna estado a cada identidad devuelta → consulta versión y huella actuales → valida | Puntaje esperado calculado desde los estados **realmente asignados**; validación vigente; historial; citas y procedencia exactas (`texto[inicio:fin]`). No usa sanciones: **no depende de CP37**. **Deja activas la empresa y la cuenta del Administrador** para C, E, F y G; las cierra Z. |
+| **B** Ingesta y validación GRI | Empresa activa → operación → ingesta de un Markdown sintético (**OCI real**, muestra mínima) → **`202 CONFIRMACION_PENDIENTE`** (doble check: el análisis terminó y la ingesta se pausa; el documento aún no está disponible para RAG) → confirmar sin sesión da 401 → **el SuperAdmin confirma** (`POST /documentos/operaciones/{id}/confirmar` → `201`) → COMPLETADO + publicado (repetir la confirmación da `409 CONFIRMATION_NOT_PENDING`) → Administrador consulta el análisis → asigna estado a cada identidad devuelta → consulta versión y huella actuales → valida | Puntaje esperado calculado desde los estados **realmente asignados**; validación vigente; historial; citas y procedencia exactas (`texto[inicio:fin]`). No usa sanciones: **no depende de CP37**. **Deja activas la empresa y la cuenta del Administrador** para C, E, F y G; las cierra Z. |
 | **C** Duplicado por contenido | Mismos bytes que B, otro nombre de archivo y **otro año** → `409 DOCUMENT_ALREADY_INGESTED` con `details.criterio = ["sha256"]` | El original sigue COMPLETADO y disponible; no hay otro documento; la operación queda `RECHAZADA`; no es una ingesta exitosa. **No cierra los datos de B.** |
 | **D** Empresa inactiva | Empresa → desactivarla → ingerir un Markdown válido y exclusivo → `400 COMPANY_INACTIVE` | La empresa sigue inactiva; no hay documento ni análisis utilizable; la operación informa el rechazo. |
 | **E** Reportes de prospección (PDF) | Sobre el análisis VALIDADO de B: el Administrador genera el reporte → lista → descarga → vista previa; **repetir la generación con la misma validación da `200` con `reutilizado=true`** (la versión 1 sigue intacta: mismo id y sha256) | Cada versión del reporte es inmutable (LTX:RN-041 reformulada, BUG-15). Un SuperAdmin recibe 403, sin sesión 401, empresa sin análisis validado 409. |
@@ -73,6 +73,15 @@ al final y verifica la revocación. Solo usa los IDs y tokens de **esta** ejecuc
 cuentas o empresas ajenas ni el rol SuperAdmin. La empresa de E7 se desactiva dentro de E (E9) y las cuentas/empresa de A y D, dentro de A y D. El
 documento COMPLETADO de B y el reporte de E no se pueden retirar por HTTP (ver «Datos que quedan»). Si una corrida se interrumpe antes de Z, la empresa y
 la cuenta de B quedan activas: `resumen.json` lista sus IDs (`E2E <run_id>`).
+
+### Pasos bloqueados por un fallo previo
+Cada petición lleva una **guarda de dependencias** (`colecciones/fuentes/dsl.mjs`): antes de enviarse comprueba que tienen valor todas las
+variables que usa (`{{…}}` de la ruta, la consulta, el cuerpo y el token) y las que declara en `requiere` (marcadores que deja un paso previo
+solo cuando su resultado sirve: `b_pendiente_id`, `b_documento_id`, `b_documento_listo`, `b_analisis_validado`, `e_reporte_id`). Si falta alguna,
+la petición **no se envía** (nunca viaja un `{{marcador}}` sin resolver ni se actúa sobre datos a medio preparar): queda registrada como
+`BLOQ` en la consola y `BLOQUEADA` en `resumen.md`, con una prueba fallida que nombra las variables que faltaron (nunca sus valores). Una corrida
+con pasos bloqueados es siempre **FALLIDA** (código 1) y `resumen.json` cuenta `peticiones_bloqueadas`. El cierre (Z, E9, D14) se ejecuta igual
+sobre lo que sí llegó a crearse. El fallo que hay que corregir es el primero que **no** está bloqueado.
 
 ### Comprobar el ejecutor sin backend
 ```bash
@@ -131,7 +140,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\pruebas-http\scripts\ejecu
 
 Códigos de salida: `0` aprobado · `1` pruebas fallidas · `2` configuración · `3` backend no disponible · `4` guarda (cero pruebas, peticiones
 omitidas, UAT) · `5` secreto hallado en los reportes. Una corrida solo es **APROBADA** si ejecutó **todas** las peticiones previstas, con al menos una
-aserción por petición, sin fallos y con respuesta HTTP en cada una.
+aserción por petición, sin fallos, sin pasos bloqueados y con respuesta HTTP en cada una.
 
 ## Reportes (`resultados/<coleccion>/`)
 
