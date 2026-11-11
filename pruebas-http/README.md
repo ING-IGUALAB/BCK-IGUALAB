@@ -150,6 +150,12 @@ de Newman ni su salida de consola; además, al terminar se buscan en los archivo
 `Bearer …` (si aparece, falla con código 5). `resumen.json` incluye `datos_sinteticos_creados` (IDs y correos sintéticos, útiles para auditar).
 Las colecciones no escriben en consola ni comparan tokens/contraseñas en aserciones (un fallo de chai mostraría el valor).
 
+**Respuesta inesperada.** Si una petición enviada falla alguna aserción, el ejecutor conserva un diagnóstico **saneado y de tamaño limitado** de la
+respuesta (`respuesta_inesperada` en `resumen.json`, una línea `↳` en `consola.log` y una sección en `resumen.md`): hora UTC del envío, `request_id`
+(cabecera `X-Request-ID`) y, solo si el cuerpo es el contrato de errores del backend, `code`, `message` (300 caracteres) y `details` (claves sensibles y
+valores con forma de token omitidos; 1 200 caracteres). Un cuerpo que no es ese contrato (HTML de un proxy, una respuesta de éxito, más de 64 KiB)
+**no se copia**: solo se anotan su tipo y tamaño. Con el `request_id` se busca la línea `Solicitud rechazada: code=… request_id=…` en los logs del backend.
+
 ## Jenkins
 
 `Jenkinsfile`: tras «Deploy QA (Docker Compose)», dos stages **solo en la rama `qa`**: **Integration Tests** y **E2E Tests**. Cada uno construye la imagen

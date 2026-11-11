@@ -22,7 +22,9 @@ import {
 import { esperarBackend } from './lib/espera.mjs';
 import { prepararMuestras } from './lib/muestras.mjs';
 import { resolverSeleccion } from './lib/seleccion.mjs';
-import { PREFIJO_BLOQUEADA, buscarSecretos, crearRegistro, datosCreados, escribirResumen } from './lib/resultados.mjs';
+import {
+  PREFIJO_BLOQUEADA, buscarSecretos, crearRegistro, datosCreados, diagnosticoDeRespuesta, escribirResumen, lineaDeDiagnostico,
+} from './lib/resultados.mjs';
 
 const aqui = dirname(fileURLToPath(import.meta.url));
 const RAIZ = resolve(aqui, '..');
@@ -106,6 +108,10 @@ async function principal() {
       emisor.on('beforeItem', (_e, args) => {
         actual = { item: args.item, carpeta: args.item.parent()?.name ?? '', nombre: args.item.name, metodo: '', ruta: '', estado_http: null, milisegundos: 0, aserciones: [] };
       });
+      emisor.on('beforeRequest', () => {
+        // Hora UTC del envío: permite ubicar la petición en los logs del backend.
+        if (actual) actual.enviada_utc = new Date().toISOString();
+      });
       emisor.on('request', (error, args) => {
         if (!actual) return;
         actual.metodo = args.request.method;
@@ -113,6 +119,8 @@ async function principal() {
         if (!error && args.response) {
           actual.estado_http = args.response.code;
           actual.milisegundos = args.response.responseTime;
+          // Solo en memoria: se resume (saneado) si la petición falla alguna aserción; nunca se escribe tal cual.
+          actual.respuesta = args.response;
         } else {
           actual.error_de_red = error?.code ?? error?.name ?? 'ERROR';
         }
@@ -130,7 +138,13 @@ async function principal() {
           actual.metodo = actual.item.request.method;
           actual.ruta = '(no enviada)';
         }
+        // Respuesta inesperada: la petición SÍ obtuvo respuesta y falló alguna aserción. Se conserva el error saneado.
+        const diagnostico = fallidas.length > 0 && actual.respuesta
+          ? diagnosticoDeRespuesta({ cuerpo: actual.respuesta.stream, cabeceras: (nombre) => actual.respuesta.headers.get(nombre) })
+          : null;
         peticiones.push({
+          ...(actual.enviada_utc && !bloqueada ? { enviada_utc: actual.enviada_utc } : {}),
+          ...(diagnostico ? { respuesta_inesperada: diagnostico } : {}),
           carpeta: actual.carpeta, nombre: actual.nombre, metodo: actual.metodo, ruta: actual.ruta, estado_http: actual.estado_http,
           milisegundos: actual.milisegundos, aserciones_total: actual.aserciones.length, aserciones_fallidas: fallidas.length,
           ...(actual.error_de_red ? { error_de_red: actual.error_de_red } : {}),
@@ -139,6 +153,7 @@ async function principal() {
         const marca = bloqueada ? 'BLOQ ' : fallidas.length === 0 && actual.estado_http !== null ? 'OK   ' : 'FALLA';
         registrar(`${marca} ${actual.metodo.padEnd(6)} ${actual.ruta} → ${bloqueada ? 'no enviada' : actual.estado_http ?? actual.error_de_red ?? 'sin respuesta'} (${actual.milisegundos} ms) · ${actual.nombre}`);
         for (const a of fallidas) registrar(`        ✗ ${a.prueba}: ${a.mensaje}`);
+        if (diagnostico) registrar(`        ↳ respuesta inesperada (enviada ${actual.enviada_utc ?? '—'} UTC): ${lineaDeDiagnostico(diagnostico)}`);
         actual = null;
       });
     },
