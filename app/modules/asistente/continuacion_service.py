@@ -572,7 +572,11 @@ async def _publicar(db: AsyncSession, reserva: Reserva, pregunta: str, respuesta
         raise
     except Exception as exc:  # la cancelación (BaseException) no se captura: la reserva vencerá y se recuperará
         await _marcar_fallido(db, reserva, codigo_seguro(exc))
-        logger.error("Fallo al persistir un intercambio del asistente (reserva=%s, causa=%s)", reserva.intercambio_id, type(exc).__name__)
+        # Sin traza: el registro lleva solo el identificador de la reserva y el tipo de la causa, nunca contenido.
+        logger.exception(
+            "Fallo al persistir un intercambio del asistente (reserva=%s, causa=%s)", reserva.intercambio_id, type(exc).__name__,
+            exc_info=False,
+        )
         raise ServiceUnavailableError(
             "CONVERSATION_PERSISTENCE_FAILED",
             "No se pudo guardar el intercambio. No se guardó ningún mensaje; reintente con la misma clave de idempotencia.",

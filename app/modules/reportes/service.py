@@ -82,6 +82,8 @@ logger = logging.getLogger("igualab.reportes")
 MAX_INTENTOS_DE_VERSION = 3
 RESTRICCION_UNICA_DE_VALIDACION = "uq_reporte_validacion"
 RESTRICCION_UNICA_DE_VERSION = "uq_reporte_empresa_anio_version"
+# Nombre que figura en la auditoría cuando el de la empresa no se puede leer.
+EMPRESA_SIN_NOMBRE = "(empresa)"
 # Campos de PRESENTACIÓN de la pantalla de Análisis GRI (derivados de `pasajes`) que el snapshot NO guarda: así el snapshot de una
 # emisión nueva conserva exactamente la forma de los anteriores y el reporte no depende de ellos.
 SNAPSHOT_SIN_CITAS_AGRUPADAS = {"filas": {"__all__": {"citas_agrupadas", "total_citas_agrupadas"}}}
@@ -275,7 +277,7 @@ async def _publicar(
     )
     db.add(reporte)
     empresa_nombre = (
-        (await db.execute(select(Empresa.nombre).where(Empresa.id == empresa_id))).scalar_one_or_none() or "(empresa)"
+        (await db.execute(select(Empresa.nombre).where(Empresa.id == empresa_id))).scalar_one_or_none() or EMPRESA_SIN_NOMBRE
     )
     registrar_evento(
         db,
@@ -388,14 +390,14 @@ async def listar_reportes(
     return [_resumen(f) for f in filas]
 
 
-async def _registrar_descarga(db: AsyncSession, reporte_id: uuid.UUID, empresa_id: uuid.UUID, anio: int, version: int, usuario_id) -> None:
+async def _registrar_descarga(db: AsyncSession, empresa_id: uuid.UUID, anio: int, version: int, usuario_id) -> None:
     try:
         empresa_nombre = (
-            (await db.execute(select(Empresa.nombre).where(Empresa.id == empresa_id))).scalar_one_or_none() or "(empresa)"
+            (await db.execute(select(Empresa.nombre).where(Empresa.id == empresa_id))).scalar_one_or_none() or EMPRESA_SIN_NOMBRE
         )
     except Exception:
         # Mejor esfuerzo: si la sesión no admite lecturas (dobles de prueba), no bloquea la auditoría.
-        empresa_nombre = "(empresa)"
+        empresa_nombre = EMPRESA_SIN_NOMBRE
     registrar_evento(
         db,
         TipoEventoAuditoria.DESCARGA,
@@ -413,7 +415,7 @@ async def obtener_pdf(db: AsyncSession, reporte_id: uuid.UUID, *, usuario_id: uu
     if reporte is None:
         raise NotFoundError("REPORT_NOT_FOUND", "El reporte solicitado no existe.")
     pdf = reporte.pdf
-    await _registrar_descarga(db, reporte_id, reporte.empresa_id, reporte.anio, reporte.version, usuario_id)
+    await _registrar_descarga(db, reporte.empresa_id, reporte.anio, reporte.version, usuario_id)
     return pdf
 
 
@@ -573,7 +575,7 @@ async def obtener_pdf_vigente(
         if motivo is not None:
             raise _rechazo(motivo, fila, contexto)
         pdf = (await db.execute(select(ReporteProspeccion.pdf).where(ReporteProspeccion.id == fila.id))).scalar_one()
-        await _registrar_descarga(db, fila.id, fila.empresa_id, fila.anio, fila.version, usuario_id)
+        await _registrar_descarga(db, fila.empresa_id, fila.anio, fila.version, usuario_id)
     except BaseException:
         await db.rollback()
         raise

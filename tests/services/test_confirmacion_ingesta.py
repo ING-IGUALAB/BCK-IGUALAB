@@ -54,7 +54,8 @@ async def test_tras_el_analisis_la_ingesta_se_pausa_en_confirmando(entorno):
     assert pausa.code == "CONFIRMATION_PENDING"
     # Original y fragmentos NO publicados siguen ahí (residuos hasta confirmar/cancelar)
     conteo = await entorno.conteo_vectorial(documento_id)
-    assert conteo.total > 0 and conteo.publicados == 0
+    assert conteo.total > 0
+    assert conteo.publicados == 0
     assert (documento.clave_original, None) in entorno.almacen.objetos
 
 

@@ -182,7 +182,8 @@ async def test_una_carga_no_finalizada_no_se_deshabilita_ni_se_cancela(e, constr
     assert capturado.value.code == "DOCUMENT_NOT_DISABLEABLE"
     assert capturado.value.details == {"estado": estado}
     actual = await fila(e, doc)
-    assert (actual.reserva_activa, actual.estado_procesamiento, actual.vector_publicado_en) == instantanea
+    observado = (actual.reserva_activa, actual.estado_procesamiento, actual.vector_publicado_en)
+    assert observado == instantanea
     assert (actual.deshabilitado, actual.motivo_deshabilitacion) == (False, None)
     assert await auditoria(e) == []
     assert e.protecciones == []

@@ -93,8 +93,9 @@ def test_la_pregunta_autonoma_no_supera_el_limite_del_rag_ni_admite_nul():
     ok = json.dumps({"decision": "CONSULTAR", "pregunta_autonoma": "a" * MAX_PREGUNTA})
     assert len(parsear_decision(ok).pregunta_autonoma) == MAX_PREGUNTA
     for texto in ("a" * (MAX_PREGUNTA + 1), "con nul \x00"):
+        salida = json.dumps({"decision": "CONSULTAR", "pregunta_autonoma": texto})
         with pytest.raises(ValueError):
-            parsear_decision(json.dumps({"decision": "CONSULTAR", "pregunta_autonoma": texto}))
+            parsear_decision(salida)
 
 
 # ============================================ Ventana del historial ============================================

@@ -55,7 +55,6 @@ def get_recursos_rag(request: Request) -> RecursosRag:
 
 @router.post(
     "/conversaciones/{conversacion_id}/consultas",
-    response_model=IntercambioGuardado,
     status_code=201,
     summary="Añadir una consulta a una conversación guardada (el servidor guarda pregunta y respuesta)",
     description=(

@@ -157,10 +157,9 @@ def _filas_del_pedido(pedido: CodigoSolicitado, analisis: AnalisisResponse) -> t
 
 def _lineas_de_codigo(pedido: CodigoSolicitado, analisis: AnalisisResponse) -> list[str]:
     filas, del_codigo = _filas_del_pedido(pedido, analisis)
-    if pedido.edicion is not None:
-        if del_codigo and not filas:
-            figuran = ", ".join(f.estandar for f in del_codigo)
-            return [f"{pedido.referencia}: no hay una fila de esa edición en el análisis; figura(n): {figuran}. No se les atribuye ese estado."]
+    if pedido.edicion is not None and del_codigo and not filas:
+        figuran = ", ".join(f.estandar for f in del_codigo)
+        return [f"{pedido.referencia}: no hay una fila de esa edición en el análisis; figura(n): {figuran}. No se les atribuye ese estado."]
     if not filas:
         if analisis.estado_flujo is EstadoFlujo.DOCUMENTACION_INSUFICIENTE:
             return [f"{pedido.referencia}: el Análisis GRI no tiene documentos elegibles para esta empresa y año."]

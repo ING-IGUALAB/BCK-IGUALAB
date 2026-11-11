@@ -306,6 +306,34 @@ async def _fallar_y_compensar(
             await db.rollback()
 
 
+async def _auditar_ingesta_no_reservada(
+    db: AsyncSession,
+    exc: Exception,
+    metadatos: MetadatosIngestaRequest,
+    documento_validado: validacion.DocumentoValidado | None,
+    usuario_id: uuid.UUID,
+) -> None:
+    """Audita (transacción aparte, mejor esfuerzo) una ingesta que terminó ANTES de reservar documento: rechazo
+    del cliente (`RECHAZO_DOCUMENTO`) o fallo propio (`INGESTA_DATOS`). `documento_validado` es `None` si el
+    archivo no llegó a validarse."""
+    sha = documento_validado.sha256 if documento_validado is not None else None
+    nombre = documento_validado.nombre_archivo if documento_validado is not None else None
+    if isinstance(exc, _RECHAZOS_DEL_CLIENTE):
+        await servicio.auditar_aparte(
+            db, TipoEventoAuditoria.RECHAZO_DOCUMENTO,
+            _detalle_rechazo(exc, metadatos, sha, nombre_archivo=nombre), usuario_id,
+            resultado=ResultadoAuditoria.FALLIDO,
+        )
+    else:
+        await servicio.auditar_aparte(
+            db,
+            TipoEventoAuditoria.INGESTA_DATOS,
+            f"Ingesta no iniciada; codigo={codigo_seguro(exc)}; anio={metadatos.anio}",
+            usuario_id,
+            resultado=ResultadoAuditoria.FALLIDO,
+        )
+
+
 # --- Ingesta ---------------------------------------------------------------------------------------------
 
 async def ingerir_documento(
@@ -357,22 +385,7 @@ async def ingerir_documento(
         except Exception as exc:
             with contextlib.suppress(Exception):
                 await db.rollback()
-            sha = documento_validado.sha256 if documento_validado is not None else None
-            nombre = documento_validado.nombre_archivo if documento_validado is not None else None
-            if isinstance(exc, _RECHAZOS_DEL_CLIENTE):
-                await servicio.auditar_aparte(
-                    db, TipoEventoAuditoria.RECHAZO_DOCUMENTO,
-                    _detalle_rechazo(exc, metadatos, sha, nombre_archivo=nombre), usuario_id,
-                    resultado=ResultadoAuditoria.FALLIDO,
-                )
-            else:
-                await servicio.auditar_aparte(
-                    db,
-                    TipoEventoAuditoria.INGESTA_DATOS,
-                    f"Ingesta no iniciada; codigo={codigo_seguro(exc)}; anio={metadatos.anio}",
-                    usuario_id,
-                    resultado=ResultadoAuditoria.FALLIDO,
-                )
+            await _auditar_ingesta_no_reservada(db, exc, metadatos, documento_validado, usuario_id)
             raise
 
         documento_id, token = documento.id, documento.ejecucion_token

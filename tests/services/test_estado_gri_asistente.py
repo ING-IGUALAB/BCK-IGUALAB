@@ -89,7 +89,8 @@ def test_pedir_estado_sin_nombrar_un_codigo_no_consulta_nada():
 
 
 def test_menciona_brecha_distingue_la_brecha_de_los_demas_terminos_de_estado():
-    assert menciona_brecha("¿Hay una BRECHA en GRI 1?") and not menciona_brecha("¿Qué estado tiene GRI 1?")
+    assert menciona_brecha("¿Hay una BRECHA en GRI 1?")
+    assert not menciona_brecha("¿Qué estado tiene GRI 1?")
 
 
 # ============================================ «Solo estado»: gramática cerrada (preparada, sin conectar) ============================================
@@ -114,7 +115,8 @@ def test_menciona_brecha_distingue_la_brecha_de_los_demas_terminos_de_estado():
 )
 def test_una_peticion_clara_del_estado_de_un_codigo_es_solo_estado(pregunta):
     pedido = solo_estado(pregunta, 2025)
-    assert pedido is not None and pedido == codigos_explicitos(pregunta)[0]
+    assert pedido is not None
+    assert pedido == codigos_explicitos(pregunta)[0]
 
 
 @pytest.mark.parametrize(
@@ -222,7 +224,8 @@ def test_si_la_ultima_validacion_perdio_vigencia_informa_el_estado_actual_y_que_
     )
     texto = componer("¿Qué estado tiene GRI 1?", datos)
     assert "GRI 1 (2021): OK. No cuenta con validación vigente: la última validación (n.º 2) perdió vigencia" in texto
-    assert "cambiaron los estados" in texto and "cambió el conjunto de documentos elegibles" in texto
+    assert "cambiaron los estados" in texto
+    assert "cambió el conjunto de documentos elegibles" in texto
     assert "Validación vigente" not in texto
 
 
@@ -255,7 +258,8 @@ def test_un_codigo_que_no_figura_en_el_analisis_no_concluye_nada_sobre_el_docume
 
 def test_sin_documentos_elegibles_lo_dice_en_lugar_de_dar_a_entender_que_el_codigo_no_existe():
     texto = componer("¿Qué estado tiene GRI 1?", analisis([], flujo=EstadoFlujo.DOCUMENTACION_INSUFICIENTE, val=None))
-    assert "no tiene documentos elegibles" in texto and "no figura" not in texto
+    assert "no tiene documentos elegibles" in texto
+    assert "no figura" not in texto
 
 
 def test_gri_1_gri_13_y_gri_102_se_resuelven_cada_uno_con_su_propia_fila():
@@ -264,11 +268,16 @@ def test_gri_1_gri_13_y_gri_102_se_resuelven_cada_uno_con_su_propia_fila():
         fila("305", "2016", EstadoGri.OK),
     ])
     uno = componer("¿Qué estado tiene GRI 1?", datos)
-    assert "GRI 1 (2021): Baja sustancia" in uno and "GRI 13" not in uno and "GRI 102" not in uno
+    assert "GRI 1 (2021): Baja sustancia" in uno
+    assert "GRI 13" not in uno
+    assert "GRI 102" not in uno
     trece = componer("¿Qué estado tiene GRI 13?", datos)
-    assert "GRI 13 (2022): OK" in trece and "GRI 1 (2021)" not in trece
+    assert "GRI 13 (2022): OK" in trece
+    assert "GRI 1 (2021)" not in trece
     ciento_dos = componer("¿Qué estado tiene GRI 102?", datos)
-    assert "GRI 102 (2016): Sub-reportado" in ciento_dos and "GRI 1 (2021)" not in ciento_dos and "GRI 13" not in ciento_dos
+    assert "GRI 102 (2016): Sub-reportado" in ciento_dos
+    assert "GRI 1 (2021)" not in ciento_dos
+    assert "GRI 13" not in ciento_dos
 
 
 def test_una_identidad_ambigua_o_con_varias_ediciones_se_informa_completa_sin_elegir_una():
@@ -276,18 +285,21 @@ def test_una_identidad_ambigua_o_con_varias_ediciones_se_informa_completa_sin_el
         fila("102", "2016", EstadoGri.OK), fila("102", None, EstadoGri.SUB_REPORTADO, tipo=TipoIdentidadGri.EDICION_AMBIGUA),
     ])
     texto = componer("¿Qué estado tiene GRI 102?", datos)
-    assert "GRI 102 (2016): OK" in texto and "GRI 102 (edición sin resolver): Sub-reportado" in texto
+    assert "GRI 102 (2016): OK" in texto
+    assert "GRI 102 (edición sin resolver): Sub-reportado" in texto
     assert "tiene más de una identidad en el análisis; indique la edición" in texto
 
 
 def test_una_edicion_explicita_nunca_toma_el_estado_de_otra_identidad():
     solo_ambigua = analisis([fila("102", None, EstadoGri.SUB_REPORTADO, tipo=TipoIdentidadGri.EDICION_AMBIGUA)])
     texto = componer("¿Qué estado tiene GRI 102 (2016)?", solo_ambigua)
-    assert "no hay una fila de esa edición" in texto and "GRI 102 (edición sin resolver)" in texto
+    assert "no hay una fila de esa edición" in texto
+    assert "GRI 102 (edición sin resolver)" in texto
     assert "Sub-reportado" not in texto  # el estado de la identidad ambigua no se atribuye a la edición pedida
     resuelta = analisis([fila("102", "2016", EstadoGri.OK), fila("102", "2025", EstadoGri.SUB_REPORTADO)])
     texto = componer("¿Qué estado tiene GRI 102 (2016)?", resuelta)
-    assert "GRI 102 (2016): OK" in texto and "2025" not in texto.split("\n", 1)[1]
+    assert "GRI 102 (2016): OK" in texto
+    assert "2025" not in texto.split("\n", 1)[1]
 
 
 def test_una_revelacion_hereda_el_estado_del_estandar_y_lo_avisa():
@@ -300,8 +312,11 @@ def test_el_texto_cabe_siempre_en_el_maximo_y_omite_codigos_con_aviso_antes_que_
     filas = [fila(c, "2021", EstadoGri.BAJA_SUSTANCIA) for c in ("1", "2", "3", "4", "5")]
     pregunta = "¿Estado de GRI 1? ¿Estado de GRI 2? ¿Estado de GRI 3? ¿Estado de GRI 4? ¿Estado de GRI 5? ¿Hay brecha?"
     completo = componer(pregunta, analisis(filas))
-    assert len(completo) <= MAX_MENSAJE_AUSENCIA and f"se omiten {5 - MAX_CODIGOS} códigos más" in completo
+    assert len(completo) <= MAX_MENSAJE_AUSENCIA
+    assert f"se omiten {5 - MAX_CODIGOS} códigos más" in completo
     assert completo.count("Baja sustancia") == MAX_CODIGOS
     justo = componer(pregunta, analisis(filas), maximo=300)
-    assert len(justo) <= 300 and "Baja sustancia" in justo and "GRI 1 (2021)" in justo
+    assert len(justo) <= 300
+    assert "Baja sustancia" in justo
+    assert "GRI 1 (2021)" in justo
     assert "se omiten" in justo

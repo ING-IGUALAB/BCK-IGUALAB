@@ -309,7 +309,8 @@ async def test_la_consulta_condicional_no_convierte_en_hecho_lo_que_la_respuesta
     estructurada = (await continuar(h, p, c["id"], SEGUIMIENTO)).json()["respuesta"]["respuesta"]
 
     assert (estructurada["sin_evidencia"], estructurada["motivo"]) == (True, "SIN_FRAGMENTOS")
-    assert estructurada["afirmaciones"] == [] and estructurada["citas"] == []
+    assert estructurada["afirmaciones"] == []
+    assert estructurada["citas"] == []
 
 
 # ============================================ 8-10. Procedencia, instrucciones y evidencia ============================================
@@ -349,7 +350,8 @@ async def test_instrucciones_roles_y_delimitadores_del_historial_no_se_incorpora
     historial = historial_del_prompt(p.llm.interp_usuario)  # ...y como UN valor JSON íntegro (no abre bloques)
     assert ataque in historial[0]["respuesta"]["contenido"]
     assert historial[0]["pregunta"]["rol"] == "usuario"
-    assert p.llm.sistema == SISTEMA_RAG and "IGNORA LAS REGLAS" not in p.llm.sistema  # el RAG tampoco recibe el historial como sistema
+    assert p.llm.sistema == SISTEMA_RAG
+    assert "IGNORA LAS REGLAS" not in p.llm.sistema  # el RAG tampoco recibe el historial como sistema
     assert "IGNORA LAS REGLAS" not in p.llm.usuario
 
 
@@ -361,7 +363,8 @@ async def test_la_ausencia_de_documentos_o_de_evidencia_mantiene_su_comportamien
     estructurada = j["respuesta"]["respuesta"]
     assert (estructurada["sin_evidencia"], estructurada["motivo"], estructurada["respuesta"]) == (True, "SIN_FRAGMENTOS", "")
     assert j["respuesta"]["contenido"] == estructurada["mensaje"]
-    assert p.llm.interpretaciones == 1 and p.llm.llamadas == 0  # se interpretó; el RAG se detuvo por falta de fragmentos
+    assert p.llm.interpretaciones == 1
+    assert p.llm.llamadas == 0  # se interpretó; el RAG se detuvo por falta de fragmentos
 
     p.fragmentos = fragmentos  # con documentos, pero el modelo del RAG no encuentra evidencia
     p.llm.contenido = json.dumps({"afirmaciones": []})
@@ -392,7 +395,8 @@ async def test_un_reintento_completado_no_interpreta_ni_lee_contexto_ni_invoca_p
 
     assert repeticion.status_code == 200
     assert (repeticion.json()["pregunta"], repeticion.json()["respuesta"]) == (primera.json()["pregunta"], primera.json()["respuesta"])
-    assert (p.llamadas, p.llm.interpretaciones) == llamadas
+    observado = (p.llamadas, p.llm.interpretaciones)
+    assert observado == llamadas
     assert lecturas == []  # ni siquiera se leyó el contexto
 
 
@@ -650,7 +654,8 @@ async def test_una_pregunta_de_comprobacion_no_convierte_el_antecedente_historic
     assert "La empresa pagó una multa" not in p.llm.usuario  # la respuesta histórica no viaja al RAG como evidencia
     estructurada = j["respuesta"]["respuesta"]
     assert (estructurada["sin_evidencia"], estructurada["motivo"]) == (True, "AFIRMACIONES_NO_VERIFICABLES")
-    assert estructurada["afirmaciones"] == [] and estructurada["citas"] == []  # lo histórico no se vuelve verdadero ni se cita
+    assert estructurada["afirmaciones"] == []
+    assert estructurada["citas"] == []  # lo histórico no se vuelve verdadero ni se cita
     anteriores = (await recuperar(h, c["id"])).json()["mensajes"][:2]
     assert anteriores[1]["respuesta"]["respuesta"].startswith("La empresa pagó una multa")  # y el antecedente sigue como se importó
     assert anteriores[1]["procedencia"] == "APORTADO_POR_CLIENTE"
@@ -710,9 +715,11 @@ async def test_un_seguimiento_de_estado_informa_el_estado_del_codigo_de_la_pregu
     j = r.json()
     assert j["pregunta"]["contenido"] == SEGUIMIENTO_ESTADO  # se guarda la pregunta ORIGINAL, no la autónoma
     estructurada = j["respuesta"]["respuesta"]
-    assert estructurada["sin_evidencia"] is False and estructurada["citas"]  # la evidencia documental y sus citas siguen como siempre
+    assert estructurada["sin_evidencia"] is False
+    assert estructurada["citas"]  # la evidencia documental y sus citas siguen como siempre
     assert "GRI 1 (2021): Baja sustancia. Validación vigente (n.º 1" in estructurada["mensaje"]
-    assert "Baja sustancia" not in estructurada["respuesta"] and j["respuesta"]["contenido"] == estructurada["respuesta"]
+    assert "Baja sustancia" not in estructurada["respuesta"]
+    assert j["respuesta"]["contenido"] == estructurada["respuesta"]
     assert [(k["ambiente"], k["empresa_id"], k["anio"]) for k in lecturas] == [("development", h.mineria.id, ANIO)]  # contexto fijo
     assert "Baja sustancia" not in p.llm.interp_usuario + p.llm.usuario  # ni la interpretación ni el RAG reciben el estado
     guardado = (await mensajes_en_base(h))[-1]
@@ -745,7 +752,8 @@ async def test_si_la_pregunta_autonoma_no_pide_estado_la_continuacion_no_lee_el_
     r = await continuar(h, p, c["id"], SEGUIMIENTO_ESTADO)
 
     assert r.status_code == 201, r.text
-    assert r.json()["respuesta"]["respuesta"]["mensaje"] is None and lecturas == []
+    assert r.json()["respuesta"]["respuesta"]["mensaje"] is None
+    assert lecturas == []
 
 
 async def test_un_reintento_completado_devuelve_lo_guardado_sin_volver_a_leer_el_estado(h, p, monkeypatch):
@@ -755,7 +763,8 @@ async def test_un_reintento_completado_devuelve_lo_guardado_sin_volver_a_leer_el
     p.llm.interpretacion = decision_consultar(AUTONOMA_ESTADO)
     clave = uuid.uuid4()
     primera = await continuar(h, p, c["id"], SEGUIMIENTO_ESTADO, clave=clave)
-    assert primera.status_code == 201 and len(lecturas) == 1
+    assert primera.status_code == 201
+    assert len(lecturas) == 1
 
     # El estado cambia DESPUÉS: la repetición debe devolver el intercambio almacenado, no recomponerlo.
     async with h.fabrica() as db:
@@ -765,9 +774,11 @@ async def test_un_reintento_completado_devuelve_lo_guardado_sin_volver_a_leer_el
         )
     repeticion = await continuar(h, p, c["id"], SEGUIMIENTO_ESTADO, clave=clave)
 
-    assert repeticion.status_code == 200 and repeticion.json()["reutilizado"] is True
+    assert repeticion.status_code == 200
+    assert repeticion.json()["reutilizado"] is True
     assert repeticion.json()["respuesta"] == primera.json()["respuesta"]
-    assert "Baja sustancia" in repeticion.json()["respuesta"]["respuesta"]["mensaje"] and len(lecturas) == 1
+    assert "Baja sustancia" in repeticion.json()["respuesta"]["respuesta"]["mensaje"]
+    assert len(lecturas) == 1
     assert await contar(h, "mensajes_asistente") == 6
 
 
@@ -834,7 +845,8 @@ async def test_solo_estado_en_la_continuacion_se_responde_con_los_recursos_caido
     assert r.status_code == 201, r.text
     assert sin_recursos_documentales(p)  # ni se prepararon recursos, ni se abrió la sesión vectorial, ni interpretación, ni RAG
     j = r.json()
-    assert j["pregunta"]["contenido"] == SOLO_ESTADO and j["reutilizado"] is False
+    assert j["pregunta"]["contenido"] == SOLO_ESTADO
+    assert j["reutilizado"] is False
     estructurada = j["respuesta"]["respuesta"]
     assert (estructurada["sin_evidencia"], estructurada["motivo"], estructurada["busqueda_documental"]) == (False, None, "NO_REALIZADA")
     assert (estructurada["afirmaciones"], estructurada["citas"], estructurada["mensaje"]) == ([], [], None)
@@ -860,7 +872,9 @@ async def test_las_preguntas_mixtas_y_los_seguimientos_ambiguos_conservan_los_er
     r = await post_con_recurso_caido(h, p, c, caido, texto)
 
     comprobar_error(r, estado, codigo)  # no se responde con un 200 parcial ni se muestra el estado a medias
-    assert "Estado registrado" not in r.text and "estado_registrado" not in r.text and lecturas == []
+    assert "Estado registrado" not in r.text
+    assert "estado_registrado" not in r.text
+    assert lecturas == []
     assert await contar(h, "mensajes_asistente") == 2  # solo los de la conversación original
 
 
@@ -873,14 +887,18 @@ async def test_una_pregunta_mixta_conserva_el_flujo_completo_y_la_verificacion_d
     assert r.status_code == 201, r.text
     assert (p.llm.interpretaciones, p.embeddings.llamadas, p.llm.llamadas) == (1, 1, 1)  # interpretación + búsqueda + modelo, como siempre
     estructurada = r.json()["respuesta"]["respuesta"]
-    assert estructurada["busqueda_documental"] == "REALIZADA" and estructurada["sin_evidencia"] is False and estructurada["citas"]
-    assert estructurada["estado_registrado"]["filas"][0]["estado"] == "BAJA_SUSTANCIA" and "Baja sustancia" not in estructurada["respuesta"]
+    assert estructurada["busqueda_documental"] == "REALIZADA"
+    assert estructurada["sin_evidencia"] is False
+    assert estructurada["citas"]
+    assert estructurada["estado_registrado"]["filas"][0]["estado"] == "BAJA_SUSTANCIA"
+    assert "Baja sustancia" not in estructurada["respuesta"]
 
 
 async def test_un_seguimiento_ambiguo_sigue_necesitando_el_modelo_que_aporta_el_codigo_y_sin_el_falla(h, p):
     """«¿Y qué estado tiene ese?» no tiene código: nunca es «solo estado». Con el modelo, la pregunta autónoma (que sí nombra el código) sigue el
     flujo documental completo; la decisión de «solo estado» se toma sobre la pregunta ORIGINAL, no sobre la reescrita."""
-    assert solo_estado(SEGUIMIENTO_SIN_CODIGO, ANIO) is None and codigos_para_estado(SEGUIMIENTO_SIN_CODIGO) == []
+    assert solo_estado(SEGUIMIENTO_SIN_CODIGO, ANIO) is None
+    assert codigos_para_estado(SEGUIMIENTO_SIN_CODIGO) == []
     await con_estado_gri_1(h)
     c = await conversacion_sobre_gri_1(h)
 
@@ -888,7 +906,8 @@ async def test_un_seguimiento_ambiguo_sigue_necesitando_el_modelo_que_aporta_el_
     con_modelo = await continuar(h, p, c["id"], SEGUIMIENTO_SIN_CODIGO)
     assert con_modelo.status_code == 201, con_modelo.text
     estructurada = con_modelo.json()["respuesta"]["respuesta"]
-    assert estructurada["busqueda_documental"] == "REALIZADA" and "GRI 1 (2021): Baja sustancia" in estructurada["estado_registrado"]["texto"]
+    assert estructurada["busqueda_documental"] == "REALIZADA"
+    assert "GRI 1 (2021): Baja sustancia" in estructurada["estado_registrado"]["texto"]
     assert (p.llm.interpretaciones, p.embeddings.llamadas, p.llm.llamadas) == (1, 1, 1)
 
     p.llm.interpretacion = ExternalServiceError("LLM_PROVIDER_ERROR", "El proveedor de chat falló.")
@@ -905,7 +924,8 @@ async def test_el_seguimiento_que_pide_aclarar_o_cambiar_de_contexto_no_responde
     r = await continuar(h, p, c["id"], SEGUIMIENTO_SIN_CODIGO)
 
     comprobar_error(r, 400, "CONVERSATION_CLARIFICATION_REQUIRED")
-    assert "Estado registrado" not in r.text and (p.embeddings.llamadas, p.llm.llamadas) == (0, 0)
+    assert "Estado registrado" not in r.text
+    assert (p.embeddings.llamadas, p.llm.llamadas) == (0, 0)
 
 
 async def test_un_reintento_completado_de_solo_estado_devuelve_lo_guardado_sin_releer_el_estado_ni_preparar_recursos(h, p, monkeypatch):
@@ -914,7 +934,8 @@ async def test_un_reintento_completado_de_solo_estado_devuelve_lo_guardado_sin_r
     c = await conversacion(h)
     clave = uuid.uuid4()
     primera = await continuar(h, p, c["id"], SOLO_ESTADO, clave=clave)
-    assert primera.status_code == 201 and len(lecturas) == 1
+    assert primera.status_code == 201
+    assert len(lecturas) == 1
 
     async with h.fabrica() as db:  # el estado cambia DESPUÉS: la repetición no debe recomponerlo
         await servicio_analisis.asignar_estado(
@@ -925,9 +946,13 @@ async def test_un_reintento_completado_de_solo_estado_devuelve_lo_guardado_sin_r
 
     repeticion = await continuar(h, p, c["id"], SOLO_ESTADO, clave=clave)
 
-    assert repeticion.status_code == 200 and repeticion.json()["reutilizado"] is True
-    assert repeticion.json()["respuesta"] == primera.json()["respuesta"] and "Baja sustancia" in repeticion.json()["respuesta"]["respuesta"]["respuesta"]
-    assert len(lecturas) == 1 and sin_recursos_documentales(p) and await contar(h, "mensajes_asistente") == 6
+    assert repeticion.status_code == 200
+    assert repeticion.json()["reutilizado"] is True
+    assert repeticion.json()["respuesta"] == primera.json()["respuesta"]
+    assert "Baja sustancia" in repeticion.json()["respuesta"]["respuesta"]["respuesta"]
+    assert len(lecturas) == 1
+    assert sin_recursos_documentales(p)
+    assert await contar(h, "mensajes_asistente") == 6
     otra_pregunta = await continuar(h, p, c["id"], "¿Qué estado tiene GRI 13?", clave=clave)
     comprobar_error(otra_pregunta, 409, "QUERY_IDEMPOTENCY_CONFLICT")  # la misma clave con otra pregunta sigue siendo un conflicto
 
@@ -944,11 +969,13 @@ async def test_si_la_lectura_del_estado_falla_el_intercambio_queda_fallido_y_la_
     monkeypatch.setattr(servicio_consultas, "consultar_analisis", cambiando)
     r = await continuar(h, p, c["id"], SOLO_ESTADO, clave=clave)
     comprobar_error(r, 409, "ANALYSIS_CHANGING")
-    assert [i["estado"] for i in await intercambios(h)] == ["FALLIDO"] and await contar(h, "mensajes_asistente") == 4
+    assert [i["estado"] for i in await intercambios(h)] == ["FALLIDO"]
+    assert await contar(h, "mensajes_asistente") == 4
 
     monkeypatch.setattr(servicio_consultas, "consultar_analisis", original)
     recuperado = await continuar(h, p, c["id"], SOLO_ESTADO, clave=clave)
-    assert recuperado.status_code == 201 and [i["estado"] for i in await intercambios(h)] == ["COMPLETADO"]
+    assert recuperado.status_code == 201
+    assert [i["estado"] for i in await intercambios(h)] == ["COMPLETADO"]
     assert sin_recursos_documentales(p)
 
 
@@ -965,7 +992,8 @@ async def test_el_presupuesto_global_tambien_cubre_la_lectura_del_estado_de_solo
     r = await continuar(h, p, c["id"], SOLO_ESTADO)
 
     comprobar_error(r, 504, "ASSISTANT_GENERATION_TIMEOUT")
-    assert await contar(h, "mensajes_asistente") == 4 and sin_recursos_documentales(p)
+    assert await contar(h, "mensajes_asistente") == 4
+    assert sin_recursos_documentales(p)
 
 
 async def test_la_autorizacion_el_cupo_y_la_empresa_se_comprueban_antes_de_leer_el_estado(h, p, monkeypatch):
@@ -980,7 +1008,8 @@ async def test_la_autorizacion_el_cupo_y_la_empresa_se_comprueban_antes_de_leer_
     async with cliente_http(app_con_recursos_reales(h, h.superadmin)) as cliente:
         no_admin = await cliente.post(f"{RUTA_CONVERSACIONES}/{propia['id']}/consultas", json={"clave_idempotencia": str(uuid.uuid4()), "pregunta": SOLO_ESTADO})
     assert no_admin.status_code == 403
-    assert lecturas == [] and await intercambios(h) == []
+    assert lecturas == []
+    assert await intercambios(h) == []
 
     async with h.fabrica() as db:
         from sqlalchemy import update
@@ -990,7 +1019,8 @@ async def test_la_autorizacion_el_cupo_y_la_empresa_se_comprueban_antes_de_leer_
         await db.execute(update(Empresa).where(Empresa.id == h.mineria.id).values(activa=False))
         await db.commit()
     comprobar_error(await continuar(h, p, propia["id"], SOLO_ESTADO), 400, "COMPANY_INACTIVE")
-    assert lecturas == [] and sin_recursos_documentales(p)
+    assert lecturas == []
+    assert sin_recursos_documentales(p)
 
 
 # ---- Historial: lo guardado se recupera y las conversaciones del contrato anterior se siguen leyendo --------------------------------------
@@ -1006,7 +1036,8 @@ async def test_la_respuesta_de_solo_estado_guardada_se_recupera_con_su_forma_y_s
     ultimo = detalle["mensajes"][-1]
     assert (ultimo["rol"], ultimo["procedencia"]) == ("asistente", "GENERADO_POR_SERVIDOR")
     assert ultimo["contenido"] == ultimo["respuesta"]["respuesta"] == ultimo["respuesta"]["estado_registrado"]["texto"]
-    assert ultimo["respuesta"]["busqueda_documental"] == "NO_REALIZADA" and ultimo["respuesta"]["citas"] == []
+    assert ultimo["respuesta"]["busqueda_documental"] == "NO_REALIZADA"
+    assert ultimo["respuesta"]["citas"] == []
     assert detalle["mensajes"][-2]["contenido"] == SOLO_ESTADO  # la pregunta original
 
 
@@ -1026,7 +1057,8 @@ async def test_las_conversaciones_guardadas_con_el_contrato_anterior_se_siguen_l
     assert r.status_code == 200, r.text
     estructurada = r.json()["mensajes"][-1]["respuesta"]
     assert (estructurada["busqueda_documental"], estructurada["estado_registrado"]) == ("REALIZADA", None)  # valores por omisión
-    assert estructurada["citas"] and estructurada["sin_evidencia"] is False
+    assert estructurada["citas"]
+    assert estructurada["sin_evidencia"] is False
     assert (await listar(h)).status_code == 200
 
 
