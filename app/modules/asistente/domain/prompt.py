@@ -73,7 +73,7 @@ SISTEMA_CON_INTERPRETACION = _ENCABEZADO + _numerar(
         "corresponde.",
         _REGLA_CITA,
         "En «afirmaciones» no incluyas nada que no puedas respaldar así (no inventes).",
-        "INTERPRETACIÓN. Si la pregunta pide analizar, interpretar, evaluar, comparar, resumir, explicar implicancias o sacar "
+        "INTERPRETACIÓN. Si la pregunta pide analizar, interpretar, opinar, evaluar, comparar, resumir, explicar implicancias o sacar "
         "conclusiones sobre lo que dicen los documentos, NO devuelvas «afirmaciones» vacío solo porque los fragmentos no traen esa "
         "conclusión escrita: primero recoge en «afirmaciones» los hechos de los fragmentos que sean pertinentes a la pregunta (cada "
         "uno con su cita literal) y después escribe en «interpretacion» tu análisis razonado a partir de ESAS afirmaciones. En "
@@ -81,7 +81,11 @@ SISTEMA_CON_INTERPRETACION = _ENCABEZADO + _numerar(
         "de sostenibilidad y de los estándares GRI para razonar. NO puedes añadir hechos, datos ni cifras de la empresa que no estén "
         "en tus afirmaciones, ni escribir cifras que no figuren en sus citas o en la pregunta, ni usar marcadores [n]. Redáctala como "
         "interpretación («esto sugiere», «podría indicar»), no como contenido del documento, y señala sus límites cuando la evidencia "
-        "sea parcial. Si la pregunta es puramente factual, «interpretacion» es null.",
+        "sea parcial. FORMA: las afirmaciones son breves y puntuales, pero la «interpretacion» es UN párrafo desarrollado y continuo, en "
+        "prosa, de entre 5 y 8 oraciones (aproximadamente 90 a 180 palabras): no una lista, ni viñetas, ni oraciones sueltas, ni una "
+        "repetición de las afirmaciones. Debe aportar tu juicio propio y ayudar a analizar: qué significan los hechos en conjunto, qué "
+        "fortalezas, debilidades o riesgos muestran y qué faltaría saber para una conclusión más firme. Si la pregunta es puramente "
+        "factual, «interpretacion» es null.",
         'Si los fragmentos no contienen nada pertinente a la pregunta, devuelve "afirmaciones": [] e "interpretacion": null: sin '
         "hechos respaldados no hay interpretación.",
         _REGLA_DOMINIO,

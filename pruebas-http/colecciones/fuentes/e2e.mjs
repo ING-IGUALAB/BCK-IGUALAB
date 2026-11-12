@@ -852,26 +852,99 @@ const flujoE = carpeta('E. Reportes de prospección (PDF)',
 // Requiere a B (su documento queda COMPLETADO y publicado, con empresa activa y Administrador habilitado). Ejecutar `--carpeta B --carpeta F`.
 // Necesita embeddings (OCI) y LLM configurados en el entorno; si faltan, el endpoint responde 503 y la corrida lo refleja.
 
+/** Contrato público de `ConsultaResponse` (`app/modules/asistente/schemas.py`): los 9 campos anteriores más los 2 de interpretación. */
+const CAMPOS_CONSULTA = [
+  'respuesta', 'afirmaciones', 'citas', 'sin_evidencia', 'motivo', 'mensaje', 'afirmaciones_descartadas', 'estado_registrado', 'busqueda_documental',
+  'interpretacion', 'interpretacion_descartada',
+];
+const PREGUNTA_F1 = '¿Según qué estándar GRI se reporta el consumo energético de la organización?';
+const PREGUNTA_F1E = '¿Qué sugiere la información reportada sobre la gestión del consumo energético de la organización?';
+
+/**
+ * Función del sandbox: reglas que incumple la INTERPRETACIÓN de una `ConsultaResponse` (lista vacía = coherente). Reproduce el diseño
+ * del servidor (`domain/citas.py`, `domain/historial.py`): la interpretación es opinión del modelo y va APARTE de las afirmaciones; no se
+ * exige ningún texto concreto (el modelo es generativo) ni que exista, pero si existe debe acompañar a afirmaciones con cita, no llevar
+ * marcadores [n] y no introducir cifras ajenas a la evidencia mostrada o a la pregunta. Los mensajes NO copian texto de la respuesta.
+ */
+const problemasDeInterpretacion = (j, pregunta) => {
+  const problemas = [];
+  const cifras = (texto) => {
+    const halladas = new Set();
+    (String(texto).normalize('NFKC').match(/(?:\d{1,3}(?:[ .,]\d{3})+|\d+)(?:[.,]\d+)?/g) || []).forEach((bruto) => {
+      if (!/^(?:19|20)\d{2}$/.test(bruto)) halladas.add(bruto.replace(/\D/g, ''));
+    });
+    return halladas;
+  };
+  const texto = j.interpretacion;
+  if (typeof j.interpretacion_descartada !== 'boolean') problemas.push('interpretacion_descartada no es booleano');
+  if (texto !== null && (typeof texto !== 'string' || texto.trim() === '' || texto.length > 4000)) {
+    problemas.push('interpretacion no es null ni un texto no vacío de hasta 4000 caracteres');
+  }
+  if (j.sin_evidencia && (texto !== null || j.interpretacion_descartada !== false)) {
+    problemas.push('una respuesta sin evidencia no trae interpretación ni la declara descartada');
+  }
+  if (j.interpretacion_descartada === true && (texto !== null || j.afirmaciones.length === 0)) {
+    problemas.push('una interpretación descartada no se muestra y solo se declara junto a afirmaciones con cita');
+  }
+  if (typeof texto !== 'string') return problemas;
+  if (j.sin_evidencia || j.afirmaciones.length === 0 || j.citas.length === 0 || j.busqueda_documental !== 'REALIZADA') {
+    problemas.push('la interpretación solo puede acompañar a afirmaciones con cita de una búsqueda documental realizada');
+  }
+  if (/\[\s*\d{1,3}\s*\]/.test(texto)) problemas.push('la interpretación lleva marcadores [n]: las fuentes son las de las afirmaciones');
+  if (j.respuesta.includes(texto)) problemas.push('la interpretación está mezclada con el texto citado de `respuesta`');
+  const partes = [pregunta].concat(...j.afirmaciones.map((a) => [a.texto, a.cita_textual]), j.citas.map((c) => c.seccion));
+  const respaldadas = cifras(partes.join(' '));
+  partes.forEach((parte) => cifras(parte).forEach((c) => respaldadas.add(c)));
+  if (Array.from(cifras(texto)).some((c) => !respaldadas.has(c))) {
+    problemas.push('la interpretación introduce una cifra que no figura en las afirmaciones, sus citas, sus secciones ni la pregunta');
+  }
+  return problemas;
+};
+
+const AYUDANTE_INTERPRETACION = `const problemasDeInterpretacion = ${problemasDeInterpretacion.toString()};`;
+
+/** Aserción común: el contrato exacto de `ConsultaResponse` con el tipo y la nulabilidad de cada campo. */
+const contratoDeConsulta = T.prueba(
+  'ConsultaResponse: los 11 campos del contrato con su tipo y nulabilidad (incluye interpretacion e interpretacion_descartada)',
+  (j, v, a) => {
+    pm.expect(Object.keys(j)).to.have.members(a.campos);
+    pm.expect(j.respuesta).to.be.a('string');
+    pm.expect(j.afirmaciones).to.be.an('array');
+    pm.expect(j.citas).to.be.an('array');
+    pm.expect(j.sin_evidencia).to.be.a('boolean');
+    pm.expect(j.afirmaciones_descartadas).to.be.a('number');
+    pm.expect(j.motivo === null || typeof j.motivo === 'string', 'motivo es null o texto').to.equal(true);
+    pm.expect(j.mensaje === null || typeof j.mensaje === 'string', 'mensaje es null o texto').to.equal(true);
+    pm.expect(j.estado_registrado === null || typeof j.estado_registrado === 'object', 'estado_registrado es null u objeto').to.equal(true);
+    pm.expect(['REALIZADA', 'NO_REALIZADA']).to.include(j.busqueda_documental);
+    pm.expect(j.interpretacion === null || typeof j.interpretacion === 'string', 'interpretacion es null o texto').to.equal(true);
+    pm.expect(j.interpretacion_descartada).to.be.a('boolean');
+  },
+  { campos: CAMPOS_CONSULTA },
+);
+
+const interpretacionCoherente = (pregunta) => T.prueba(
+  'la interpretación (si la hay) va aparte, acompaña a afirmaciones con cita y no introduce cifras ni marcadores propios',
+  (j, v, a) => {
+    // Como texto: si falla, el reporte nombra la regla incumplida (los mensajes no copian contenido de la respuesta).
+    pm.expect(problemasDeInterpretacion(j, a.pregunta).join(' | ')).to.equal('');
+  },
+  { pregunta },
+);
+
 const flujoF = carpeta('F. Asistente de IA (RAG)',
-  'Sobre el documento publicado de B: un Administrador consulta al asistente y recibe respuesta con fuentes verificables (el caso positivo exige evidencia); un año sin documentos declara la ausencia de evidencia; sin sector 422; un SuperAdmin no puede (403); sin sesión 401. Requiere a B y OCI+LLM configurados.',
+  'Sobre el documento publicado de B: un Administrador consulta al asistente y recibe respuesta con fuentes verificables (el caso positivo exige evidencia) y, aparte, una interpretación opcional que nunca sustituye a las citas; un año sin documentos declara la ausencia de evidencia; sin sector 422; un SuperAdmin no puede (403); sin sesión 401. Requiere a B y OCI+LLM configurados.',
   [
     peticion({
       requiere: ['b_documento_listo'],
       nombre: 'F1 Consulta positiva con sector, empresa y año de B → respuesta CON evidencia verificable', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_admin',
       descripcion: 'Caso positivo: la muestra de B dice que el consumo energético se reporta según GRI 302-1, así que el asistente DEBE responder con fuentes. Una respuesta «sin evidencia» NO es éxito aquí (la ausencia de evidencia se prueba en F1d). Depende de que OCI y el proveedor de chat respondan; si el modelo no respalda su respuesta, el caso falla a propósito.',
-      json: { pregunta: '¿Según qué estándar GRI se reporta el consumo energético de la organización?', sector: 'ENERGIA', empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
+      ayudantes: [AYUDANTE_INTERPRETACION],
+      json: { pregunta: PREGUNTA_F1, sector: 'ENERGIA', empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
       pruebas: [
         T.estado(200),
-        T.prueba('ConsultaResponse: respuesta, afirmaciones, citas, bandera de evidencia, motivo, mensaje, descartadas, estado registrado y búsqueda documental', (j) => {
-          pm.expect(Object.keys(j)).to.have.members([
-            'respuesta', 'afirmaciones', 'citas', 'sin_evidencia', 'motivo', 'mensaje', 'afirmaciones_descartadas', 'estado_registrado', 'busqueda_documental',
-          ]);
-          pm.expect(j.respuesta).to.be.a('string');
-          pm.expect(j.afirmaciones).to.be.an('array');
-          pm.expect(j.citas).to.be.an('array');
-          pm.expect(j.sin_evidencia).to.be.a('boolean');
-          pm.expect(j.afirmaciones_descartadas).to.be.a('number');
-        }),
+        contratoDeConsulta,
+        interpretacionCoherente(PREGUNTA_F1),
         T.prueba('pregunta documental (no pide el estado de un código GRI): la búsqueda se realizó y no se adjunta estado registrado', (j) => {
           pm.expect(j.busqueda_documental).to.equal('REALIZADA');
           pm.expect(j.estado_registrado).to.equal(null);
@@ -915,9 +988,10 @@ const flujoF = carpeta('F. Asistente de IA (RAG)',
     peticion({
       nombre: 'F1d Consulta de un año sin documentos → ausencia de evidencia explícita (SIN_FRAGMENTOS)', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_admin',
       descripcion: 'Caso de ausencia de evidencia determinista: B no tiene documentos del año del intento duplicado de C (C2 fue rechazado), así que no hay fragmentos y el servicio no consulta al modelo.',
-      json: { pregunta: '¿Según qué estándar GRI se reporta el consumo energético de la organización?', sector: 'ENERGIA', empresa_id: '{{b_empresa_id}}', anio: '{{anio_c}}' },
+      json: { pregunta: PREGUNTA_F1, sector: 'ENERGIA', empresa_id: '{{b_empresa_id}}', anio: '{{anio_c}}' },
       pruebas: [
         T.estado(200),
+        contratoDeConsulta,
         T.prueba('sin_evidencia con su motivo y mensaje; sin respuesta, afirmaciones ni fuentes', (j) => {
           pm.expect(j.sin_evidencia).to.equal(true);
           pm.expect(j.motivo).to.equal('SIN_FRAGMENTOS');
@@ -925,6 +999,51 @@ const flujoF = carpeta('F. Asistente de IA (RAG)',
           pm.expect(j.respuesta).to.equal('');
           pm.expect(j.afirmaciones).to.have.length(0);
           pm.expect(j.citas).to.have.length(0);
+        }),
+        T.prueba('sin evidencia no hay interpretación: ni texto ni interpretación descartada', (j) => {
+          pm.expect(j.interpretacion).to.equal(null);
+          pm.expect(j.interpretacion_descartada).to.equal(false);
+        }),
+      ],
+    }),
+    peticion({
+      requiere: ['b_documento_listo'],
+      nombre: 'F1e Pregunta interpretativa sobre B → la interpretación nunca sustituye a las citas ni aparece sin ellas', metodo: 'POST', ruta: '/asistente/consultas', token: 'b_token_admin',
+      descripcion: 'Pide interpretar lo que reporta el documento de B. El modelo es generativo: NO se exige un texto concreto ni que haya interpretación (puede responder solo con afirmaciones, o declarar que no halló evidencia). Se exige el diseño: todo hecho mostrado lleva su cita literal del documento de B, y una interpretación solo existe junto a afirmaciones con cita, aparte de `respuesta`, sin marcadores [n] y sin cifras ajenas a la evidencia o a la pregunta. Sin evidencia no hay interpretación.',
+      ayudantes: [AYUDANTE_INTERPRETACION],
+      json: { pregunta: PREGUNTA_F1E, sector: 'ENERGIA', empresa_id: '{{b_empresa_id}}', anio: '{{anio_b}}' },
+      pruebas: [
+        T.estado(200),
+        contratoDeConsulta,
+        interpretacionCoherente(PREGUNTA_F1E),
+        T.prueba('la búsqueda documental se realizó y la respuesta es coherente con su bandera de evidencia', (j) => {
+          pm.expect(j.busqueda_documental).to.equal('REALIZADA');
+          pm.expect(j.estado_registrado).to.equal(null);
+          pm.expect(j.sin_evidencia ? j.afirmaciones.length + j.citas.length : 0, 'sin evidencia no hay afirmaciones ni fuentes').to.equal(0);
+          pm.expect(j.sin_evidencia ? j.respuesta : '', 'sin evidencia no hay texto de respuesta').to.equal('');
+          pm.expect(
+            j.sin_evidencia ? ['MODELO_SIN_EVIDENCIA', 'AFIRMACIONES_NO_VERIFICABLES', 'RESPUESTA_NO_INTERPRETABLE'] : [null],
+            'el motivo corresponde a la bandera de evidencia (hay documentos y la pregunta es del dominio)',
+          ).to.include(j.motivo);
+          pm.expect(j.sin_evidencia || j.afirmaciones.length > 0, 'con evidencia hay al menos una afirmación').to.equal(true);
+        }),
+        T.prueba('ningún hecho sin respaldo: cada afirmación cita literalmente el documento de B y enlaza con fuentes de B', (j, v) => {
+          const normalizar = (t) => String(t).normalize('NFKC').toLowerCase().replace(/\|/g, ' ').replace(/[*`]/g, '').split(/\s+/).filter(Boolean).join(' ');
+          const documento = normalizar(v('texto_b'));
+          const referencias = j.citas.map((c) => c.referencia);
+          j.afirmaciones.forEach((a) => {
+            pm.expect(a.texto).to.be.a('string').and.not.empty;
+            pm.expect(a.referencias.length).to.be.above(0);
+            a.referencias.forEach((n) => pm.expect(referencias, 'la referencia ' + n + ' figura en citas').to.include(n));
+            pm.expect(documento.includes(normalizar(a.cita_textual)), 'la cita textual figura en el documento de B').to.equal(true);
+          });
+          const usadas = Array.from(new Set([].concat(...j.afirmaciones.map((a) => a.referencias)))).sort();
+          pm.expect(referencias.slice().sort(), 'solo se muestran las fuentes que respaldan alguna afirmación').to.deep.equal(usadas);
+          j.citas.forEach((c) => {
+            pm.expect(c.documento_id).to.equal(v('b_documento_id'));
+            pm.expect(c.empresa_id).to.equal(v('b_empresa_id'));
+            pm.expect(c.anio).to.equal(Number(v('anio_b')));
+          });
         }),
       ],
     }),
