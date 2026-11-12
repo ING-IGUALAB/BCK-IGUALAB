@@ -101,6 +101,72 @@ test('el caso positivo del RAG no acepta «sin evidencia» y la ausencia de evid
   assert.match(f1d, /SIN_FRAGMENTOS/);
 });
 
+// ---------------------------------------------------------------------------------------------------- interpretación del asistente
+
+const CAMPOS_CONSULTA = [
+  'respuesta', 'afirmaciones', 'citas', 'sin_evidencia', 'motivo', 'mensaje', 'afirmaciones_descartadas', 'estado_registrado', 'busqueda_documental',
+  'interpretacion', 'interpretacion_descartada',
+];
+const guion = (prefijo) => peticiones(coleccion).find((p) => p.name.startsWith(prefijo)).event.find((e) => e.listen === 'test').script.exec.join('\n');
+
+/** El ayudante TAL COMO VIAJA en la colección generada (no una copia): se extrae del script de F1 y se evalúa aquí. */
+const problemasDeInterpretacion = (() => {
+  const lineas = guion('F1 ').split('\n');
+  const inicio = lineas.findIndex((l) => l.startsWith('const problemasDeInterpretacion = '));
+  const fin = lineas.findIndex((l, i) => i > inicio && l === '};');
+  assert.ok(inicio >= 0 && fin > inicio, 'F1 lleva el ayudante de interpretación');
+  return new Function(`${lineas.slice(inicio, fin + 1).join('\n')}\nreturn problemasDeInterpretacion;`)();
+})();
+
+const consulta = (cambios = {}) => ({
+  respuesta: 'El consumo energético se reporta según GRI 302-1. [1]',
+  afirmaciones: [{ texto: 'El consumo energético se reporta según GRI 302-1.', referencias: [1], cita_textual: 'se reporta según GRI 302-1' }],
+  citas: [{ referencia: 1, seccion: 'Energía › 3.2 Consumo' }],
+  sin_evidencia: false, motivo: null, mensaje: null, afirmaciones_descartadas: 0, estado_registrado: null, busqueda_documental: 'REALIZADA',
+  interpretacion: null, interpretacion_descartada: false,
+  ...cambios,
+});
+const sinEvidencia = (cambios = {}) =>
+  consulta({ respuesta: '', afirmaciones: [], citas: [], sin_evidencia: true, motivo: 'MODELO_SIN_EVIDENCIA', mensaje: 'No se encontró evidencia.', ...cambios });
+
+test('F1, F1d y F1e exigen el contrato de 11 campos de ConsultaResponse (no aceptan campos de más ni de menos)', () => {
+  for (const prefijo of ['F1 ', 'F1d ', 'F1e ']) {
+    const codigo = guion(prefijo);
+    assert.match(codigo, /Object\.keys\(j\)\)\.to\.have\.members\(a\.campos\)/, prefijo);
+    assert.ok(codigo.includes(JSON.stringify({ campos: CAMPOS_CONSULTA })), `${prefijo}compara con los 11 campos`);
+  }
+  assert.match(guion('F1d '), /j\.interpretacion\)\.to\.equal\(null\)/);
+  assert.match(guion('F1d '), /j\.interpretacion_descartada\)\.to\.equal\(false\)/);
+  for (const prefijo of ['F1 ', 'F1e ']) assert.match(guion(prefijo), /problemasDeInterpretacion\(j, a\.pregunta\)\.join\(' \| '\)\)\.to\.equal\(''\)/, prefijo);
+  assert.match(guion('F1e '), /la cita textual figura en el documento de B/);
+});
+
+test('la interpretación es opcional y, si existe, acompaña a afirmaciones con cita', () => {
+  const pregunta = '¿Alcanza la meta de 20 %?';
+  assert.deepEqual(problemasDeInterpretacion(consulta(), pregunta), []); // respuesta factual: sin interpretación
+  assert.deepEqual(problemasDeInterpretacion(sinEvidencia(), pregunta), []);
+  assert.deepEqual(problemasDeInterpretacion(consulta({ interpretacion_descartada: true }), pregunta), []);
+  const interpretada = consulta({ interpretacion: 'Reportar según GRI 302-1 en la sección 3.2 sugiere trazabilidad; frente a la meta de 20 % falta evidencia en 2026.' });
+  assert.deepEqual(problemasDeInterpretacion(interpretada, pregunta), []); // cifras de la cita, la sección y la pregunta; los años no cuentan
+});
+
+test('una interpretación sin respaldo, mezclada con las citas o con cifras ajenas se detecta', () => {
+  const falla = (respuesta, fragmento) => {
+    const problemas = problemasDeInterpretacion(respuesta, '¿Qué sugiere el reporte?');
+    assert.ok(problemas.some((p) => p.includes(fragmento)), `${fragmento} ← ${JSON.stringify(problemas)}`);
+  };
+  falla(sinEvidencia({ interpretacion: 'Sugiere una buena gestión.' }), 'sin evidencia no trae interpretación');
+  falla(sinEvidencia({ interpretacion_descartada: true }), 'sin evidencia no trae interpretación');
+  falla(consulta({ interpretacion: 'Sugiere una buena gestión.', afirmaciones: [], citas: [] }), 'solo puede acompañar a afirmaciones con cita');
+  falla(consulta({ interpretacion: 'Sugiere una buena gestión.', busqueda_documental: 'NO_REALIZADA' }), 'solo puede acompañar a afirmaciones con cita');
+  falla(consulta({ interpretacion: 'Sugiere una buena gestión.', interpretacion_descartada: true }), 'descartada no se muestra');
+  falla(consulta({ interpretacion: 'El ahorro real fue de 35 %.' }), 'introduce una cifra');
+  falla(consulta({ interpretacion: 'Sugiere una buena gestión [1].' }), 'marcadores [n]');
+  falla(consulta({ interpretacion: 'se reporta según GRI 302-1', respuesta: 'El consumo se reporta según GRI 302-1. [1]' }), 'mezclada con el texto citado');
+  for (const invalida of ['', '   ', 7, ['x'], 'x'.repeat(4001)]) falla(consulta({ interpretacion: invalida }), 'no es null ni un texto no vacío');
+  falla(consulta({ interpretacion_descartada: 'no' }), 'no es booleano');
+});
+
 // ---------------------------------------------------------------------------------------------------- selecciones
 
 const nombres = (letrasPedidas) => letrasPedidas.map((l) => carpetas.find((c) => letraDeCarpeta(c.name) === l).name);
