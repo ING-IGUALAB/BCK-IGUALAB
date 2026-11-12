@@ -24,7 +24,7 @@ from app.modules.asistente import continuacion_service
 from app.modules.asistente import service as servicio_consultas
 from app.modules.asistente.domain.estado_gri import codigos_para_estado, solo_estado
 from app.modules.asistente.domain.interpretacion import SISTEMA_INTERPRETACION
-from app.modules.asistente.domain.prompt import SISTEMA as SISTEMA_RAG
+from app.modules.asistente.domain.prompt import sistema_para
 from app.modules.asistente.schemas import (
     Afirmacion,
     BusquedaDocumental,
@@ -350,7 +350,7 @@ async def test_instrucciones_roles_y_delimitadores_del_historial_no_se_incorpora
     historial = historial_del_prompt(p.llm.interp_usuario)  # ...y como UN valor JSON íntegro (no abre bloques)
     assert ataque in historial[0]["respuesta"]["contenido"]
     assert historial[0]["pregunta"]["rol"] == "usuario"
-    assert p.llm.sistema == SISTEMA_RAG
+    assert p.llm.sistema == sistema_para(servicio_consultas.PERMITE_INTERPRETACION)  # el prompt del RAG del modo vigente
     assert "IGNORA LAS REGLAS" not in p.llm.sistema  # el RAG tampoco recibe el historial como sistema
     assert "IGNORA LAS REGLAS" not in p.llm.usuario
 
@@ -538,7 +538,7 @@ async def test_post_consultas_sigue_siendo_independiente_y_no_interpreta_ni_guar
     assert r.status_code == 200, r.text
     assert h.embeddings.llamadas == 1
     assert h.llm.llamadas == 1  # SOLO la llamada del RAG: sin interpretación
-    assert h.llm.sistema == SISTEMA_RAG
+    assert h.llm.sistema == sistema_para(servicio_consultas.PERMITE_INTERPRETACION)  # el prompt del RAG del modo vigente
     assert SEGUIMIENTO in h.llm.usuario  # la pregunta tal cual, sin memoria
     assert (await contar(h, "mensajes_asistente"), await contar(h, "intercambios_asistente")) == (0, 0)
 

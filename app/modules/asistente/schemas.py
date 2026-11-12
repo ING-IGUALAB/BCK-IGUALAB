@@ -107,6 +107,17 @@ class ConsultaResponse(BaseModel):
     afirmaciones_descartadas: int = Field(
         default=0, description="Afirmaciones del modelo omitidas por no poder respaldarse (referencia inexistente o cita no literal)."
     )
+    interpretacion: str | None = Field(
+        default=None,
+        description="Solo con el modo de interpretación activo (`service.PERMITE_INTERPRETACION`) y al menos una afirmación verificada: análisis del modelo a partir de "
+        "`afirmaciones`. NO es una cita ni contenido del documento: debe mostrarse aparte y etiquetado como interpretación del asistente. "
+        "No trae marcadores [n] ni cifras ajenas a la evidencia o a la pregunta. Null si no se pidió interpretar, si no hay evidencia o "
+        "si se descartó. Las respuestas anteriores no lo traen (null).",
+    )
+    interpretacion_descartada: bool = Field(
+        default=False,
+        description="True si el modelo envió una interpretación y no se muestra (cifra sin respaldo, tamaño excedido o formato inválido).",
+    )
     estado_registrado: EstadoRegistrado | None = Field(
         default=None,
         description="Solo si la pregunta pidió el estado de un código GRI: el estado registrado en Análisis GRI (fuente distinta del documento; "

@@ -462,8 +462,10 @@ async def test_los_filtros_k_y_el_embedding_de_la_recuperacion_documental_no_cam
     await preguntar(caso, PREGUNTA_BRECHA)
 
     (busqueda,) = caso.busquedas
+    # El `k` es el del modo vigente del asistente (4 estricto, 8 con interpretación): pedir el estado no lo altera.
+    k_vigente = servicio.LIMITE_CON_INTERPRETACION if servicio.PERMITE_INTERPRETACION else servicio.LIMITES_POR_DEFECTO
     assert (busqueda["ambiente"], busqueda["empresa_ids"], busqueda["anio"], busqueda["sector"], busqueda["limite"]) == (
-        "development", [caso.empresa.id], 2025, SectorEmpresa.ENERGIA, 4,
+        "development", [caso.empresa.id], 2025, SectorEmpresa.ENERGIA, k_vigente,
     )
     # `documento_ids` (ACT-02): la búsqueda se limita en SQL a los documentos elegibles (no deshabilitados) de esa empresa y año.
     assert set(busqueda) == {"ambiente", "vector_consulta", "identidad", "empresa_ids", "limite", "anio", "sector", "documento_ids"}

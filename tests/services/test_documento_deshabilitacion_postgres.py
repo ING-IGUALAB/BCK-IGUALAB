@@ -603,11 +603,13 @@ TEXTO_REPORTE = "Texto del reporte vigente: la empresa gestionó el agua con ind
 
 @pytest_asyncio.fixture
 async def chat(m, monkeypatch):
-    """Memoria retirada con 6 fragmentos MUY similares a la consulta, memoria de reemplazo y reporte vigente con fragmentos menos similares."""
+    """Memoria retirada con MÁS fragmentos muy similares a la consulta que el `k` de recuperación (en cualquiera de sus dos modos), memoria
+    de reemplazo y reporte vigente con fragmentos menos similares."""
     await deshabilitar_http(m, m.memoria.id)
     async with m.fabrica() as db:
         reemplazo = await sembrar_documento(db, m.empresa, m.admin, texto=MD_GRI_204_305, tipo=MEMORIA, nombre="memoria-corregida-2025.md")
-    fragmentos = [fragmento_de(m.memoria, m.empresa, f"{TEXTO_RETIRADO} ({n})", 0.99 - n / 100, indice=n) for n in range(6)]
+    retirados = max(servicio_chat.LIMITES_POR_DEFECTO, servicio_chat.LIMITE_CON_INTERPRETACION) + 2  # llenan los primeros k lugares
+    fragmentos = [fragmento_de(m.memoria, m.empresa, f"{TEXTO_RETIRADO} ({n})", 0.99 - n / 100, indice=n) for n in range(retirados)]
     fragmentos += [fragmento_de(reemplazo, m.empresa, TEXTO_REEMPLAZO, 0.50), fragmento_de(m.reporte, m.empresa, TEXTO_REPORTE, 0.40)]
     almacen = AlmacenVectorialSimulado(fragmentos)
     monkeypatch.setattr(servicio_chat, "buscar_similares", almacen.buscar)
@@ -628,7 +630,7 @@ async def test_el_chat_recupera_la_evidencia_del_reemplazo_aunque_los_fragmentos
 
     resultado = await preguntar(chat)
 
-    # La búsqueda recibió SOLO los elegibles (reemplazo y reporte), no el retirado: sus 6 fragmentos no ocupan los 4 primeros lugares.
+    # La búsqueda recibió SOLO los elegibles (reemplazo y reporte), no el retirado: sus fragmentos no ocupan los primeros k lugares.
     (busqueda,) = chat.almacen.busquedas
     assert set(busqueda["documento_ids"]) == {chat.reemplazo.id, chat.m.reporte.id}
     assert chat.m.memoria.id not in busqueda["documento_ids"]
@@ -640,7 +642,7 @@ async def test_el_chat_recupera_la_evidencia_del_reemplazo_aunque_los_fragmentos
 
 
 async def test_sin_el_filtro_previo_los_fragmentos_del_retirado_desplazarian_al_reemplazo(chat):
-    """Control negativo: con un almacén que IGNORA `documento_ids` (el comportamiento anterior a ACT-02), los 4 primeros lugares son del
+    """Control negativo: con un almacén que IGNORA `documento_ids` (el comportamiento anterior a ACT-02), los primeros k lugares son del
     retirado; la comprobación transaccional posterior los descarta y no queda evidencia. El filtro previo es lo que lo evita."""
     chat.almacen.respetar = False
     chat.llm.contenido = respuesta(afirmacion("La empresa redujo su consumo de agua.", (1,), "redujo el consumo de agua en 12 %"))

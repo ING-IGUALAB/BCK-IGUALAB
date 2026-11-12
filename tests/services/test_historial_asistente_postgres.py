@@ -594,9 +594,13 @@ async def test_post_consultas_conserva_su_comportamiento_y_no_guarda_nada_en_el_
     assert r.status_code == 200, r.text
     cuerpo_consulta = r.json()
     # Las claves anteriores se conservan; el contrato solo suma dos opcionales: `estado_registrado` (null sin petición de estado) y
-    # `busqueda_documental` (REALIZADA por omisión).
-    assert set(cuerpo_consulta) == {"respuesta", "afirmaciones", "citas", "sin_evidencia", "motivo", "mensaje", "afirmaciones_descartadas", "estado_registrado", "busqueda_documental"}
+    # `busqueda_documental` (REALIZADA por omisión); y la interpretación (null / false: sin afirmaciones verificadas).
+    assert set(cuerpo_consulta) == {
+        "respuesta", "afirmaciones", "citas", "sin_evidencia", "motivo", "mensaje", "afirmaciones_descartadas", "estado_registrado",
+        "busqueda_documental", "interpretacion", "interpretacion_descartada",
+    }
     assert (cuerpo_consulta["estado_registrado"], cuerpo_consulta["busqueda_documental"]) == (None, "REALIZADA")
+    assert (cuerpo_consulta["interpretacion"], cuerpo_consulta["interpretacion_descartada"]) == (None, False)
     assert (cuerpo_consulta["sin_evidencia"], cuerpo_consulta["motivo"]) == (True, MOTIVO_SIN_FRAGMENTOS)
     assert h.embeddings.llamadas == 1  # la consulta SÍ usa embeddings: la ruta no cambió
     assert await contar_todo(h) == (0, 0)  # y no guarda nada automáticamente

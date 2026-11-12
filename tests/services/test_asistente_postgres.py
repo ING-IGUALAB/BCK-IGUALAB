@@ -28,6 +28,7 @@ from app.models.documento_ingesta import EstadoProcesamiento
 from app.modules.asistente import router as asistente
 from app.modules.asistente.continuacion_service import RecursosRag
 from app.modules.asistente import service as servicio
+from app.modules.asistente.domain import prompt as prompt_asistente
 from app.modules.ingesta.domain.embeddings import IdentidadEmbeddings
 from tests.ayudantes_analisis_gri import (
     MD_GRI_204_305,
@@ -366,3 +367,59 @@ async def test_indisponibilidad_del_proveedor_de_chat_es_un_error_controlado(m6)
     m6.llm.contenido = ExternalServiceError("LLM_PROVIDER_ERROR", "El asistente no está disponible: error del proveedor de IA.")
     r = await consultar(m6)
     comprobar_error(r, 502, "LLM_PROVIDER_ERROR")
+
+
+# ================================================ Interpretación aparte (PERMITE_INTERPRETACION) ================================================
+
+INTERPRETACION = "La reducción sugiere una gestión más eficiente del agua, aunque un solo dato no prueba una tendencia."
+
+
+def respuesta_interpretada(interpretacion: str) -> str:
+    return json.dumps({"fuera_de_dominio": False, "afirmaciones": [afirmacion()], "interpretacion": interpretacion}, ensure_ascii=False)
+
+
+async def test_con_el_modo_apagado_el_asistente_no_interpreta_aunque_el_modelo_envie_una_interpretacion(m6, monkeypatch):
+    monkeypatch.setattr(servicio, "PERMITE_INTERPRETACION", False)
+    m6.devolver = [fragmento_de(m6)]
+    m6.llm.contenido = respuesta_interpretada(INTERPRETACION)
+    datos = (await consultar(m6)).json()
+    assert m6.llm.sistema == prompt_asistente.SISTEMA
+    assert m6.busquedas[0]["limite"] == servicio.LIMITES_POR_DEFECTO
+    assert datos["sin_evidencia"] is False
+    assert datos["interpretacion"] is None
+    assert datos["interpretacion_descartada"] is False
+
+
+async def test_con_el_modo_activo_la_interpretacion_va_aparte_y_las_afirmaciones_conservan_sus_citas(m6, monkeypatch):
+    monkeypatch.setattr(servicio, "PERMITE_INTERPRETACION", True)
+    m6.devolver = [fragmento_de(m6)]
+    m6.llm.contenido = respuesta_interpretada(INTERPRETACION)
+    datos = (await consultar(m6, pregunta="¿Qué indica la evolución del consumo de agua?")).json()
+    assert m6.llm.sistema == prompt_asistente.SISTEMA_CON_INTERPRETACION
+    assert m6.busquedas[0]["limite"] == servicio.LIMITE_CON_INTERPRETACION
+    assert datos["interpretacion"] == INTERPRETACION
+    assert datos["interpretacion_descartada"] is False
+    assert datos["respuesta"] == "La empresa redujo su consumo de agua. [1]"  # la interpretación no se mezcla con el texto citado
+    assert datos["afirmaciones"][0]["cita_textual"] == "redujo el consumo de agua en 12 %"
+    assert [c["referencia"] for c in datos["citas"]] == [1]
+
+
+async def test_con_el_modo_activo_una_interpretacion_con_cifras_sin_respaldo_no_se_muestra(m6, monkeypatch):
+    monkeypatch.setattr(servicio, "PERMITE_INTERPRETACION", True)
+    m6.devolver = [fragmento_de(m6)]
+    m6.llm.contenido = respuesta_interpretada("En realidad la reducción fue de 30 %, muy superior a lo declarado.")
+    datos = (await consultar(m6)).json()
+    assert datos["sin_evidencia"] is False
+    assert len(datos["afirmaciones"]) == 1
+    assert datos["interpretacion"] is None
+    assert datos["interpretacion_descartada"] is True
+
+
+async def test_con_el_modo_activo_sin_afirmaciones_verificadas_no_hay_interpretacion(m6, monkeypatch):
+    monkeypatch.setattr(servicio, "PERMITE_INTERPRETACION", True)
+    m6.devolver = [fragmento_de(m6)]
+    m6.llm.contenido = json.dumps({"afirmaciones": [], "interpretacion": INTERPRETACION}, ensure_ascii=False)
+    datos = (await consultar(m6)).json()
+    assert datos["sin_evidencia"] is True
+    assert datos["motivo"] == "MODELO_SIN_EVIDENCIA"
+    assert datos["interpretacion"] is None
