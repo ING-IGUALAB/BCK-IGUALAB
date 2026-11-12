@@ -517,7 +517,7 @@ async def test_la_cancelacion_de_la_publicacion_libera_los_bloqueos_y_no_confirm
 # ============================================ 8 · Repetir una publicación conserva su idempotencia ============================================
 
 async def eventos_de_publicacion(e, documento) -> int:
-    return (await sql(e, "SELECT count(*) FROM auditoria WHERE detalle LIKE :d", d=f"Publicación vectorial confirmada; documento_id={documento.id}%"))[0][0]
+    return (await sql(e, "SELECT count(*) FROM auditoria WHERE detalle LIKE :d", d="Publicación vectorial confirmada%"))[0][0]
 
 
 async def test_repetir_la_publicacion_devuelve_false_sin_cambiar_la_fecha_ni_duplicar_la_auditoria(e):

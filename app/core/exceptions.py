@@ -87,3 +87,17 @@ class InternalProcessingError(AppException):
 class ServiceUnavailableError(AppException):
     """Una capacidad de la aplicación no está disponible por su configuración (p. ej. la ingesta sin
     almacenamiento configurado). Se responde 503 nombrando componentes o variables, nunca valores."""
+
+
+class ConfirmacionPendiente(AppException):
+    """La ingesta de un documento se pausó tras el análisis (doble check) a la espera de la decisión
+    del SuperAdmin: continuar o cancelar. NO es un error: se responde 202 con la vista de la operación.
+    El `details` lo enriquece el gestor con `operacion_id`, `progreso_url`, `confirmar_url` y `cancelar_url`."""
+
+    def __init__(self, documento_id: str, resumen: dict | None = None) -> None:
+        super().__init__(
+            "CONFIRMATION_PENDING",
+            "El análisis del documento terminó; la ingesta espera confirmación para continuar o cancelar.",
+            details={"documento_id": documento_id, **(resumen or {})},
+        )
+        self.documento_id = documento_id

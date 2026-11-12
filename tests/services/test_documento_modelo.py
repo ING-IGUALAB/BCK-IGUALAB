@@ -103,7 +103,9 @@ async def test_metadatos_persistidos_y_sector_de_la_empresa(entorno):
 
 def test_relaciones_con_empresa_y_cuenta_estan_declaradas():
     destinos = {(fk.parent.name, fk.column.table.name, fk.column.name) for fk in Documento.__table__.foreign_keys}
-    assert destinos == {("empresa_id", "empresas", "id"), ("usuario_id", "usuarios", "id")}
+    assert destinos == {
+        ("empresa_id", "empresas", "id"), ("usuario_id", "usuarios", "id"), ("deshabilitado_por", "usuarios", "id"),  # ACT-02
+    }
     assert Documento.__table__.c.clave_original.unique is True  # sin URL ni credenciales: solo una clave
     assert not any("url" in c.name or "password" in c.name or "secret" in c.name for c in Documento.__table__.c)
 

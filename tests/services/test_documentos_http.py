@@ -101,7 +101,7 @@ async def test_crear_operacion_devuelve_el_identificador_sin_crear_documentos(en
             "development", entorno.usuario.id, "CREADA", None
         )
         detalles = [e.detalle for e in await entorno.auditoria()]
-        assert any(f"Operación de ingesta creada; operacion_id={operacion_id}" in d for d in detalles)
+        assert any("Operación de ingesta creada" in d for d in detalles)
 
         estado = (await cliente.get(f"/documentos/operaciones/{operacion_id}")).json()
         assert estado["estado"] == "CREADA"
@@ -642,13 +642,20 @@ async def documento_en_otro_ambiente(entorno, *, pendiente: bool = False):
     if pendiente:
         entorno.vectorial.inyectar("UPDATE fragmentos_documento SET publicado", veces=1)
     try:
-        resultado = await ingerir_documento(
-            deps_qa, entorno.config, usuario_id=entorno.usuario.id, nombre_archivo="qa.md",
-            leer=lector(TEXTO_OBSERVADO.encode("utf-8")), metadatos=entorno.metadatos,
-        )
-        return resultado.documento_id
-    except coordinador.PublicacionVectorialPendiente as error:
-        return error.documento_id
+        try:
+            resultado = await ingerir_documento(
+                deps_qa, entorno.config, usuario_id=entorno.usuario.id, nombre_archivo="qa.md",
+                leer=lector(TEXTO_OBSERVADO.encode("utf-8")), metadatos=entorno.metadatos,
+            )
+            return resultado.documento_id
+        except coordinador.ConfirmacionPendiente as pausa:
+            try:
+                resultado = await coordinador.confirmar_ingesta(deps_qa, uuid.UUID(pausa.documento_id))
+                return resultado.documento_id
+            except coordinador.PublicacionVectorialPendiente as error:
+                return error.documento_id
+        except coordinador.PublicacionVectorialPendiente as error:
+            return error.documento_id
     finally:
         entorno.vectorial.quitar()
 

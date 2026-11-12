@@ -45,6 +45,32 @@ ESQUEMA_TRANSACCIONAL = EsquemaBase(
         # La 0006 no se toca. Sin `objetos` (idempotente), como la 0005 y la 0006; añade una UNIQUE a `analisis_gri_validaciones`
         # solo como destino de la FK compuesta.
         Migracion(7, "integridad_de_reportes", "0007_integridad_de_reportes.sql", (), carpeta="transaccional"),
+        # Sector «Otros» (OTROS) en el tipo `sector_empresa`, compartido por `empresas.sector` y `documentos.sector`. Sin `objetos`:
+        # los tipos no forman parte de la firma y `create_all` ya lo crea con el valor en una instalación nueva (SQL idempotente).
+        Migracion(8, "sector_otros", "0008_sector_otros.sql", (), carpeta="transaccional"),
+        # Historial del Asistente IA, entrega 1 (Módulo 6): conversaciones y mensajes guardados. Tablas NUEVAS (no las crea `create_all`:
+        # están en `TABLAS_SIN_DDL_AUTOMATICO`), así que sí declaran `objetos` y tienen firma versionada, como el Módulo 5.
+        Migracion(
+            9, "historial_asistente", "0009_historial_asistente.sql",
+            ("conversaciones_asistente", "mensajes_asistente"), carpeta="transaccional",
+        ),
+        # Historial del Asistente IA, entrega 2: reservas de consulta (`intercambios_asistente`, tabla nueva) y procedencia ampliada. La
+        # 0009 no se toca. `mensajes_asistente` NO se declara: solo cambia el texto de un CHECK con el mismo nombre, y la firma no compara
+        # el texto de los CHECK (su firma sigue siendo la de la versión 9).
+        Migracion(
+            10, "continuacion_asistente", "0010_continuacion_asistente.sql",
+            ("intercambios_asistente",), carpeta="transaccional",
+        ),
+        # Deshabilitación de documentos (ACT-02): tres columnas nulables en `documentos`, la restricción de reserva ampliada y cuatro CHECK.
+        # Los índices únicos de reserva no cambian. No ejecuta ningún UPDATE: ningún documento existente se deshabilita.
+        Migracion(
+            11, "documentos_deshabilitacion", "0011_documentos_deshabilitacion.sql", ("documentos",), carpeta="transaccional",
+        ),
+        # Doble check de ingesta: columna `confirmacion_pendiente_en` y etapa `CONFIRMANDO` en el CHECK de etapas.
+        # Sin UPDATE: ningún documento existente queda en pausa. La 0011 no se toca.
+        Migracion(
+            12, "documentos_confirmacion", "0012_documentos_confirmacion.sql", ("documentos",), carpeta="transaccional",
+        ),
     ),
     # Los crea el arranque de los módulos existentes (`crear_tablas`), que corre ANTES que esta preparación.
     prerrequisitos=(

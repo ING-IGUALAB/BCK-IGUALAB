@@ -162,6 +162,23 @@
           "name": "Login SuperAdmin (credenciales de la ejecución)",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"superadmin_correo\",\"superadmin_password\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -236,7 +253,16 @@
                 "type": "text/javascript",
                 "exec": [
                   "const v = (n) => pm.variables.get(n); const set = (n, x) => { pm.collectionVariables.set(n, String(x)); if (!/token|pwd|password/i.test(n)) { pm.environment.set(n, String(x)); } };",
-                  "((v, set) => set('i_rid', pm.variables.replaceIn('{{$guid}}')))(v, set);"
+                  "((v, set) => set('i_rid', pm.variables.replaceIn('{{$guid}}')))(v, set);",
+                  "{",
+                  "  const faltantes = [\"i_rid\",\"run_id\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
                 ]
               }
             },
@@ -429,6 +455,23 @@
           "name": "Crear Administrador sintético 1 (SuperAdmin)",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"run_id\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -503,6 +546,23 @@
           "name": "Login Administrador sintético",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_admin_correo\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -564,6 +624,23 @@
         {
           "name": "Login con contraseña incorrecta (cuenta sintética) → 401 sin distinguir de «no existe»",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_admin_correo\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -687,6 +764,23 @@
           "name": "Cambiar mi contraseña con la actual incorrecta → 401 CURRENT_PASSWORD_INVALID",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"pwd_int_nueva\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -750,6 +844,23 @@
         {
           "name": "Cambiar mi contraseña con una débil → 400 PASSWORD_POLICY_VIOLATION",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -819,6 +930,23 @@
           "name": "Cambiar mi contraseña (válida) → 200",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"pwd_int\",\"pwd_int_nueva\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -884,6 +1012,23 @@
           "name": "Login con la contraseña anterior → 401 INVALID_CREDENTIALS",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_admin_correo\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -943,6 +1088,23 @@
         {
           "name": "Login con la contraseña nueva → 200",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_admin_correo\",\"pwd_int_nueva\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -1005,6 +1167,23 @@
           "name": "Logout con la sesión nueva → 204 sin cuerpo",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin_cierre\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -1056,6 +1235,23 @@
         {
           "name": "El token del logout ya no sirve → 401 INVALID_SESSION",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin_cierre\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -1157,6 +1353,23 @@
           "name": "Login Administrador sintético (sesión para el resto de la colección)",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_admin_correo\",\"pwd_int_nueva\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -1217,6 +1430,23 @@
         {
           "name": "Recuperar contraseña con un correo inexistente → 202 genérico (no revela la cuenta ni envía correo)",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"run_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -1346,6 +1576,23 @@
           "name": "Restablecer contraseña con un token inválido → 400 INVALID_OR_EXPIRED_RESET_TOKEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"pwd_int_nueva\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -1405,6 +1652,23 @@
         {
           "name": "Restablecer contraseña con confirmación distinta → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"pwd_int_nueva\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -1583,6 +1847,23 @@
           "name": "Listar usuarios (SuperAdmin) → 200",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -1647,6 +1928,23 @@
         {
           "name": "Crear Administrador sintético 2 (el correo se normaliza a minúsculas)",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"run_id\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -1722,6 +2020,23 @@
           "name": "Crear con el mismo correo en otra capitalización → 409 EMAIL_ALREADY_EXISTS",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"run_id\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -1785,6 +2100,23 @@
         {
           "name": "Crear con contraseña débil → 400 PASSWORD_POLICY_VIOLATION",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"run_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -1850,6 +2182,23 @@
         {
           "name": "Crear con correo mal formado → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -1922,6 +2271,23 @@
           "name": "Crear sin nombre → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"run_id\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -1993,6 +2359,23 @@
           "name": "Administrador intenta crear usuarios → 403 FORBIDDEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"run_id\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2057,6 +2440,23 @@
           "name": "Administrador intenta listar usuarios → 403 FORBIDDEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2107,6 +2507,23 @@
         {
           "name": "Crear usuario sin sesión → 401",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"run_id\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -2169,6 +2586,23 @@
           "name": "Deshabilitar la cuenta sintética 2 → 200 habilitado=false",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_admin2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2221,6 +2655,23 @@
           "name": "Deshabilitar de nuevo es idempotente → 200",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_admin2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2272,6 +2723,23 @@
         {
           "name": "Login de la cuenta deshabilitada → 403 ACCOUNT_DISABLED",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_admin2_correo\",\"pwd_int\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -2332,6 +2800,23 @@
         {
           "name": "Rechazo de transferencia: la cuenta destino está deshabilitada → 409 DESTINATION_USER_DISABLED",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_admin2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -2397,6 +2882,23 @@
           "name": "Habilitar la cuenta sintética 2 → 200 habilitado=true",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_admin2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2449,6 +2951,23 @@
           "name": "Deshabilitar un usuario inexistente → 404 USER_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2499,6 +3018,23 @@
         {
           "name": "Deshabilitar con un id que no es UUID → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -2558,6 +3094,23 @@
           "name": "No se puede deshabilitar al SuperAdmin → 409 SUPERADMIN_CANNOT_BE_DISABLED",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_superadmin_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2609,6 +3162,23 @@
           "name": "Administrador intenta deshabilitar → 403 FORBIDDEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_admin2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2659,6 +3229,23 @@
         {
           "name": "Rechazo de transferencia: la cuenta destino no existe → 404 DESTINATION_USER_NOT_FOUND",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -2724,6 +3311,23 @@
           "name": "Rechazo de transferencia: el destino ya es SuperAdmin → 409 DESTINATION_ALREADY_SUPERADMIN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_superadmin_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2787,6 +3391,23 @@
         {
           "name": "Transferir con un cuerpo inválido → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -2859,6 +3480,23 @@
           "name": "Administrador intenta transferir → 403 FORBIDDEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_admin_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2923,6 +3561,23 @@
           "name": "Verificación final: el SuperAdmin sigue siendo el mismo y único",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -2985,6 +3640,23 @@
         {
           "name": "Crear empresa 1 (el nombre se recorta y nace activa)",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"run_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -3058,6 +3730,23 @@
           "name": "Crear empresa 2 (PETROLEO)",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"run_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -3130,6 +3819,23 @@
           "name": "Crear con el mismo nombre en otra capitalización → 409 COMPANY_ALREADY_EXISTS",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"run_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -3193,6 +3899,23 @@
         {
           "name": "Crear con un sector inválido → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"run_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -3265,6 +3988,23 @@
           "name": "Crear con nombre vacío → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -3335,6 +4075,23 @@
         {
           "name": "Crear con un campo no permitido → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"run_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -3407,6 +4164,23 @@
           "name": "Administrador intenta crear una empresa → 403 FORBIDDEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"run_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -3471,6 +4245,23 @@
           "name": "Crear empresa sin sesión → 401",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"run_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -3532,6 +4323,23 @@
           "name": "Listar todas (SuperAdmin) incluye las empresas creadas",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -3586,6 +4394,23 @@
         {
           "name": "Listar filtrando por sector → solo ese sector",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -3642,6 +4467,23 @@
         {
           "name": "Listar con un sector inválido → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -3701,6 +4543,23 @@
           "name": "Administrador lista solo activas → 200",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -3755,6 +4614,23 @@
         {
           "name": "Administrador lista sin filtrar → 403 FORBIDDEN (solo puede ver activas)",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -3855,6 +4731,23 @@
           "name": "Obtener la empresa 1 por id → 200",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa1_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -3907,6 +4800,23 @@
           "name": "Obtener una empresa inexistente → 404 COMPANY_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -3957,6 +4867,23 @@
         {
           "name": "Obtener con un id que no es UUID → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -4016,6 +4943,23 @@
           "name": "Administrador intenta obtener por id → 403 FORBIDDEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -4066,6 +5010,23 @@
         {
           "name": "Editar el sector de la empresa 2 → 200",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -4132,6 +5093,23 @@
           "name": "Editar con el nombre de otra empresa → 409 COMPANY_ALREADY_EXISTS",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa2_id\",\"i_empresa1_nombre\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -4195,6 +5173,23 @@
         {
           "name": "Editar con un cuerpo vacío → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -4267,6 +5262,23 @@
           "name": "Editar con un campo nulo → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -4338,6 +5350,23 @@
           "name": "Editar una empresa inexistente → 404 COMPANY_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -4401,6 +5430,23 @@
         {
           "name": "Administrador intenta editar → 403 FORBIDDEN",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -4466,6 +5512,23 @@
           "name": "Desactivar la empresa 2 → 200 activa=false",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -4517,6 +5580,23 @@
         {
           "name": "Las inactivas no salen en «solo activas»",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -4573,6 +5653,23 @@
           "name": "Activar la empresa 2 → 200 activa=true",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -4625,6 +5722,23 @@
           "name": "Activar una empresa inexistente → 404 COMPANY_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -4675,6 +5789,23 @@
         {
           "name": "Administrador intenta desactivar → 403 FORBIDDEN",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -4781,6 +5912,23 @@
           "name": "Administrador intenta crear una operación → 403 FORBIDDEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -4831,6 +5979,23 @@
         {
           "name": "Crear operación (SuperAdmin) → 201 CREADA",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -4890,6 +6055,23 @@
         {
           "name": "Consultar la operación recién creada → 200 CREADA, sin documento",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_creada\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -4953,6 +6135,23 @@
           "name": "Consultar una operación inexistente → 404 OPERATION_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -5003,6 +6202,23 @@
         {
           "name": "Consultar una operación con un id que no es UUID → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -5062,6 +6278,23 @@
           "name": "Administrador intenta consultar una operación → 403 FORBIDDEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_op_creada\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -5112,6 +6345,23 @@
         {
           "name": "Reintentar la publicación de una operación sin documento → 409 OPERATION_WITHOUT_DOCUMENT",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_creada\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -5164,6 +6414,23 @@
           "name": "Reintentar la publicación de una operación inexistente → 404",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -5214,6 +6481,23 @@
         {
           "name": "Administrador intenta reintentar una publicación → 403 FORBIDDEN",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_op_creada\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -5266,6 +6550,23 @@
           "name": "Preparar operación para un archivo con extensión no permitida",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -5317,6 +6618,23 @@
         {
           "name": "Ingesta con extensión .txt → 400 INVALID_FILE_TYPE",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_txt\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -5394,6 +6712,23 @@
           "name": "La operación del archivo .txt quedó RECHAZADA",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_txt\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -5453,6 +6788,23 @@
         {
           "name": "Reutilizar la operación ya usada → 409 OPERATION_ALREADY_STARTED",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_txt\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -5530,6 +6882,23 @@
           "name": "Preparar operación para un archivo vacío",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -5581,6 +6950,23 @@
         {
           "name": "Ingesta de un archivo vacío → 400 EMPTY_DOCUMENT",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_vacio\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -5658,6 +7044,23 @@
           "name": "Preparar operación para un archivo que no es UTF-8",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -5709,6 +7112,23 @@
         {
           "name": "Ingesta de un .md que no es UTF-8 → 400 INVALID_ENCODING",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_enc\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -5786,6 +7206,23 @@
           "name": "Preparar operación para una empresa inexistente",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -5837,6 +7274,23 @@
         {
           "name": "Ingesta para una empresa inexistente → 404 COMPANY_NOT_FOUND",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_empresa\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -5914,6 +7368,23 @@
           "name": "Ingesta con una operación inexistente → 404 OPERATION_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -5990,6 +7461,23 @@
           "name": "Preparar operación para los metadatos inválidos",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -6041,6 +7529,23 @@
         {
           "name": "Ingesta con año no numérico → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_meta\",\"i_empresa1_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -6125,6 +7630,23 @@
           "name": "Ingesta con año anterior a 2000 → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_meta\",\"i_empresa1_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -6207,6 +7729,23 @@
         {
           "name": "Ingesta con año futuro → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_meta\",\"i_empresa1_id\",\"anio_futuro\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -6291,6 +7830,23 @@
           "name": "Ingesta con un tipo de documento inválido → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_meta\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -6373,6 +7929,23 @@
         {
           "name": "Ingesta con un empresa_id que no es UUID → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_meta\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -6457,6 +8030,23 @@
           "name": "Ingesta sin archivo → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_meta\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -6535,6 +8125,23 @@
           "name": "Los metadatos inválidos no consumen la operación (sigue CREADA)",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_op_meta\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -6586,6 +8193,23 @@
         {
           "name": "Administrador intenta ingerir → 403 FORBIDDEN",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_op_meta\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -6663,6 +8287,23 @@
           "name": "Ingesta sin sesión → 401",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_op_meta\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -6736,6 +8377,23 @@
           "name": "Listar documentos de una empresa sin documentos → 200 vacío",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa1_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -6792,6 +8450,23 @@
           "name": "Listar con filtros válidos → 200",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -6843,6 +8518,23 @@
         {
           "name": "Listar con tamaño 0 → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -6902,6 +8594,23 @@
           "name": "Listar con tamaño mayor al máximo (101) → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -6959,6 +8668,23 @@
         {
           "name": "Listar con página 0 → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -7018,6 +8744,23 @@
           "name": "Listar con año 1999 → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -7075,6 +8818,23 @@
         {
           "name": "Listar con un estado inválido → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -7134,6 +8894,23 @@
           "name": "Listar con un tipo inválido → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -7192,6 +8969,23 @@
           "name": "Listar con empresa_id inválido → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -7249,6 +9043,23 @@
         {
           "name": "Administrador intenta listar documentos → 403 FORBIDDEN",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -7349,6 +9160,23 @@
           "name": "Detalle de un documento inexistente → 404 DOCUMENT_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -7399,6 +9227,23 @@
         {
           "name": "Detalle con un id que no es UUID → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -7457,6 +9302,23 @@
         {
           "name": "Administrador intenta ver un detalle → 403 FORBIDDEN",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -7563,6 +9425,23 @@
           "name": "Consultar sin sesión → 401",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -7610,6 +9489,23 @@
         {
           "name": "Asignar estado sin sesión → 401",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -7672,6 +9568,23 @@
           "name": "Historial sin sesión → 401",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -7719,6 +9632,23 @@
         {
           "name": "Validar sin sesión → 401",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -7781,6 +9711,23 @@
           "name": "El SuperAdmin no puede consultar el análisis → 403 FORBIDDEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -7831,6 +9778,23 @@
         {
           "name": "El SuperAdmin no puede asignar estados → 403 FORBIDDEN",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -7896,6 +9860,23 @@
           "name": "El SuperAdmin no puede ver el historial → 403 FORBIDDEN",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -7946,6 +9927,23 @@
         {
           "name": "El SuperAdmin no puede validar → 403 FORBIDDEN",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -8010,6 +10008,23 @@
         {
           "name": "Consultar una empresa/año sin documentos → 200 DOCUMENTACION_INSUFICIENTE",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -8099,6 +10114,23 @@
           "name": "Consultar una empresa inexistente → 404 COMPANY_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -8149,6 +10181,23 @@
         {
           "name": "Consultar un año anterior a 2000 → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -8208,6 +10257,23 @@
           "name": "Consultar un año no numérico → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -8266,6 +10332,23 @@
           "name": "Consultar con una empresa que no es UUID → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -8323,6 +10406,23 @@
         {
           "name": "Asignar estado a una identidad que no está en el análisis → 404 ANALYSIS_ROW_NOT_FOUND",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -8387,6 +10487,23 @@
         {
           "name": "Asignar estado con una identidad mal formada → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -8459,6 +10576,23 @@
           "name": "Asignar un estado fuera de OK / BAJA_SUSTANCIA / SUB_REPORTADO → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -8529,6 +10663,23 @@
         {
           "name": "Asignar estado sin version_fila_esperada → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -8601,6 +10752,23 @@
           "name": "Asignar estado con un campo no permitido (el autor sale de la sesión) → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\",\"i_admin_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -8672,6 +10840,23 @@
           "name": "Asignar estado en una empresa inexistente → 404 COMPANY_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -8736,6 +10921,23 @@
           "name": "Historial sin cambios → 200 vacío",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -8787,6 +10989,23 @@
         {
           "name": "Historial con página 0 → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -8846,6 +11065,23 @@
           "name": "Historial con tamaño mayor al máximo → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -8903,6 +11139,23 @@
         {
           "name": "Historial con una identidad mal formada → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -8962,6 +11215,23 @@
           "name": "Historial de una empresa inexistente → 404 COMPANY_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -9012,6 +11282,23 @@
         {
           "name": "Validar con una huella que no es la consultada → 409 ANALYSIS_VERSION_CONFLICT (se comprueba antes que los documentos)",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -9081,6 +11368,23 @@
           "name": "Validar con la versión y huella consultadas pero sin documentos elegibles → 409 ANALYSIS_NO_ELIGIBLE_DOCUMENTS",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\",\"i_gri_version\",\"i_gri_huella\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -9144,6 +11448,23 @@
         {
           "name": "Validar con una huella de longitud inválida → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -9216,6 +11537,23 @@
           "name": "Validar con una versión negativa → 422",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -9286,6 +11624,23 @@
         {
           "name": "Validar con un campo no permitido → 422",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"i_empresa1_id\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -9358,6 +11713,23 @@
           "name": "Validar una empresa inexistente → 404 COMPANY_NOT_FOUND",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_admin\",\"anio_actual\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -9428,6 +11800,23 @@
           "name": "Deshabilitar el Administrador sintético 1",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_admin_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -9479,6 +11868,23 @@
         {
           "name": "Deshabilitar el Administrador sintético 2",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_admin2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -9532,6 +11938,23 @@
           "name": "Desactivar la empresa sintética 1",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa1_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
@@ -9583,6 +12006,23 @@
         {
           "name": "Desactivar la empresa sintética 2",
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "{",
+                  "  const faltantes = [\"i_token_super\",\"i_empresa2_id\"].filter((n) => { const x = pm.variables.get(n); return x === undefined || x === null || String(x) === ''; });",
+                  "  if (faltantes.length) {",
+                  "    pm.test('BLOQUEADA: petición no enviada; un paso previo no produjo ' + faltantes.join(', '), () => {",
+                  "      throw new Error('depende de un paso anterior que falló; faltan: ' + faltantes.join(', '));",
+                  "    });",
+                  "    pm.execution.skipRequest();",
+                  "  }",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {

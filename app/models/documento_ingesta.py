@@ -78,12 +78,15 @@ class EstadoCompensacion(str, enum.Enum):
 
 class EtapaIngesta(str, enum.Enum):
     """Etapas REALES de la ingesta, en orden. Se persisten en `documentos.etapa_actual`.
-    `FINALIZADO` solo se alcanza con los fragmentos PUBLICADOS en la base vectorial."""
+    `FINALIZADO` solo se alcanza con los fragmentos PUBLICADOS en la base vectorial.
+    `CONFIRMANDO` (doble check): el análisis terminó y la ingesta espera la decisión del
+    SuperAdmin (continuar → pasos 7–9; cancelar → compensación de residuos)."""
 
     RESERVADO = "RESERVADO"
     ALMACENANDO_ORIGINAL = "ALMACENANDO_ORIGINAL"
     INDEXANDO = "INDEXANDO"
     ANALIZANDO = "ANALIZANDO"
+    CONFIRMANDO = "CONFIRMANDO"
     COMPLETANDO = "COMPLETANDO"
     PUBLICANDO = "PUBLICANDO"
     FINALIZADO = "FINALIZADO"
@@ -92,7 +95,12 @@ class EtapaIngesta(str, enum.Enum):
 _ETAPAS_SQL = ", ".join(f"'{e.value}'" for e in EtapaIngesta)
 # Análisis serializado: JSONB en PostgreSQL, JSON genérico en SQLite (pruebas). Python `None` es SQL NULL.
 _JSON_ANALISIS = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
+# Destino de las claves foráneas hacia la cuenta (actor de la carga, de la deshabilitación y de la operación).
+_FK_USUARIO = "usuarios.id"
 
+
+# Longitud máxima del motivo con que se deshabilita un documento (la validación HTTP y la columna usan el mismo límite).
+MAXIMO_MOTIVO_DESHABILITACION = 500
 
 # Vigencia inicial de la propiedad de una operación EN_PROCESO. Provisional (D24): debe
 # superar el plazo de la operación más larga que NO renueva la vigencia (la subida).
@@ -131,7 +139,7 @@ class Documento(Base):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     tamano_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
-    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuarios.id"), nullable=False, index=True)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(_FK_USUARIO), nullable=False, index=True)
     creado_en: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_ahora_utc, server_default=func.now(), nullable=False
     )
@@ -205,6 +213,19 @@ class Documento(Base):
     )
     vector_ultimo_error: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # --- Deshabilitación (ACT-02, migración 0011) ------------------------------------------------------
+    # Retiro ADMINISTRATIVO de un documento ya COMPLETADO y PUBLICADO. NO es un estado de procesamiento (sigue COMPLETADO) ni un
+    # borrado: el original, los fragmentos y las referencias históricas se conservan. Las tres columnas van juntas (CHECK) y se
+    # escriben UNA sola vez, en la misma sentencia que libera `reserva_activa`: un reintento no las sobrescribe. No hay reactivación.
+    deshabilitado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deshabilitado_por: Mapped[uuid.UUID | None] = mapped_column(ForeignKey(_FK_USUARIO), nullable=True)
+    motivo_deshabilitacion: Mapped[str | None] = mapped_column(String(MAXIMO_MOTIVO_DESHABILITACION), nullable=True)
+
+    # --- Doble check tras el análisis (migración 0012, al final para igualar el orden de ADD COLUMN) ------
+    # Instante en que la ingesta entró en etapa `CONFIRMANDO` y esperó la decisión del SuperAdmin.
+    # Solo informativa (la pausa se reconoce por `etapa_actual`); se conserva tras confirmar o cancelar.
+    confirmacion_pendiente_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     __table_args__ = (
         CheckConstraint("anio >= 2000", name="ck_documentos_anio_minimo"),
         CheckConstraint("length(sha256) = 64", name="ck_documentos_sha256_longitud"),
@@ -233,11 +254,32 @@ class Documento(Base):
             "estado_compensacion = 'NINGUNA' OR estado_procesamiento = 'FALLIDO'",
             name="ck_documentos_compensacion_solo_si_fallido",
         ),
-        # La reserva solo se libera en un fallido sin limpieza pendiente.
+        # La reserva solo se libera en dos casos: (a) un fallido sin limpieza pendiente (regla original, intacta) o (b) un documento
+        # COMPLETADO y PUBLICADO que se deshabilitó (migración 0011). Un COMPLETADO sin deshabilitar, un EN_PROCESO o un fallido con
+        # limpieza pendiente conservan la reserva.
         CheckConstraint(
             "reserva_activa OR (estado_procesamiento = 'FALLIDO' "
-            "AND estado_compensacion IN ('NINGUNA', 'COMPLETADA'))",
+            "AND estado_compensacion IN ('NINGUNA', 'COMPLETADA')) "
+            "OR (estado_procesamiento = 'COMPLETADO' AND vector_publicado_en IS NOT NULL AND deshabilitado_en IS NOT NULL)",
             name="ck_documentos_reserva_solo_liberada_si_limpio",
+        ),
+        # --- Deshabilitación ---
+        CheckConstraint(
+            "(deshabilitado_en IS NULL) = (deshabilitado_por IS NULL) "
+            "AND (deshabilitado_en IS NULL) = (motivo_deshabilitacion IS NULL)",
+            name="ck_documentos_deshabilitacion_completa",
+        ),
+        CheckConstraint(
+            "motivo_deshabilitacion IS NULL OR length(trim(motivo_deshabilitacion)) > 0",
+            name="ck_documentos_motivo_deshabilitacion_no_vacio",
+        ),
+        CheckConstraint(
+            "deshabilitado_en IS NULL OR (estado_procesamiento = 'COMPLETADO' AND vector_publicado_en IS NOT NULL)",
+            name="ck_documentos_deshabilitado_solo_completado_publicado",
+        ),
+        # Un documento deshabilitado NO conserva la reserva (su cupo y su SHA-256 quedan libres para el reemplazo).
+        CheckConstraint(
+            "deshabilitado_en IS NULL OR NOT reserva_activa", name="ck_documentos_deshabilitado_sin_reserva"
         ),
         CheckConstraint("compensacion_intentos >= 0", name="ck_documentos_intentos_no_negativos"),
         # --- Coordinador de ingesta ---
@@ -310,12 +352,17 @@ class Documento(Base):
         )
 
     @property
+    def deshabilitado(self) -> bool:
+        return self.deshabilitado_en is not None
+
+    @property
     def disponible_para_rag(self) -> bool:
-        """Solo un documento completado con análisis ejecutado. Tener el original
+        """Solo un documento completado con análisis ejecutado y no deshabilitado. Tener el original
         almacenado no basta."""
         return (
             self.estado_procesamiento is EstadoProcesamiento.COMPLETADO
             and self.resultado_analisis is not None
+            and self.deshabilitado_en is None
         )
 
 
@@ -341,7 +388,7 @@ class OperacionIngesta(Base):
     # Ambiente (development/qa/uat) de la aplicación que la creó: toda consulta lo filtra.
     ambiente: Mapped[str] = mapped_column(String(32), nullable=False)
     # Actor: sesión validada que la creó, nunca el payload.
-    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("usuarios.id"), nullable=False, index=True)
+    usuario_id: Mapped[uuid.UUID] = mapped_column(ForeignKey(_FK_USUARIO), nullable=False, index=True)
     estado: Mapped[str] = mapped_column(
         String(16), default=EstadoOperacion.CREADA.value, server_default=EstadoOperacion.CREADA.value, nullable=False
     )

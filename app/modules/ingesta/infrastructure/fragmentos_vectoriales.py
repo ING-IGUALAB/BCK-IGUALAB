@@ -367,6 +367,35 @@ async def contar_fragmentos(db: AsyncSession, *, ambiente: str, documento_id: uu
     return ConteoFragmentos(total=fila.total, publicados=fila.publicados)
 
 
+def _lista_de_uuid(nombre: str, valores: object) -> list[uuid.UUID]:
+    """`valores` como lista de UUID; ValueError si no es una secuencia (un texto no cuenta) o si algún elemento no es un UUID."""
+    if isinstance(valores, (str, bytes)) or valores is None:
+        raise ValueError(f"{nombre} debe ser una secuencia de UUID.")
+    return [_exigir_uuid(nombre, v) for v in valores]
+
+
+def _filtros_opcionales(anio: object, tipo: object, sector: object, documentos: list[uuid.UUID] | None) -> tuple[list[str], dict]:
+    """Condiciones SQL y parámetros de los filtros opcionales de `buscar_similares`: documentos, año, tipo y sector. Se aplican en el
+    WHERE, es decir, ANTES de ordenar y limitar."""
+    condiciones: list[str] = []
+    parametros: dict = {}
+    if documentos is not None:
+        condiciones.append("documento_id = ANY(CAST(:documentos AS uuid[]))")
+        parametros["documentos"] = documentos
+    if anio is not None:
+        if isinstance(anio, bool) or not isinstance(anio, int):
+            raise ValueError("anio debe ser un entero.")
+        condiciones.append("anio = :anio")
+        parametros["anio"] = anio
+    if tipo is not None:
+        condiciones.append("tipo = :tipo")
+        parametros["tipo"] = _exigir_texto_no_vacio("tipo", tipo)
+    if sector is not None:
+        condiciones.append("sector = :sector")
+        parametros["sector"] = _exigir_texto_no_vacio("sector", sector)
+    return condiciones, parametros
+
+
 async def buscar_similares(
     db: AsyncSession,
     *,
@@ -378,6 +407,7 @@ async def buscar_similares(
     anio: int | None = None,
     tipo: object | None = None,
     sector: object | None = None,
+    documento_ids: Sequence[uuid.UUID] | None = None,
 ) -> list[FragmentoRecuperado]:
     """Búsqueda EXACTA por coseno entre los fragmentos PUBLICADOS (vista `fragmentos_consultables`),
     de más a menos similar, con desempate determinista por documento e índice.
@@ -388,6 +418,11 @@ async def buscar_similares(
 
     `empresa_ids` es obligatorio: la base vectorial no sabe qué empresas están activas, así que quien
     recupera pasa las vigentes (obtenidas de la base transaccional). Una lista vacía devuelve `[]`.
+    `documento_ids` (opcional) limita la búsqueda a esos documentos EN SQL, antes de `ORDER BY` y `LIMIT`: un fragmento de otro
+    documento nunca compite ni desplaza resultados, aunque sea más parecido. Es lo que permite excluir los documentos
+    deshabilitados (la base vectorial no sabe cuáles son: quien busca pasa los elegibles de
+    `documento_service.documentos_elegibles_para_consulta`). Una lista vacía devuelve `[]`; `None` no filtra por documento.
+
     Los resultados NO están comprobados contra el estado COMPLETADO: esta búsqueda todavía necesita la
     comprobación transaccional de `documento_service.documentos_recuperables` sobre sus `documento_id`
     ANTES de entregar o usar cualquier resultado.
@@ -402,10 +437,9 @@ async def buscar_similares(
     literal = _validar_vector(vector_consulta, "El vector de consulta")
     if isinstance(limite, bool) or not isinstance(limite, int) or not 1 <= limite <= MAXIMO_RESULTADOS:
         raise ValueError(f"limite debe ser un entero entre 1 y {MAXIMO_RESULTADOS}.")
-    if isinstance(empresa_ids, (str, bytes)) or empresa_ids is None:
-        raise ValueError("empresa_ids debe ser una secuencia de UUID.")
-    empresas = [_exigir_uuid("empresa_ids", e) for e in empresa_ids]
-    if not empresas:
+    empresas = _lista_de_uuid("empresa_ids", empresa_ids)
+    documentos = None if documento_ids is None else _lista_de_uuid("documento_ids", documento_ids)
+    if not empresas or documentos == []:
         return []
     condiciones = [
         "ambiente = :ambiente",
@@ -417,17 +451,9 @@ async def buscar_similares(
         "ambiente": ambiente, "proveedor": identidad.proveedor, "modelo": identidad.modelo,
         "empresas": empresas, "q": literal, "limite": limite,
     }
-    if anio is not None:
-        if isinstance(anio, bool) or not isinstance(anio, int):
-            raise ValueError("anio debe ser un entero.")
-        condiciones.append("anio = :anio")
-        parametros["anio"] = anio
-    if tipo is not None:
-        condiciones.append("tipo = :tipo")
-        parametros["tipo"] = _exigir_texto_no_vacio("tipo", tipo)
-    if sector is not None:
-        condiciones.append("sector = :sector")
-        parametros["sector"] = _exigir_texto_no_vacio("sector", sector)
+    filtros, valores = _filtros_opcionales(anio, tipo, sector, documentos)
+    condiciones.extend(filtros)
+    parametros.update(valores)
     consulta = text(
         "SELECT documento_id, indice, texto_literal, contexto, inicio, fin, continuacion, ruta_encabezados, "
         "empresa_id, anio, tipo, sector, embedding_proveedor, embedding_modelo, "

@@ -113,8 +113,8 @@ describe('desenlaces del script oficial de ZAP', () => {
       }
       const resumen = e.leerJson('resumen-zap.json');
       assert.equal(resumen.veredicto, 'EXITOSO');
-      assert.equal(resumen.alcance.incluidas.length, 23);
-      assert.equal(resumen.alcance.excluidas.length, 14);
+      assert.equal(resumen.alcance.incluidas.length, 25);
+      assert.equal(resumen.alcance.excluidas.length, 17);
       assert.ok(resumen.hook.cobertura_autenticada.demostrada);
       assert.match(readFileSync(join(e.resultados, 'resumen-zap.md'), 'utf8'), /PENDIENTE DE ACEPTACIÓN DEL TA/);
       sinSecretos(e);

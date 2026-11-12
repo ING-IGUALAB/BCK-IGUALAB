@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import text
 
-from app.core.exceptions import ConflictError, ExternalServiceError
+from app.core.exceptions import ConfirmacionPendiente, ConflictError, ExternalServiceError
 from app.models.documento_ingesta import EstadoCompensacion, EstadoProcesamiento
 from app.modules.ingesta.application import coordinador
 from app.modules.ingesta.application import documento_service as servicio
@@ -33,12 +33,16 @@ def futuro(dias: int = 1) -> datetime:
 
 
 async def ingerir(entorno, texto: str = TEXTO_CON_HALLAZGOS, **cambios):
+    """Carga completa; si el doble check pausa, confirma para terminar COMPLETADO."""
     argumentos = dict(
         usuario_id=entorno.usuario.id, nombre_archivo="informe.md", leer=lector(texto.encode("utf-8")),
         metadatos=entorno.metadatos,
     )
     argumentos.update(cambios)
-    return await ingerir_documento(entorno.deps, entorno.config, **argumentos)
+    try:
+        return await ingerir_documento(entorno.deps, entorno.config, **argumentos)
+    except ConfirmacionPendiente as pausa:
+        return await coordinador.confirmar_ingesta(entorno.deps, uuid.UUID(pausa.documento_id))
 
 
 async def esperar(condicion, segundos: float = 10.0):

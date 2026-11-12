@@ -12,7 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import SectorEmpresa, TipoDocumento
-from app.models.documento_ingesta import ResultadoAnalisis
+from app.models.documento_ingesta import MAXIMO_MOTIVO_DESHABILITACION, ResultadoAnalisis
 from app.modules.ingesta.application.documento_service import EstadoProgreso
 
 
@@ -22,15 +22,31 @@ class EstadoOperacionPublico(str, enum.Enum):
     INTERRUMPIDA = "INTERRUMPIDA"  # la carga no reservó documento en el plazo esperado; ver nota en el contrato
     RECHAZADA = "RECHAZADA"  # terminó SIN crear documento (validación, duplicado, empresa, tamaño…)
     EN_PROCESO = "EN_PROCESO"  # documento reservado; el progreso dice la etapa real
+    CONFIRMACION_PENDIENTE = "CONFIRMACION_PENDIENTE"  # análisis listo; doble check: Continuar o Cancelar
     PUBLICACION_PENDIENTE = "PUBLICACION_PENDIENTE"  # completado, pero NO publicado: no es éxito; reintentable
     COMPLETADO = "COMPLETADO"  # éxito: completado Y publicado en la base vectorial
     FALLIDO = "FALLIDO"  # el intento falló y la limpieza terminó
     FALLIDO_LIMPIEZA_PENDIENTE = "FALLIDO_LIMPIEZA_PENDIENTE"  # falló; la recuperación sigue limpiando
 
 
+# `CONFIRMACION_PENDIENTE` NO es terminal: el FE debe seguir consultando y resolver con confirmar/cancelar.
 ESTADOS_TERMINALES = frozenset(
     {EstadoOperacionPublico.COMPLETADO, EstadoOperacionPublico.RECHAZADA, EstadoOperacionPublico.FALLIDO}
 )
+
+
+class ResumenConfirmacion(BaseModel):
+    """Resumen del análisis para el doble check (modal Continuar / Cancelar). Contiene solo contadores y
+    códigos: nunca el texto del documento ni citas completas."""
+
+    resultado: ResultadoAnalisis = Field(description="OBSERVADO sin hallazgos; CON_HALLAZGOS con al menos uno.")
+    referencias_gri: int = Field(description="Grupos de estándares GRI detectados en el documento.")
+    sanciones: int = Field(description="Menciones de sanciones económicas detectadas.")
+    motivos: list[str] = Field(default_factory=list)
+    advertencias: list[dict[str, Any]] = Field(default_factory=list)
+    mensaje: str = Field(
+        description="Texto listo para mostrar en la alerta (español). El FE puede usarlo tal cual o construir el suyo."
+    )
 
 
 class ErrorOperacion(BaseModel):
@@ -63,6 +79,13 @@ class OperacionResponse(BaseModel):
         default=None, description="Solo con COMPLETADO. OBSERVADO es una ingesta válida (indexada, disponible para RAG)."
     )
     publicacion_reintentable: bool = False
+    # Doble check (CONFIRMACION_PENDIENTE): true cuando el FE debe mostrar Continuar / Cancelar.
+    confirmacion_pendiente: bool = Field(
+        default=False, description="true solo en CONFIRMACION_PENDIENTE; use resumen_confirmacion para el modal."
+    )
+    resumen_confirmacion: ResumenConfirmacion | None = Field(
+        default=None, description="Contadores del análisis para la alerta; null salvo CONFIRMACION_PENDIENTE."
+    )
     error: ErrorOperacion | None = None
     creada_en: datetime
     actualizada_en: datetime
@@ -92,12 +115,21 @@ class DocumentoResumen(BaseModel):
     resultado_analisis: ResultadoAnalisis | None = Field(
         default=None, description="null salvo COMPLETADO (publicado)."
     )
-    disponible_para_rag: bool
+    disponible_para_rag: bool = Field(
+        description="True solo si el documento está COMPLETADO, tiene análisis y NO está deshabilitado."
+    )
     fragmentos_total: int | None = None
     cantidad_advertencias: int = 0
     cargado_por: uuid.UUID
     creado_en: datetime
     completado_en: datetime | None = None
+    # Deshabilitación (ACT-02), aditiva. El documento sigue COMPLETADO: `estado` no cambia. Si `deshabilitado` es true, su cupo
+    # empresa/año/tipo ya no está ocupado (ver `GET /documentos/disponibilidad`), no alimenta el Análisis GRI, los reportes nuevos ni el
+    # chat, y su original, fragmentos y referencias históricas se conservan.
+    deshabilitado: bool = Field(default=False, description="True si el documento fue retirado por un SuperAdmin.")
+    deshabilitado_en: datetime | None = None
+    deshabilitado_por: uuid.UUID | None = Field(default=None, description="Cuenta (SuperAdmin) que lo deshabilitó.")
+    motivo_deshabilitacion: str | None = None
 
 
 class DocumentoDetalle(DocumentoResumen):
@@ -115,6 +147,41 @@ class DocumentoDetalle(DocumentoResumen):
     actualizado_en: datetime
 
 
+class DeshabilitarDocumentoRequest(BaseModel):
+    """Cuerpo de `POST /documentos/{documento_id}/deshabilitar`. El actor sale de la sesión, nunca de aquí."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    motivo: str = Field(
+        min_length=1,
+        max_length=MAXIMO_MOTIVO_DESHABILITACION,
+        description="Motivo obligatorio del retiro (se conserva junto con el actor y la fecha). No puede quedar vacío.",
+        examples=["Se cargó con el año equivocado."],
+    )
+
+
+class DocumentoDeshabilitadoResponse(BaseModel):
+    """Resultado de deshabilitar un documento. Es idempotente: repetir la solicitud devuelve el registro ORIGINAL (motivo, actor y
+    fecha de la primera vez) con `ya_estaba_deshabilitado = true`."""
+
+    documento_id: uuid.UUID
+    empresa_id: uuid.UUID
+    anio: int
+    tipo: TipoDocumento
+    estado: EstadoProgreso = Field(description="Sigue siendo COMPLETADO: la deshabilitación no es un estado de procesamiento.")
+    deshabilitado: bool = True
+    deshabilitado_en: datetime
+    deshabilitado_por: uuid.UUID
+    motivo_deshabilitacion: str
+    ya_estaba_deshabilitado: bool = Field(
+        description="False si ESTA solicitud lo deshabilitó; true si ya lo estaba (no se cambió nada ni se auditó otra vez)."
+    )
+    aviso: str = Field(
+        default="El cupo empresa/año/tipo quedó libre: consulte GET /documentos/disponibilidad para actualizar el selector. "
+        "Si el documento formaba parte de una validación GRI, esa validación deja de estar vigente; los reportes ya emitidos no cambian.",
+    )
+
+
 class PaginaDocumentos(BaseModel):
     items: list[DocumentoResumen]
     total: int
@@ -127,7 +194,7 @@ class EstadoEspacio(str, enum.Enum):
     """Estado de un espacio ambiente/empresa/año/tipo según la RESERVA que usa la carga (`reserva_activa`)."""
 
     DISPONIBLE = "DISPONIBLE"  # sin reserva activa: una carga podría reservarlo
-    EN_PROCESO = "EN_PROCESO"  # una carga lo tiene reservado y está procesando
+    EN_PROCESO = "EN_PROCESO"  # una carga lo tiene reservado y está procesando (incluye la pausa CONFIRMANDO)
     PUBLICACION_PENDIENTE = "PUBLICACION_PENDIENTE"  # completado, publicación vectorial pendiente; sigue ocupado
     OCUPADO = "OCUPADO"  # documento completado y publicado
     LIMPIEZA_PENDIENTE = "LIMPIEZA_PENDIENTE"  # intento fallido cuya limpieza no terminó; la reserva sigue retenida

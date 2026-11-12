@@ -88,6 +88,11 @@ async def test_si_el_cliente_se_desconecta_la_ingesta_continua_y_su_desenlace_se
 
         liberar.set()
         await esperar(lambda: gestor.tareas_en_curso == 0)
+        # Doble check: la tarea termina en CONFIRMACION_PENDIENTE; el SuperAdmin confirma.
+        parcial = await vista(cliente, operacion_id)
+        if parcial["estado"] == "CONFIRMACION_PENDIENTE":
+            confirmada = await cliente.post(f"/documentos/operaciones/{operacion_id}/confirmar")
+            assert confirmada.status_code == 201, confirmada.text
         final = await vista(cliente, operacion_id)
         assert final["estado"] == "COMPLETADO"
         assert final["exitosa"] is True
@@ -192,6 +197,10 @@ async def test_cancelar_antes_de_reservar_deja_la_operacion_en_carga_y_se_muestr
 # ============================================ Cierre ordenado ============================================
 
 async def test_el_cierre_espera_las_ingestas_en_curso_libera_recursos_y_rechaza_trabajo_nuevo(entorno):
+    # Sin doble check: el cierre debe poder terminar la carga con 201 sin esperar una confirmación.
+    from tests.ayudantes_coordinador import config_prueba
+
+    entorno.config = config_prueba(confirmacion_requerida=False)
     entorno.proveedor.antes_del_lote[1] = lambda: asyncio.sleep(0.3)
     liberados = []
 

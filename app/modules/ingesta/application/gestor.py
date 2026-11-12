@@ -39,7 +39,13 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.exception_handlers import status_for_exception
 from app.core.logging_config import paso_de_arranque
-from app.core.exceptions import AppException, ConflictError, ExternalServiceError, ServiceUnavailableError
+from app.core.exceptions import (
+    AppException,
+    ConfirmacionPendiente,
+    ConflictError,
+    ExternalServiceError,
+    ServiceUnavailableError,
+)
 from app.schemas import MetadatosIngestaRequest
 from app.modules.ingesta.schemas import (
     EstadoOperacionPublico,
@@ -257,6 +263,10 @@ class GestorIngesta:
                 metadatos=metadatos,
                 operacion_id=operacion_id,
             )
+        except ConfirmacionPendiente as exc:
+            # Doble check: NO marcar RECHAZADA (el documento existe y espera la decisión).
+            self._anotar_confirmacion(exc, operacion_id)
+            raise
         except PublicacionVectorialPendiente as exc:
             self._anotar_operacion(exc, operacion_id)
             raise
@@ -287,6 +297,16 @@ class GestorIngesta:
             "operacion_id": str(operacion_id),
             "progreso_url": f"/documentos/operaciones/{operacion_id}",
             "reintentar_url": f"/documentos/operaciones/{operacion_id}/reintentar-publicacion",
+        }
+
+    @staticmethod
+    def _anotar_confirmacion(exc: ConfirmacionPendiente, operacion_id: uuid.UUID) -> None:
+        exc.details = {
+            **(exc.details or {}),
+            "operacion_id": str(operacion_id),
+            "progreso_url": f"/documentos/operaciones/{operacion_id}",
+            "confirmar_url": f"/documentos/operaciones/{operacion_id}/confirmar",
+            "cancelar_url": f"/documentos/operaciones/{operacion_id}/cancelar",
         }
 
     async def _marcar_rechazada(self, operacion_id: uuid.UUID, exc: BaseException) -> None:
@@ -327,6 +347,55 @@ class GestorIngesta:
         except PublicacionVectorialPendiente as exc:
             self._anotar_operacion(exc, operacion_id)
             raise
+        async with self.dependencias.sesiones() as db:
+            return await operacion_service.obtener_vista(db, operacion_id, self.ambiente)
+
+    # --- Doble check: confirmar / cancelar ---------------------------------------------------------------
+
+    async def _documento_en_pausa(self, operacion_id: uuid.UUID) -> tuple[uuid.UUID, OperacionResponse]:
+        """404 sin documento; 409 si la operación no está en CONFIRMACION_PENDIENTE."""
+        self._exigir_activo()
+        async with self.dependencias.sesiones() as db:
+            vista = await operacion_service.obtener_vista(db, operacion_id, self.ambiente)
+        if vista.documento_id is None:
+            raise ConflictError(
+                "OPERATION_WITHOUT_DOCUMENT",
+                "La operación no tiene un documento en espera de confirmación.",
+                details={"estado": vista.estado.value},
+            )
+        if vista.estado is not EstadoOperacionPublico.CONFIRMACION_PENDIENTE:
+            raise ConflictError(
+                "CONFIRMATION_NOT_PENDING",
+                "La operación no está esperando confirmación (doble check).",
+                details={"estado": vista.estado.value},
+            )
+        return vista.documento_id, vista
+
+    async def confirmar(self, operacion_id: uuid.UUID) -> ResultadoIngestaResponse:
+        """Continúa la ingesta pausada (pasos 7–9) y devuelve el resultado 201. 409 si no está en pausa."""
+        documento_id, _ = await self._documento_en_pausa(operacion_id)
+        try:
+            resultado = await coordinador.confirmar_ingesta(self.dependencias, documento_id)
+        except PublicacionVectorialPendiente as exc:
+            self._anotar_operacion(exc, operacion_id)
+            raise
+        async with self.dependencias.sesiones() as db:
+            vista = await operacion_service.obtener_vista(db, operacion_id, self.ambiente)
+        if not vista.exitosa:
+            raise ExternalServiceError(
+                "INGESTION_OUTCOME_NOT_CONFIRMED",
+                "No se pudo confirmar el desenlace de la ingesta; consulte la operación.",
+                details={"operacion_id": str(operacion_id), "estado": vista.estado.value},
+            )
+        return ResultadoIngestaResponse(
+            **vista.model_dump(), motivos=list(resultado.motivos), fragmentos=resultado.fragmentos
+        )
+
+    async def cancelar(self, operacion_id: uuid.UUID) -> OperacionResponse:
+        """Cancela la ingesta pausada, elimina residuos (MinIO + fragmentos) y libera la reserva.
+        Devuelve la operación en FALLIDO. 409 si no estaba en pausa."""
+        documento_id, _ = await self._documento_en_pausa(operacion_id)
+        await coordinador.cancelar_ingesta(self.dependencias, documento_id)
         async with self.dependencias.sesiones() as db:
             return await operacion_service.obtener_vista(db, operacion_id, self.ambiente)
 

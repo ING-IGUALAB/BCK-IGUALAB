@@ -8,6 +8,8 @@ from app.modules.usuarios import router as usuarios
 from app.modules.empresas import router as empresas
 from app.modules.ingesta import router as documentos
 from app.modules.analisis_gri import router as analisis_gri
+from app.modules.asistente import continuacion_router as asistente_continuacion
+from app.modules.asistente import historial_router as asistente_historial
 from app.modules.asistente import router as asistente
 from app.modules.reportes import router as reportes
 from app.modules.auditoria import router as auditoria
@@ -59,6 +61,9 @@ app = FastAPI(
     # rechazado igual que antes. La API se autentica solo con `Authorization: Bearer` (sin cookies), así que esta comprobación no es una defensa
     # contra CSRF en este servicio.
     strict_content_type=False,
+    # Un único esquema por modelo en OpenAPI. Sin esto, un modelo anidado a dos niveles que se usa de entrada y de salida (p. ej.
+    # `ConsultaResponse`) se desdobla en `-Input`/`-Output` aunque ambos sean idénticos, y cambiaría el nombre de los tipos del contrato.
+    separate_input_output_schemas=False,
 )
 
 register_exception_handlers(app)
@@ -85,6 +90,8 @@ app.include_router(empresas.router)
 app.include_router(documentos.router)
 app.include_router(analisis_gri.router)
 app.include_router(asistente.router)
+app.include_router(asistente_historial.router)
+app.include_router(asistente_continuacion.router)
 app.include_router(reportes.router)
 app.include_router(auditoria.router)
 

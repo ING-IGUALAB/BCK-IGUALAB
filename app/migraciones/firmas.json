@@ -339,6 +339,94 @@
     ]
    }
   },
+  "conversaciones_asistente": {
+   "9": {
+    "columnas": [
+     [
+      "actualizada_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "clave_idempotencia",
+      "uuid",
+      true
+     ],
+     [
+      "creada_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "huella_contenido",
+      "character varying(64)",
+      true
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "sector",
+      "sector_empresa",
+      true
+     ],
+     [
+      "titulo",
+      "character varying(80)",
+      true
+     ],
+     [
+      "usuario_id",
+      "uuid",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "conversaciones_asistente_pkey",
+      true,
+      false
+     ],
+     [
+      "ix_conversaciones_asistente_listado",
+      false,
+      false
+     ],
+     [
+      "uq_conversaciones_asistente_idempotencia",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "ck_conversaciones_asistente_anio",
+     "ck_conversaciones_asistente_fechas",
+     "ck_conversaciones_asistente_huella",
+     "ck_conversaciones_asistente_titulo_no_vacio",
+     "conversaciones_asistente_empresa_id_fkey",
+     "conversaciones_asistente_pkey",
+     "conversaciones_asistente_usuario_id_fkey",
+     "uq_conversaciones_asistente_idempotencia"
+    ]
+   }
+  },
   "documentos": {
    "1": {
     "columnas": [
@@ -523,6 +611,545 @@
      "ck_documentos_sha256_longitud",
      "ck_documentos_tamano_positivo",
      "documentos_clave_original_key",
+     "documentos_empresa_id_fkey",
+     "documentos_pkey",
+     "documentos_usuario_id_fkey"
+    ]
+   },
+   "11": {
+    "columnas": [
+     [
+      "advertencias",
+      "jsonb",
+      true
+     ],
+     [
+      "almacenamiento_intentado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "analisis",
+      "jsonb",
+      false
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "clave_original",
+      "character varying(512)",
+      true
+     ],
+     [
+      "compensacion_intentos",
+      "integer",
+      true
+     ],
+     [
+      "compensada_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "completado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "deshabilitado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "deshabilitado_por",
+      "uuid",
+      false
+     ],
+     [
+      "ejecucion_token",
+      "uuid",
+      true
+     ],
+     [
+      "ejecucion_vigente_hasta",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "estado_compensacion",
+      "estado_compensacion",
+      true
+     ],
+     [
+      "estado_procesamiento",
+      "estado_procesamiento",
+      true
+     ],
+     [
+      "etapa_actual",
+      "character varying(32)",
+      true
+     ],
+     [
+      "fallido_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "fragmentos_procesados",
+      "integer",
+      true
+     ],
+     [
+      "fragmentos_total",
+      "integer",
+      false
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "motivo_deshabilitacion",
+      "character varying(500)",
+      false
+     ],
+     [
+      "motivo_fallo",
+      "character varying(64)",
+      false
+     ],
+     [
+      "nombre_archivo",
+      "character varying(255)",
+      true
+     ],
+     [
+      "original_almacenado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "progreso_actualizado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "reserva_activa",
+      "boolean",
+      true
+     ],
+     [
+      "resultado_analisis",
+      "resultado_analisis",
+      false
+     ],
+     [
+      "sector",
+      "sector_empresa",
+      true
+     ],
+     [
+      "sha256",
+      "character varying(64)",
+      true
+     ],
+     [
+      "tamano_bytes",
+      "bigint",
+      true
+     ],
+     [
+      "tipo",
+      "tipo_documento",
+      true
+     ],
+     [
+      "ultimo_error_compensacion",
+      "character varying(64)",
+      false
+     ],
+     [
+      "usuario_id",
+      "uuid",
+      true
+     ],
+     [
+      "vector_escritura_intentada_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "vector_publicacion_intentos",
+      "integer",
+      true
+     ],
+     [
+      "vector_publicado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "vector_ultimo_error",
+      "character varying(64)",
+      false
+     ],
+     [
+      "version_id_original",
+      "character varying(255)",
+      false
+     ]
+    ],
+    "indices": [
+     [
+      "documentos_clave_original_key",
+      true,
+      false
+     ],
+     [
+      "documentos_pkey",
+      true,
+      false
+     ],
+     [
+      "ix_documentos_empresa_id",
+      false,
+      false
+     ],
+     [
+      "ix_documentos_usuario_id",
+      false,
+      false
+     ],
+     [
+      "uq_documentos_empresa_anio_tipo_activo",
+      true,
+      true
+     ],
+     [
+      "uq_documentos_sha256_activo",
+      true,
+      true
+     ]
+    ],
+    "restricciones": [
+     "ck_documentos_advertencias_arreglo",
+     "ck_documentos_analisis_consistente",
+     "ck_documentos_analisis_estructura",
+     "ck_documentos_anio_minimo",
+     "ck_documentos_compensacion_solo_si_fallido",
+     "ck_documentos_completado_con_original",
+     "ck_documentos_completado_en",
+     "ck_documentos_deshabilitacion_completa",
+     "ck_documentos_deshabilitado_sin_reserva",
+     "ck_documentos_deshabilitado_solo_completado_publicado",
+     "ck_documentos_etapa_valida",
+     "ck_documentos_fallido_con_motivo",
+     "ck_documentos_fragmentos_progreso",
+     "ck_documentos_intentos_no_negativos",
+     "ck_documentos_motivo_deshabilitacion_no_vacio",
+     "ck_documentos_nombre_no_vacio",
+     "ck_documentos_publicacion_intentos",
+     "ck_documentos_reserva_solo_liberada_si_limpio",
+     "ck_documentos_resultado_solo_si_completado",
+     "ck_documentos_sha256_longitud",
+     "ck_documentos_sin_analisis_si_fallido",
+     "ck_documentos_tamano_positivo",
+     "ck_documentos_vector_publicado_con_intento",
+     "ck_documentos_vector_publicado_solo_completado",
+     "documentos_clave_original_key",
+     "documentos_deshabilitado_por_fkey",
+     "documentos_empresa_id_fkey",
+     "documentos_pkey",
+     "documentos_usuario_id_fkey"
+    ]
+   },
+   "12": {
+    "columnas": [
+     [
+      "advertencias",
+      "jsonb",
+      true
+     ],
+     [
+      "almacenamiento_intentado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "ambiente",
+      "character varying(32)",
+      true
+     ],
+     [
+      "analisis",
+      "jsonb",
+      false
+     ],
+     [
+      "anio",
+      "integer",
+      true
+     ],
+     [
+      "clave_original",
+      "character varying(512)",
+      true
+     ],
+     [
+      "compensacion_intentos",
+      "integer",
+      true
+     ],
+     [
+      "compensada_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "completado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "confirmacion_pendiente_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "deshabilitado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "deshabilitado_por",
+      "uuid",
+      false
+     ],
+     [
+      "ejecucion_token",
+      "uuid",
+      true
+     ],
+     [
+      "ejecucion_vigente_hasta",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "empresa_id",
+      "uuid",
+      true
+     ],
+     [
+      "estado_compensacion",
+      "estado_compensacion",
+      true
+     ],
+     [
+      "estado_procesamiento",
+      "estado_procesamiento",
+      true
+     ],
+     [
+      "etapa_actual",
+      "character varying(32)",
+      true
+     ],
+     [
+      "fallido_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "fragmentos_procesados",
+      "integer",
+      true
+     ],
+     [
+      "fragmentos_total",
+      "integer",
+      false
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "motivo_deshabilitacion",
+      "character varying(500)",
+      false
+     ],
+     [
+      "motivo_fallo",
+      "character varying(64)",
+      false
+     ],
+     [
+      "nombre_archivo",
+      "character varying(255)",
+      true
+     ],
+     [
+      "original_almacenado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "progreso_actualizado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "reserva_activa",
+      "boolean",
+      true
+     ],
+     [
+      "resultado_analisis",
+      "resultado_analisis",
+      false
+     ],
+     [
+      "sector",
+      "sector_empresa",
+      true
+     ],
+     [
+      "sha256",
+      "character varying(64)",
+      true
+     ],
+     [
+      "tamano_bytes",
+      "bigint",
+      true
+     ],
+     [
+      "tipo",
+      "tipo_documento",
+      true
+     ],
+     [
+      "ultimo_error_compensacion",
+      "character varying(64)",
+      false
+     ],
+     [
+      "usuario_id",
+      "uuid",
+      true
+     ],
+     [
+      "vector_escritura_intentada_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "vector_publicacion_intentos",
+      "integer",
+      true
+     ],
+     [
+      "vector_publicado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "vector_ultimo_error",
+      "character varying(64)",
+      false
+     ],
+     [
+      "version_id_original",
+      "character varying(255)",
+      false
+     ]
+    ],
+    "indices": [
+     [
+      "documentos_clave_original_key",
+      true,
+      false
+     ],
+     [
+      "documentos_pkey",
+      true,
+      false
+     ],
+     [
+      "ix_documentos_empresa_id",
+      false,
+      false
+     ],
+     [
+      "ix_documentos_usuario_id",
+      false,
+      false
+     ],
+     [
+      "uq_documentos_empresa_anio_tipo_activo",
+      true,
+      true
+     ],
+     [
+      "uq_documentos_sha256_activo",
+      true,
+      true
+     ]
+    ],
+    "restricciones": [
+     "ck_documentos_advertencias_arreglo",
+     "ck_documentos_analisis_consistente",
+     "ck_documentos_analisis_estructura",
+     "ck_documentos_anio_minimo",
+     "ck_documentos_compensacion_solo_si_fallido",
+     "ck_documentos_completado_con_original",
+     "ck_documentos_completado_en",
+     "ck_documentos_deshabilitacion_completa",
+     "ck_documentos_deshabilitado_sin_reserva",
+     "ck_documentos_deshabilitado_solo_completado_publicado",
+     "ck_documentos_etapa_valida",
+     "ck_documentos_fallido_con_motivo",
+     "ck_documentos_fragmentos_progreso",
+     "ck_documentos_intentos_no_negativos",
+     "ck_documentos_motivo_deshabilitacion_no_vacio",
+     "ck_documentos_nombre_no_vacio",
+     "ck_documentos_publicacion_intentos",
+     "ck_documentos_reserva_solo_liberada_si_limpio",
+     "ck_documentos_resultado_solo_si_completado",
+     "ck_documentos_sha256_longitud",
+     "ck_documentos_sin_analisis_si_fallido",
+     "ck_documentos_tamano_positivo",
+     "ck_documentos_vector_publicado_con_intento",
+     "ck_documentos_vector_publicado_solo_completado",
+     "documentos_clave_original_key",
+     "documentos_deshabilitado_por_fkey",
      "documentos_empresa_id_fkey",
      "documentos_pkey",
      "documentos_usuario_id_fkey"
@@ -773,6 +1400,194 @@
      "documentos_empresa_id_fkey",
      "documentos_pkey",
      "documentos_usuario_id_fkey"
+    ]
+   }
+  },
+  "intercambios_asistente": {
+   "10": {
+    "columnas": [
+     [
+      "actualizado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "clave_idempotencia",
+      "uuid",
+      true
+     ],
+     [
+      "codigo_error",
+      "character varying(64)",
+      false
+     ],
+     [
+      "completado_en",
+      "timestamp with time zone",
+      false
+     ],
+     [
+      "conversacion_id",
+      "uuid",
+      true
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "estado",
+      "character varying(16)",
+      true
+     ],
+     [
+      "huella_pregunta",
+      "character varying(64)",
+      true
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "intentos",
+      "integer",
+      true
+     ],
+     [
+      "mensaje_pregunta_id",
+      "uuid",
+      false
+     ],
+     [
+      "mensaje_respuesta_id",
+      "uuid",
+      false
+     ],
+     [
+      "token_ejecucion",
+      "uuid",
+      true
+     ],
+     [
+      "vence_en",
+      "timestamp with time zone",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "intercambios_asistente_pkey",
+      true,
+      false
+     ],
+     [
+      "uq_intercambios_asistente_clave",
+      true,
+      false
+     ],
+     [
+      "uq_intercambios_asistente_en_curso",
+      true,
+      true
+     ],
+     [
+      "uq_intercambios_asistente_mensaje_pregunta",
+      true,
+      false
+     ],
+     [
+      "uq_intercambios_asistente_mensaje_respuesta",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "ck_intercambios_asistente_completado_en",
+     "ck_intercambios_asistente_error",
+     "ck_intercambios_asistente_estado",
+     "ck_intercambios_asistente_fechas",
+     "ck_intercambios_asistente_huella",
+     "ck_intercambios_asistente_intentos",
+     "ck_intercambios_asistente_mensajes",
+     "intercambios_asistente_conversacion_id_fkey",
+     "intercambios_asistente_mensaje_pregunta_id_fkey",
+     "intercambios_asistente_mensaje_respuesta_id_fkey",
+     "intercambios_asistente_pkey",
+     "uq_intercambios_asistente_clave",
+     "uq_intercambios_asistente_mensaje_pregunta",
+     "uq_intercambios_asistente_mensaje_respuesta"
+    ]
+   }
+  },
+  "mensajes_asistente": {
+   "9": {
+    "columnas": [
+     [
+      "contenido",
+      "text",
+      true
+     ],
+     [
+      "conversacion_id",
+      "uuid",
+      true
+     ],
+     [
+      "creado_en",
+      "timestamp with time zone",
+      true
+     ],
+     [
+      "datos_respuesta",
+      "jsonb",
+      false
+     ],
+     [
+      "id",
+      "uuid",
+      true
+     ],
+     [
+      "orden",
+      "integer",
+      true
+     ],
+     [
+      "procedencia",
+      "character varying(32)",
+      true
+     ],
+     [
+      "rol",
+      "character varying(16)",
+      true
+     ]
+    ],
+    "indices": [
+     [
+      "mensajes_asistente_pkey",
+      true,
+      false
+     ],
+     [
+      "uq_mensajes_asistente_orden",
+      true,
+      false
+     ]
+    ],
+    "restricciones": [
+     "ck_mensajes_asistente_contenido_no_vacio",
+     "ck_mensajes_asistente_datos_objeto",
+     "ck_mensajes_asistente_datos_solo_asistente",
+     "ck_mensajes_asistente_orden_positivo",
+     "ck_mensajes_asistente_procedencia",
+     "ck_mensajes_asistente_rol",
+     "mensajes_asistente_conversacion_id_fkey",
+     "mensajes_asistente_pkey",
+     "uq_mensajes_asistente_orden"
     ]
    }
   },

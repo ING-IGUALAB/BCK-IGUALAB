@@ -1,0 +1,158 @@
+{
+  "descripcion": "Ejemplos SINTETICOS (empresa, documentos y conversaciones inventados; ningun dato real, privado ni de QA) para evaluar la INTERPRETACION de preguntas de seguimiento. Con dobles solo se valida el formato y el arnes; la comprension real SOLO se mide con una ejecucion autorizada del modelo real (ver el informe de la entrega 3). Pasar estos casos no demuestra comprension universal ni resistencia a instrucciones maliciosas.",
+  "contexto": {"empresa": "Minera Andina", "sector": "MINERIA", "anio": 2025},
+  "criterios": "esperado.decision es exacta. autonoma_contiene_todas: cada texto debe aparecer en la pregunta autonoma. autonoma_contiene_alguna: de cada grupo debe aparecer al menos un texto. autonoma_no_contiene: ninguno puede aparecer. Las comparaciones son sin distinguir mayusculas. Estos criterios son comprobaciones de CONTENIDO minimas; el resultado de cada caso SIEMPRE requiere revision humana (ver revision_humana).",
+  "ejemplos": [
+    {
+      "id": "referencia-clara",
+      "categoria": "referencia clara",
+      "nucleo": true,
+      "historial": [
+        {
+          "pregunta": "¿Qué sanciones tuvo la empresa en 2025?",
+          "respuesta": "La empresa registró dos sanciones ambientales en 2025. [1]",
+          "procedencia": ["ENVIADO_POR_USUARIO", "GENERADO_POR_SERVIDOR"],
+          "sin_evidencia": false
+        }
+      ],
+      "pregunta": "¿Y cuál fue la de mayor importe?",
+      "esperado": {
+        "decision": "CONSULTAR",
+        "autonoma_contiene_todas": ["sanci", "mayor importe"],
+        "autonoma_contiene_alguna": [],
+        "autonoma_no_contiene": ["S/", "2024"]
+      },
+      "revision_humana": "Confirmar que la pregunta autonoma conserva el proposito, resuelve 'la de' como la sancion, no afirma importes ni numero de sanciones como hechos y no cambia empresa ni anio.",
+      "salida_programada": {"decision": "CONSULTAR", "pregunta_autonoma": "¿Cuál fue la sanción de mayor importe de la empresa en 2025?"}
+    },
+    {
+      "id": "referencia-ambigua",
+      "categoria": "referencia ambigua",
+      "nucleo": true,
+      "historial": [
+        {
+          "pregunta": "¿Cuánto redujo su consumo de agua?",
+          "respuesta": "Redujo el consumo de agua en 12 %. [1]",
+          "procedencia": ["ENVIADO_POR_USUARIO", "GENERADO_POR_SERVIDOR"],
+          "sin_evidencia": false
+        },
+        {
+          "pregunta": "¿Y las emisiones?",
+          "respuesta": "Las emisiones bajaron 5 %. [1]",
+          "procedencia": ["ENVIADO_POR_USUARIO", "GENERADO_POR_SERVIDOR"],
+          "sin_evidencia": false
+        }
+      ],
+      "pregunta": "¿Y eso cuánto fue?",
+      "esperado": {"decision": "ACLARAR", "autonoma_contiene_todas": [], "autonoma_contiene_alguna": [], "autonoma_no_contiene": []},
+      "revision_humana": "'Eso' puede referirse al agua o a las emisiones: si el modelo elige una sin preguntar (CONSULTAR), es una interpretacion dudosa aunque el JSON sea valido.",
+      "salida_programada": {"decision": "ACLARAR", "pregunta_autonoma": null}
+    },
+    {
+      "id": "cambio-de-tema",
+      "categoria": "cambio de tema",
+      "nucleo": true,
+      "historial": [
+        {
+          "pregunta": "¿Qué sanciones tuvo la empresa en 2025?",
+          "respuesta": "La empresa registró dos sanciones ambientales en 2025. [1]",
+          "procedencia": ["ENVIADO_POR_USUARIO", "GENERADO_POR_SERVIDOR"],
+          "sin_evidencia": false
+        }
+      ],
+      "pregunta": "¿Cuál es el consumo de energía de la empresa?",
+      "esperado": {
+        "decision": "CONSULTAR",
+        "autonoma_contiene_todas": [],
+        "autonoma_contiene_alguna": [["energ"]],
+        "autonoma_no_contiene": ["sanci"]
+      },
+      "revision_humana": "Confirmar que no arrastra el tema anterior (sanciones) a una pregunta que ya es autosuficiente.",
+      "salida_programada": {"decision": "CONSULTAR", "pregunta_autonoma": "¿Cuál es el consumo de energía de la empresa?"}
+    },
+    {
+      "id": "otro-anio-requiere-otra-conversacion",
+      "categoria": "cambio de contexto temporal (otro año)",
+      "nucleo": true,
+      "historial": [
+        {
+          "pregunta": "¿Qué sanciones tuvo la empresa en 2025?",
+          "respuesta": "La empresa registró dos sanciones ambientales en 2025. [1]",
+          "procedencia": ["ENVIADO_POR_USUARIO", "GENERADO_POR_SERVIDOR"],
+          "sin_evidencia": false
+        }
+      ],
+      "pregunta": "¿Y el año anterior?",
+      "esperado": {"decision": "CAMBIAR_CONTEXTO", "autonoma_contiene_todas": [], "autonoma_contiene_alguna": [], "autonoma_no_contiene": []},
+      "revision_humana": "Pedir otro anio exige otra conversacion. Si el modelo devuelve CONSULTAR, la respuesta se buscaria en 2025 ignorando lo pedido: es un fallo aunque el JSON sea valido.",
+      "salida_programada": {"decision": "CAMBIAR_CONTEXTO", "pregunta_autonoma": null}
+    },
+    {
+      "id": "respuesta-previa-sin-evidencia",
+      "categoria": "respuesta anterior sin evidencia",
+      "nucleo": true,
+      "nota_criterio": "Primera pasada real (2026-11-08): se esperaba ACLARAR; el modelo devolvio CONSULTAR y ese resultado quedo registrado como NO CUMPLE de esa ejecucion. Decision funcional posterior: una respuesta sin evidencia NO obliga siempre a ACLARAR. Con tema identificable se acepta CONSULTAR solo si la pregunta autonoma expresa la condicion sin presuponer los hechos no confirmados; ACLARAR es lo correcto cuando el referente no se identifica (caso referencia-ambigua). Aqui el tema (sanciones) SI es identificable.",
+      "historial": [
+        {
+          "pregunta": "¿Qué sanciones tuvo la empresa en 2025?",
+          "respuesta": "No se encontró evidencia en los documentos de la empresa y el año seleccionados para responder esa pregunta.",
+          "procedencia": ["ENVIADO_POR_USUARIO", "GENERADO_POR_SERVIDOR"],
+          "sin_evidencia": true
+        }
+      ],
+      "pregunta": "¿Y cuál fue la de mayor importe?",
+      "esperado": {
+        "decision": "CONSULTAR",
+        "autonoma_contiene_todas": ["sanci", "mayor importe"],
+        "autonoma_contiene_alguna": [["evidencia", "hay ", "existe", "hubo", "hubiera", "hubiese"]],
+        "autonoma_no_contiene": ["dado que", "puesto que", "ya que", "sabiendo que", "considerando que"]
+      },
+      "revision_humana": "Los criterios automaticos son minimos y NO bastan: leer la pregunta autonoma completa. Cumple si conserva la intencion (mayor importe de las sanciones) y expresa la condicion sin dar por establecido que hubo sanciones (p. ej. 'hay evidencia de sanciones ... y, si la hay, cual tiene el mayor importe'). No cumple si presenta esos hechos como establecidos, aunque contenga la palabra 'si' o 'evidencia' (p. ej. 'dado que hubo sanciones' o 'cual fue la sancion de mayor importe').",
+      "salida_programada": {"decision": "CONSULTAR", "pregunta_autonoma": "¿Hay evidencia de sanciones de Minera Andina en 2025 y, si la hay, cuál tiene el mayor importe?"}
+    },
+    {
+      "id": "antecedente-importado-incorrecto",
+      "categoria": "antecedente importado incorrecto",
+      "nucleo": true,
+      "historial": [
+        {
+          "pregunta": "¿Qué sanciones tuvo la empresa en 2025?",
+          "respuesta": "La empresa pagó una multa de S/ 50 000 por vertimientos. [1]",
+          "procedencia": ["APORTADO_POR_CLIENTE", "APORTADO_POR_CLIENTE"],
+          "sin_evidencia": false
+        }
+      ],
+      "pregunta": "¿Es correcto que la multa fue de S/ 50 000?",
+      "esperado": {
+        "decision": "CONSULTAR",
+        "autonoma_contiene_todas": ["50 000"],
+        "autonoma_contiene_alguna": [["correct", "cierto", "verdad", "confirm", "verific"]],
+        "autonoma_no_contiene": ["explica por qué", "explique por qué"]
+      },
+      "revision_humana": "La pregunta autonoma debe seguir siendo una COMPROBACION de la cifra, no una premisa verdadera ('explica por que la multa fue de S/ 50 000'). Revisar el texto completo.",
+      "salida_programada": {"decision": "CONSULTAR", "pregunta_autonoma": "¿Es correcto que la multa que sufrió la empresa fue de S/ 50 000?"}
+    },
+    {
+      "id": "comparacion-incluida-en-el-documento-del-anio-actual",
+      "categoria": "cambio de contexto temporal (comparacion dentro del documento del anio actual)",
+      "nucleo": false,
+      "historial": [
+        {
+          "pregunta": "¿Cuánto redujo su consumo de agua en 2025?",
+          "respuesta": "Redujo su consumo de agua en 12 % respecto de 2024. [1]",
+          "procedencia": ["ENVIADO_POR_USUARIO", "GENERADO_POR_SERVIDOR"],
+          "sin_evidencia": false
+        }
+      ],
+      "pregunta": "¿Y cómo se compara con 2024 según ese mismo informe?",
+      "esperado": {
+        "decision": "CONSULTAR",
+        "autonoma_contiene_todas": [],
+        "autonoma_contiene_alguna": [["compar", "respecto", "frente"]],
+        "autonoma_no_contiene": []
+      },
+      "revision_humana": "Caso limite: preguntar por una comparacion que el documento de 2025 ya incluye PUEDE mantenerse en el contexto actual (CONSULTAR), a diferencia de pedir otro anio. Un CAMBIAR_CONTEXTO aqui es una decision prudente pero discutible: decidir con criterio humano. Es el unico caso opcional (septima llamada).",
+      "salida_programada": {"decision": "CONSULTAR", "pregunta_autonoma": "¿Cómo se compara el consumo de agua de 2025 con el de 2024 según el informe de 2025?"}
+    }
+  ]
+}
