@@ -54,6 +54,14 @@ def test_el_modo_con_interpretacion_conserva_las_reglas_de_cita_y_de_contenido_c
     assert "sin hechos respaldados no hay interpretación" in SISTEMA_CON_INTERPRETACION
 
 
+def test_el_modo_con_interpretacion_pide_un_parrafo_desarrollado_con_juicio_propio_y_no_oraciones_sueltas():
+    assert "UN párrafo desarrollado y continuo" in SISTEMA_CON_INTERPRETACION
+    assert "entre 5 y 8 oraciones" in SISTEMA_CON_INTERPRETACION
+    assert "ni oraciones sueltas" in SISTEMA_CON_INTERPRETACION
+    assert "tu juicio propio" in SISTEMA_CON_INTERPRETACION
+    assert "las afirmaciones son breves y puntuales" in SISTEMA_CON_INTERPRETACION
+
+
 # --- Verificación ---------------------------------------------------------------------------------
 
 def test_sin_el_modo_activo_la_interpretacion_del_modelo_se_ignora():
