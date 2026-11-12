@@ -34,6 +34,7 @@ from app.modules.ingesta.infrastructure.fragmentos_vectoriales import FragmentoR
 LONGITUD_MINIMA_CITA = 20  # una cita más corta («la empresa») está en casi cualquier fragmento y no respalda nada
 PALABRAS_MINIMAS_CITA = 3
 MAXIMO_AFIRMACIONES = 20
+MAXIMO_INTERPRETACION = 4_000  # caracteres de la interpretación (campo aparte de las afirmaciones)
 
 MOTIVO_SIN_FRAGMENTOS = "SIN_FRAGMENTOS"
 MOTIVO_MODELO_SIN_EVIDENCIA = "MODELO_SIN_EVIDENCIA"
@@ -60,6 +61,8 @@ class ResultadoVerificacion:
     afirmaciones: tuple[AfirmacionVerificada, ...]
     descartadas: int
     motivo: str | None  # None si hay al menos una afirmación verificada
+    interpretacion: str | None = None  # solo en el modo con interpretación y con al menos una afirmación verificada
+    interpretacion_descartada: bool = False  # el modelo envió una interpretación y no se muestra (ver `verificar_interpretacion`)
 
 
 def normalizar(texto: str) -> str:
@@ -140,8 +143,38 @@ def _verificar_afirmacion(cruda: object, fragmentos: list[FragmentoRecuperado]) 
     return AfirmacionVerificada(texto=texto, referencias=efectivas, cita_textual=" ".join(cita.split()))
 
 
-def verificar_respuesta(texto_del_modelo: object, fragmentos: list[FragmentoRecuperado]) -> ResultadoVerificacion:
-    """Conserva solo las afirmaciones verificables (ver el docstring del módulo) y explica por qué no hay respuesta si ninguna lo es."""
+def verificar_interpretacion(
+    cruda: object, verificadas: list[AfirmacionVerificada], fragmentos: list[FragmentoRecuperado], pregunta: str = ""
+) -> str | None:
+    """La interpretación del modelo lista para mostrarse, o `None` si no se puede mostrar.
+
+    La interpretación NO es una afirmación con cita: es el análisis del modelo sobre las afirmaciones ya verificadas, y se presenta aparte
+    y etiquetada. Por eso no se le exige cita literal. Sí se exige que (1) exista al menos una afirmación verificada (sin hechos
+    respaldados no hay nada que interpretar), (2) sea texto no vacío de hasta `MAXIMO_INTERPRETACION` caracteres y (3) toda cifra que
+    escriba (salvo los años) figure en las afirmaciones verificadas, en sus citas, en el encabezado de las secciones citadas o en la
+    pregunta del usuario: no puede introducir cifras nuevas (tampoco calculadas). LÍMITE: no se comprueba que el razonamiento sea
+    correcto ni que se desprenda de las afirmaciones; es la opinión del modelo y así debe mostrarse."""
+    if not isinstance(cruda, str) or not verificadas or "\x00" in cruda:
+        return None
+    texto = " ".join(_MARCADOR.sub(" ", cruda).split())  # sin marcadores [n]: las fuentes son las de las afirmaciones
+    if not texto or len(texto) > MAXIMO_INTERPRETACION:
+        return None
+    evidencia = [pregunta]
+    for afirmacion in verificadas:
+        evidencia += [afirmacion.texto, afirmacion.cita_textual]
+        evidencia += [parte for n in afirmacion.referencias for parte in fragmentos[n - 1].ruta_encabezados]
+    if not cifras(texto) <= cifras(" ".join(evidencia)):
+        return None
+    return texto
+
+
+def verificar_respuesta(
+    texto_del_modelo: object, fragmentos: list[FragmentoRecuperado], *, permitir_interpretacion: bool = False, pregunta: str = ""
+) -> ResultadoVerificacion:
+    """Conserva solo las afirmaciones verificables (ver el docstring del módulo) y explica por qué no hay respuesta si ninguna lo es.
+
+    Con `permitir_interpretacion` se lee además el campo «interpretacion» (ver `verificar_interpretacion`); sin él se ignora, y las
+    afirmaciones se verifican exactamente igual en los dos modos."""
     dato = interpretar_respuesta(texto_del_modelo)
     if dato is None:
         return ResultadoVerificacion((), 0, MOTIVO_RESPUESTA_NO_INTERPRETABLE)
@@ -162,4 +195,9 @@ def verificar_respuesta(texto_del_modelo: object, fragmentos: list[FragmentoRecu
             verificadas.append(afirmacion)
     if not verificadas:
         return ResultadoVerificacion((), descartadas, MOTIVO_AFIRMACIONES_NO_VERIFICABLES)
-    return ResultadoVerificacion(tuple(verificadas), descartadas, None)
+    cruda = dato.get("interpretacion") if permitir_interpretacion else None
+    interpretacion = verificar_interpretacion(cruda, verificadas, fragmentos, pregunta)
+    enviada = isinstance(cruda, str) and bool(cruda.strip())
+    return ResultadoVerificacion(
+        tuple(verificadas), descartadas, None, interpretacion=interpretacion, interpretacion_descartada=enviada and interpretacion is None
+    )
