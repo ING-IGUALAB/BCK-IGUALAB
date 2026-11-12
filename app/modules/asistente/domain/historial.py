@@ -17,6 +17,7 @@ from collections.abc import Sequence
 
 from app.models import SectorEmpresa
 from app.modules.asistente.domain.citas import (
+    MAXIMO_INTERPRETACION,
     MOTIVO_AFIRMACIONES_NO_VERIFICABLES,
     MOTIVO_FUERA_DE_DOMINIO,
     MOTIVO_MODELO_SIN_EVIDENCIA,
@@ -159,6 +160,18 @@ def _problemas_con_evidencia(r: ConsultaResponse, empresa_id: uuid.UUID, anio: i
     return problemas
 
 
+def _problemas_de_interpretacion(r: ConsultaResponse) -> list[str]:
+    """La interpretación acompaña a afirmaciones con cita; nunca las sustituye ni aparece sin ellas."""
+    if r.interpretacion is None:
+        return []
+    problemas: list[str] = []
+    if not _texto_valido(r.interpretacion, MAXIMO_INTERPRETACION):
+        problemas.append("la interpretación está vacía o supera el máximo permitido")
+    if r.sin_evidencia or r.busqueda_documental is BusquedaDocumental.NO_REALIZADA or not r.afirmaciones:
+        problemas.append("una interpretación solo puede acompañar a afirmaciones con cita")
+    return problemas
+
+
 def _problemas_del_estado_adjunto(r: ConsultaResponse) -> list[str]:
     """El estado registrado que acompaña a una respuesta DOCUMENTAL (no la sustituye ni la exime de sus citas)."""
     e = r.estado_registrado
@@ -197,6 +210,7 @@ def problemas_de_respuesta(r: ConsultaResponse, empresa_id: uuid.UUID, anio: int
     else:  # búsqueda REALIZADA (también para toda respuesta anterior a este campo): las exigencias de citas no cambian
         problemas += _problemas_sin_evidencia(r) if r.sin_evidencia else _problemas_con_evidencia(r, empresa_id, anio)
         problemas += _problemas_del_estado_adjunto(r)
+    problemas += _problemas_de_interpretacion(r)
     if _hay_nul(r.model_dump(mode="json")):
         problemas.append("la respuesta contiene caracteres no admitidos")
     return list(dict.fromkeys(problemas))  # sin repetir, en orden

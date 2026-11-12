@@ -1304,9 +1304,14 @@ async def test_post_consultas_conserva_su_contrato_y_no_guarda_mensajes_ni_reser
             json={"pregunta": PREGUNTA, "sector": "MINERIA", "empresa_id": str(h.mineria.id), "anio": ANIO},
         )
     assert r.status_code == 200, r.text
-    # Las claves anteriores se conservan; el contrato solo suma dos opcionales (null / REALIZADA por omisión).
-    assert set(r.json()) == {"respuesta", "afirmaciones", "citas", "sin_evidencia", "motivo", "mensaje", "afirmaciones_descartadas", "estado_registrado", "busqueda_documental"}
+    # Las claves anteriores se conservan; el contrato solo suma opcionales: estado (null / REALIZADA por omisión) e interpretación
+    # (null / false: esta respuesta no trae afirmaciones verificadas).
+    assert set(r.json()) == {
+        "respuesta", "afirmaciones", "citas", "sin_evidencia", "motivo", "mensaje", "afirmaciones_descartadas", "estado_registrado",
+        "busqueda_documental", "interpretacion", "interpretacion_descartada",
+    }
     assert (r.json()["estado_registrado"], r.json()["busqueda_documental"]) == (None, "REALIZADA")
+    assert (r.json()["interpretacion"], r.json()["interpretacion_descartada"]) == (None, False)
     assert r.json()["motivo"] == MOTIVO_SIN_FRAGMENTOS
     assert h.embeddings.llamadas == 1
     assert (await contar(h, "conversaciones_asistente"), await contar(h, "mensajes_asistente"), await contar(h, "intercambios_asistente")) == (0, 0, 0)

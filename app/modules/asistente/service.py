@@ -42,7 +42,7 @@ from app.modules.asistente.domain.estado_gri import (
     solo_estado,
 )
 from app.modules.asistente.domain.historial import MAX_MENSAJE_AUSENCIA
-from app.modules.asistente.domain.prompt import SISTEMA, construir_prompt_usuario, nuevo_codigo_de_marcador, validar_pregunta
+from app.modules.asistente.domain.prompt import construir_prompt_usuario, nuevo_codigo_de_marcador, sistema_para, validar_pregunta
 from app.modules.asistente.infrastructure.llm import ProveedorLlm
 from app.modules.asistente.schemas import Afirmacion, BusquedaDocumental, Cita, ConsultaResponse
 from app.modules.empresas import service as empresa_service
@@ -57,7 +57,21 @@ from app.modules.ingesta.infrastructure.fragmentos_vectoriales import (
 if TYPE_CHECKING:  # solo para anotar: `continuacion_service` importa este módulo (evita el ciclo de importación)
     from app.modules.asistente.continuacion_service import RecursosRag
 
+# INTERRUPTOR DEL MODO CON INTERPRETACIÓN. Valor fijo en código (no es una variable de entorno: los `.env` del servidor no los
+# administra el equipo). True: además de las afirmaciones con cita literal, el modelo puede añadir un bloque APARTE de interpretación
+# apoyado en ellas. False: el asistente responde solo con afirmaciones citadas, con el prompt y el `k` anteriores. Para desactivarlo,
+# cambiar esta línea a False y desplegar.
+PERMITE_INTERPRETACION = True
+
 LIMITES_POR_DEFECTO = 4  # k de recuperación (RAG simple)
+LIMITE_CON_INTERPRETACION = 8  # k cuando se permite interpretar: interpretar exige más contexto que localizar un dato
+
+
+def _limite_efectivo(limite: int | None, interpretar: bool) -> int:
+    """El `k` pedido por el llamador o, si no pidió ninguno, el del modo vigente."""
+    if limite is not None:
+        return limite
+    return LIMITE_CON_INTERPRETACION if interpretar else LIMITES_POR_DEFECTO
 
 _MENSAJES = {
     MOTIVO_SIN_FRAGMENTOS: (
@@ -111,10 +125,14 @@ async def _responder_documental(
     sector: SectorEmpresa,
     empresa_id: uuid.UUID,
     anio: int,
-    limite: int = LIMITES_POR_DEFECTO,
+    limite: int | None = None,
 ) -> ConsultaResponse:
     """Parte DOCUMENTAL de la respuesta (RAG): una consulta limitada a un ambiente, sector, empresa y año, con afirmaciones respaldadas
-    por fuentes verificables. Sin cambios respecto de la versión anterior; `responder_consulta` le agrega, si corresponde, el estado."""
+    por fuentes verificables; `responder_consulta` le agrega, si corresponde, el estado.
+
+    Con `PERMITE_INTERPRETACION` activo cambian tres cosas y solo esas: el prompt de sistema (pide además una interpretación
+    aparte), el `k` por omisión y la lectura del campo «interpretacion». Las afirmaciones se verifican igual en los dos modos."""
+    interpretar = PERMITE_INTERPRETACION
     try:
         validar_pregunta(pregunta)
     except ValueError as exc:
@@ -147,7 +165,7 @@ async def _responder_documental(
         vector_consulta=vector,
         identidad=proveedor_embeddings.identidad,
         empresa_ids=[empresa_id],
-        limite=limite,
+        limite=_limite_efectivo(limite, interpretar),
         anio=anio,
         sector=empresa_sector,
         documento_ids=elegibles,
@@ -171,10 +189,10 @@ async def _responder_documental(
     prompt_usuario = construir_prompt_usuario(
         pregunta, fragmentos, empresa_nombre=empresa_nombre, nombres_documentos=nombres, codigo=nuevo_codigo_de_marcador()
     )
-    desde_llm = await proveedor_llm.completar(SISTEMA, prompt_usuario)
+    desde_llm = await proveedor_llm.completar(sistema_para(interpretar), prompt_usuario)
 
-    # 6) verificación de las afirmaciones (RN-033/034/035)
-    resultado = verificar_respuesta(desde_llm, fragmentos)
+    # 6) verificación de las afirmaciones (RN-033/034/035) y, si el modo lo permite, de la interpretación aparte
+    resultado = verificar_respuesta(desde_llm, fragmentos, permitir_interpretacion=interpretar, pregunta=pregunta)
     if resultado.motivo is not None:
         return _sin_evidencia(resultado.motivo, resultado.descartadas)
 
@@ -190,6 +208,8 @@ async def _responder_documental(
         citas=citas,
         sin_evidencia=False,
         afirmaciones_descartadas=resultado.descartadas,
+        interpretacion=resultado.interpretacion,
+        interpretacion_descartada=resultado.interpretacion_descartada,
     )
 
 
@@ -204,7 +224,7 @@ async def responder_consulta(
     sector: SectorEmpresa,
     empresa_id: uuid.UUID,
     anio: int,
-    limite: int = LIMITES_POR_DEFECTO,
+    limite: int | None = None,
 ) -> ConsultaResponse:
     """Responde una consulta del Asistente IA. Punto COMÚN de `POST /asistente/consultas` y de la continuación de conversaciones.
 
