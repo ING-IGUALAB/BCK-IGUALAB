@@ -15,7 +15,7 @@ No sustituyen las pruebas pytest (`tests/`) ni las E2E de interfaz del frontend.
 pruebas-http/
 ├─ colecciones/
 │  ├─ igualab-integracion.postman_collection.json   158 peticiones, 377 aserciones
-│  ├─ igualab-e2e.postman_collection.json            73 peticiones: los 7 flujos (A a G) + el cierre Z
+│  ├─ igualab-e2e.postman_collection.json            80 peticiones: los 7 flujos (A a G) + el cierre Z
 │  └─ fuentes/                                       código que GENERA los JSON (DSL legible); editar aquí
 ├─ scripts/ejecutar.mjs (+ lib/)                     ejecutor: valida, resuelve la selección, espera el backend, prepara muestras, corre Newman, informa
 ├─ scripts/pruebas/seleccion.test.mjs                comprobaciones estáticas del orden/dependencias de la colección y de la selección (sin backend)
@@ -41,7 +41,7 @@ antes de cualquier servicio externo. **Nunca transfiere el rol SuperAdmin** (sol
 | **C** Duplicado por contenido | Mismos bytes que B, otro nombre de archivo y **otro año** → `409 DOCUMENT_ALREADY_INGESTED` con `details.criterio = ["sha256"]` | El original sigue COMPLETADO y disponible; no hay otro documento; la operación queda `RECHAZADA`; no es una ingesta exitosa. **No cierra los datos de B.** |
 | **D** Empresa inactiva | Empresa → desactivarla → ingerir un Markdown válido y exclusivo → `400 COMPANY_INACTIVE` | La empresa sigue inactiva; no hay documento ni análisis utilizable; la operación informa el rechazo. |
 | **E** Reportes de prospección (PDF) | Sobre el análisis VALIDADO de B: el Administrador genera el reporte → lista → descarga → vista previa; **repetir la generación con la misma validación da `200` con `reutilizado=true`** (la versión 1 sigue intacta: mismo id y sha256) | Cada versión del reporte es inmutable (LTX:RN-041 reformulada, BUG-15). Un SuperAdmin recibe 403, sin sesión 401, empresa sin análisis validado 409. |
-| **F** Asistente de IA (RAG) | Consulta con **sector, empresa y año obligatorios** (sin sector 422; sector que no corresponde 400). **F1 (positivo) exige evidencia**: `sin_evidencia=false`, afirmaciones con referencias que figuran en `citas`, cita textual literal del documento de B y fuentes con documento, empresa y año. **F1d** (año sin documentos) exige la ausencia de evidencia explícita `SIN_FRAGMENTOS` | Necesita OCI y el proveedor de chat. La respuesta del modelo no es determinista: si no respalda su respuesta, F1 **falla a propósito**; «sin evidencia» no cuenta como éxito del caso positivo. |
+| **F** Asistente de IA (RAG) | Consulta con **sector, empresa y año obligatorios** (sin sector 422; sector que no corresponde 400). **F1 (positivo) exige evidencia**: `sin_evidencia=false`, afirmaciones con referencias que figuran en `citas`, cita textual literal del documento de B y fuentes con documento, empresa y año. **F1d** (año sin documentos) exige la ausencia de evidencia explícita `SIN_FRAGMENTOS`, sin interpretación. **F1e** (pregunta interpretativa) no exige un texto ni que haya interpretación: exige que todo hecho lleve su cita literal de B y que una interpretación solo exista junto a afirmaciones con cita. F1, F1d y F1e comparan el contrato exacto de `ConsultaResponse` (11 campos: los 9 anteriores más `interpretacion`, texto o null, e `interpretacion_descartada`, booleano); la interpretación va aparte de `respuesta`, sin marcadores `[n]` y sin cifras ajenas a las afirmaciones, sus citas, sus secciones o la pregunta | Necesita OCI y el proveedor de chat. La respuesta del modelo no es determinista: si no respalda su respuesta, F1 **falla a propósito**; «sin evidencia» no cuenta como éxito del caso positivo. F1e añade una llamada al modelo por corrida y admite las dos ramas (con o sin evidencia), nunca una interpretación sin citas. |
 | **G** Auditoría funcional | El SuperAdmin consulta (con `resultado`), filtra y comprueba que el intento denegado del Administrador (G3) quedó registrado (G3b) | Un Administrador con sesión **vigente** recibe 403 y su intento se registra (LTX:RN-045). |
 | **Z** Cierre de los datos de B | Desactiva la empresa de B, deshabilita a su Administrador y comprueba que su sesión quedó revocada (**401**) | No es un flujo funcional: deja inertes los datos sintéticos de B **después** de todos sus consumidores. Va siempre al final. |
 
@@ -86,7 +86,7 @@ sobre lo que sí llegó a crearse. El fallo que hay que corregir es el primero q
 ### Comprobar el ejecutor sin backend
 ```bash
 npm run verificar-colecciones   # los JSON coinciden con sus fuentes
-npm run probar-ejecutor         # orden, dependencias y selecciones (41 comprobaciones, sin peticiones)
+npm run probar-ejecutor         # orden, dependencias y selecciones (49 comprobaciones, sin peticiones)
 ```
 Son validaciones **estáticas**: demuestran el orden y las dependencias, no que los flujos pasen. Un flujo solo se da por pasado cuando una ejecución real
 (Jenkins en QA o `ejecutar.mjs` contra un entorno aislado) lo ejecutó con todas sus aserciones en verde.
